@@ -76,6 +76,15 @@ button{font-family:inherit}
 #cnt{flex:1;overflow-y:auto;background:#eef1f5}
 #orgsetRoot{flex:1;overflow-y:auto;background:#eef1f5}
 #auditlogRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#peopleRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#rolesRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#divisionsRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#groupsRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#skillsRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#langsRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#licencesRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#ssoRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#oauthRoot{flex:1;overflow-y:auto;background:#eef1f5}
 .pg{padding:0}
 .phd{background:#fff;border-bottom:1px solid #dde3ec;padding:14px 24px 0}
 .phd .bc{font-size:11.5px;color:#93a0b3;margin-bottom:5px}

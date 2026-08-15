@@ -9,6 +9,15 @@ import { MCM_HTML } from "../mcm/markup";
 import { MCM_SCRIPT } from "../mcm/scripts";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { AuditLogPage } from "../features/audit-log/AuditLogPage";
+import { PeoplePage } from "../features/people-permissions/PeoplePage";
+import { RolesPage } from "../features/people-permissions/RolesPage";
+import { DivisionsPage } from "../features/people-permissions/DivisionsPage";
+import { GroupsPage } from "../features/people-permissions/GroupsPage";
+import { SkillsPage } from "../features/people-permissions/SkillsPage";
+import { LangsPage } from "../features/people-permissions/LangsPage";
+import { LicencesPage } from "../features/people-permissions/LicencesPage";
+import { SsoPage } from "../features/sso/SsoPage";
+import { OAuthClientsPage } from "../features/oauth-clients/OAuthClientsPage";
 
 declare global {
   interface Window {
@@ -16,6 +25,24 @@ declare global {
     __hideOrgSettings?: () => void;
     __showAuditLog?: () => void;
     __hideAuditLog?: () => void;
+    __showPeople?: () => void;
+    __hidePeople?: () => void;
+    __showRoles?: () => void;
+    __hideRoles?: () => void;
+    __showDivisions?: () => void;
+    __hideDivisions?: () => void;
+    __showGroups?: () => void;
+    __hideGroups?: () => void;
+    __showSkills?: () => void;
+    __hideSkills?: () => void;
+    __showLangs?: () => void;
+    __hideLangs?: () => void;
+    __showLicences?: () => void;
+    __hideLicences?: () => void;
+    __showSso?: () => void;
+    __hideSso?: () => void;
+    __showOauth?: () => void;
+    __hideOauth?: () => void;
   }
 }
 
@@ -85,6 +112,42 @@ function McmCloudCx() {
     const auditLog = mountLegacyReactPage("auditlogRoot", <AuditLogPage />);
     window.__showAuditLog = auditLog.show;
     window.__hideAuditLog = auditLog.hide;
+
+    const people = mountLegacyReactPage("peopleRoot", <PeoplePage />);
+    window.__showPeople = people.show;
+    window.__hidePeople = people.hide;
+
+    const roles = mountLegacyReactPage("rolesRoot", <RolesPage />);
+    window.__showRoles = roles.show;
+    window.__hideRoles = roles.hide;
+
+    const divisions = mountLegacyReactPage("divisionsRoot", <DivisionsPage />);
+    window.__showDivisions = divisions.show;
+    window.__hideDivisions = divisions.hide;
+
+    const groups = mountLegacyReactPage("groupsRoot", <GroupsPage />);
+    window.__showGroups = groups.show;
+    window.__hideGroups = groups.hide;
+
+    const skills = mountLegacyReactPage("skillsRoot", <SkillsPage />);
+    window.__showSkills = skills.show;
+    window.__hideSkills = skills.hide;
+
+    const langs = mountLegacyReactPage("langsRoot", <LangsPage />);
+    window.__showLangs = langs.show;
+    window.__hideLangs = langs.hide;
+
+    const licences = mountLegacyReactPage("licencesRoot", <LicencesPage />);
+    window.__showLicences = licences.show;
+    window.__hideLicences = licences.hide;
+
+    const sso = mountLegacyReactPage("ssoRoot", <SsoPage />);
+    window.__showSso = sso.show;
+    window.__hideSso = sso.hide;
+
+    const oauth = mountLegacyReactPage("oauthRoot", <OAuthClientsPage />);
+    window.__showOauth = oauth.show;
+    window.__hideOauth = oauth.hide;
 
     const script = document.createElement("script");
     script.type = "text/javascript";
