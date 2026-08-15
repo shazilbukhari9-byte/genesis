@@ -489,3 +489,6 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .inv-card { padding: 9px 14px; gap: 11px; }
 .inv-card .ic-amount { font-size: 13.5px; }
 .inv-card .ic-amount small { font-size: 10px; }
+/* Working tabs on the Subscription page */
+.subs-tabpane { display: none; }
+.subs-tabpane.on { display: block; }
