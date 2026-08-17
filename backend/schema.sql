@@ -34,3 +34,26 @@ CREATE TABLE IF NOT EXISTS audit_log (
   detail TEXT,
   created_at TEXT NOT NULL
 );
+
+-- Authorized Organizations (multi-tenant trust relationships)
+CREATE TABLE IF NOT EXISTS authorized_organizations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_name TEXT NOT NULL,
+  org_id TEXT UNIQUE NOT NULL,      -- external org UUID shown in the UI
+  domain TEXT,                      -- e.g. 'retail.ie.mcmgroup.com · EU (Dublin)'
+  relationship TEXT NOT NULL,       -- 'Trustee' | 'Trustor' | 'Owner'
+  scope_roles TEXT NOT NULL,        -- JSON array of role names
+  divisions TEXT NOT NULL,          -- JSON array of division names
+  expires_at TEXT,                  -- ISO date; NULL = permanent (owner tenant)
+  status TEXT NOT NULL,             -- 'Active' | 'Expiring soon' | 'Owner' | 'Revoked'
+  notes TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS authorized_org_audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL,
+  org_domain TEXT,
+  actor_name TEXT NOT NULL,
+  action_text TEXT NOT NULL
+);

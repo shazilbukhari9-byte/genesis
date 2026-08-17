@@ -1,5 +1,7 @@
+import json
 import sqlite3
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from calendar import monthrange
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -23,6 +25,12 @@ def index():
             'POST /api/subscription/plan-change',
             'POST /api/subscription/seats',
             'GET  /api/subscription/audit',
+            'GET    /api/v2/authorization/trusts',
+            'POST   /api/v2/authorization/trusts',
+            'GET    /api/v2/authorization/trusts/<id>',
+            'PUT    /api/v2/authorization/trusts/<id>',
+            'DELETE /api/v2/authorization/trusts/<id>',
+            'GET    /api/v2/authorization/audit-logs',
         ],
     })
 
@@ -151,6 +159,179 @@ def add_seats():
 def audit_log():
     conn = get_db()
     rows = conn.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200').fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+def serialize_trust(row):
+    d = dict(row)
+    d['scope_roles'] = json.loads(d['scope_roles']) if d['scope_roles'] else []
+    d['divisions'] = json.loads(d['divisions']) if d['divisions'] else []
+    return d
+
+
+def log_trust_audit(conn, org_domain, actor_name, action_text):
+    conn.execute(
+        'INSERT INTO authorized_org_audit_logs (timestamp, org_domain, actor_name, action_text) VALUES (?,?,?,?)',
+        (datetime.now().isoformat(), org_domain, actor_name, action_text),
+    )
+
+
+@app.route('/api/v2/authorization/trusts')
+def list_trusts():
+    relationship = request.args.get('relationship')
+    division = request.args.get('division')
+    status = request.args.get('status')
+    search = (request.args.get('search') or '').strip().lower()
+
+    query = 'SELECT * FROM authorized_organizations WHERE 1=1'
+    params = []
+    if relationship:
+        query += ' AND relationship = ?'
+        params.append(relationship)
+    if status:
+        query += ' AND status = ?'
+        params.append(status)
+    if division and division.lower() != 'all':
+        query += ' AND divisions LIKE ?'
+        params.append(f'%{division}%')
+    query += ' ORDER BY id'
+
+    conn = get_db()
+    rows = [serialize_trust(r) for r in conn.execute(query, params).fetchall()]
+    conn.close()
+
+    if search:
+        def matches(t):
+            haystack = ' '.join([
+                t['org_name'], t['org_id'], t['relationship'], t['status'],
+                ' '.join(t['scope_roles']), ' '.join(t['divisions']),
+            ]).lower()
+            return search in haystack
+        rows = [t for t in rows if matches(t)]
+
+    return jsonify(rows)
+
+
+@app.route('/api/v2/authorization/trusts', methods=['POST'])
+def create_trust():
+    data = request.get_json(force=True) or {}
+    org_name = (data.get('org_name') or '').strip()
+    if not org_name:
+        return jsonify({'ok': False, 'error': 'org_name is required'}), 400
+
+    org_id = data.get('org_id') or str(uuid.uuid4())
+    domain = data.get('domain', '')
+    relationship = data.get('relationship', 'Trustee')
+    scope_roles = data.get('scope_roles') or []
+    divisions = data.get('divisions') or []
+    expires_at = data.get('expires_at')
+    status = data.get('status', 'Active')
+    notes = data.get('notes', '')
+    now = datetime.now()
+
+    conn = get_db()
+    existing = conn.execute('SELECT id FROM authorized_organizations WHERE org_id = ?', (org_id,)).fetchone()
+    if existing is not None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'org_id already exists'}), 409
+
+    cur = conn.execute(
+        '''INSERT INTO authorized_organizations
+           (org_name, org_id, domain, relationship, scope_roles, divisions, expires_at, status, notes, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)''',
+        (org_name, org_id, domain, relationship, json.dumps(scope_roles), json.dumps(divisions),
+         expires_at, status, notes, now.isoformat()),
+    )
+    new_id = cur.lastrowid
+    log_trust_audit(conn, domain, data.get('actor', 'Faisal Khan'), f'Trust authorized for {org_name}')
+    conn.commit()
+    row = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (new_id,)).fetchone()
+    conn.close()
+    return jsonify(serialize_trust(row)), 201
+
+
+@app.route('/api/v2/authorization/trusts/<int:trust_id>')
+def get_trust(trust_id):
+    conn = get_db()
+    row = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (trust_id,)).fetchone()
+    conn.close()
+    if row is None:
+        return jsonify({'ok': False, 'error': 'not found'}), 404
+    return jsonify(serialize_trust(row))
+
+
+@app.route('/api/v2/authorization/trusts/<int:trust_id>', methods=['PUT'])
+def update_trust(trust_id):
+    data = request.get_json(force=True) or {}
+    conn = get_db()
+    existing = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (trust_id,)).fetchone()
+    if existing is None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'not found'}), 404
+
+    fields = dict(existing)
+    for key in ('org_name', 'domain', 'relationship', 'expires_at', 'status', 'notes'):
+        if key in data:
+            fields[key] = data[key]
+    if 'scope_roles' in data:
+        fields['scope_roles'] = json.dumps(data['scope_roles'])
+    if 'divisions' in data:
+        fields['divisions'] = json.dumps(data['divisions'])
+
+    # Convenience: extend expiry by N days from today and reactivate.
+    if 'extend_days' in data:
+        days = int(data['extend_days'])
+        fields['expires_at'] = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
+        fields['status'] = 'Active'
+
+    conn.execute(
+        '''UPDATE authorized_organizations SET
+           org_name = ?, domain = ?, relationship = ?, scope_roles = ?, divisions = ?,
+           expires_at = ?, status = ?, notes = ?
+           WHERE id = ?''',
+        (fields['org_name'], fields['domain'], fields['relationship'], fields['scope_roles'],
+         fields['divisions'], fields['expires_at'], fields['status'], fields['notes'], trust_id),
+    )
+    log_trust_audit(conn, fields['domain'], data.get('actor', 'Faisal Khan'), f'Trust updated for {fields["org_name"]}')
+    conn.commit()
+    row = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (trust_id,)).fetchone()
+    conn.close()
+    return jsonify(serialize_trust(row))
+
+
+@app.route('/api/v2/authorization/trusts/<int:trust_id>', methods=['DELETE'])
+def delete_trust(trust_id):
+    hard = request.args.get('hard', 'false').lower() == 'true'
+    actor = request.args.get('actor', 'Faisal Khan')
+
+    conn = get_db()
+    existing = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (trust_id,)).fetchone()
+    if existing is None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'not found'}), 404
+
+    if hard:
+        conn.execute('DELETE FROM authorized_organizations WHERE id = ?', (trust_id,))
+        log_trust_audit(conn, existing['domain'], actor, f'Trust permanently deleted for {existing["org_name"]}')
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'deleted': True})
+
+    conn.execute("UPDATE authorized_organizations SET status = 'Revoked' WHERE id = ?", (trust_id,))
+    log_trust_audit(conn, existing['domain'], actor, f'Trust revoked for {existing["org_name"]}')
+    conn.commit()
+    row = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (trust_id,)).fetchone()
+    conn.close()
+    return jsonify(serialize_trust(row))
+
+
+@app.route('/api/v2/authorization/audit-logs')
+def trust_audit_logs():
+    conn = get_db()
+    rows = conn.execute(
+        'SELECT * FROM authorized_org_audit_logs ORDER BY id DESC LIMIT 200'
+    ).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
