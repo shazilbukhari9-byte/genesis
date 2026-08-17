@@ -18,11 +18,6 @@ button{font-family:inherit}
 .fld label{display:block;font-size:11.5px;color:#5b6a7d;margin-bottom:5px;font-weight:600}
 .fld input,.fld select,.fld textarea{width:100%;height:34px;border:1px solid #ccd4e0;border-radius:4px;padding:0 10px;font-size:13px;color:#20303f;outline:none;background:#fff}
 .fld textarea{height:70px;padding:8px 10px;resize:vertical}
-/* Checkboxes inside a .fld (e.g. codec pickers) aren't text inputs — the
-   width:100%/height:34px above would stretch them into giant boxes, and the
-   block label above would stack their labels one per line. */
-.fld input[type=checkbox]{width:auto;height:auto;margin:0 4px 0 0;vertical-align:middle}
-.fld label:has(input[type=checkbox]){display:inline-block;font-weight:400;color:inherit;margin-bottom:0}
 .fld input:focus,.fld select:focus,.fld textarea:focus{border-color:#FF4F1F;box-shadow:0 0 0 3px rgba(255,79,31,.12)}
 .btn{height:34px;padding:0 16px;border:none;border-radius:4px;background:#FF4F1F;color:#fff;font-size:13px;font-weight:600;cursor:pointer}
 .btn:hover{background:#e8441a}
@@ -79,6 +74,17 @@ button{font-family:inherit}
 #anav .lk.on{background:#fff2ec;border-left-color:#FF4F1F;color:#c9401a;font-weight:600}
 /* content */
 #cnt{flex:1;overflow-y:auto;background:#eef1f5}
+#orgsetRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#auditlogRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#peopleRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#rolesRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#divisionsRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#groupsRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#skillsRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#langsRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#licencesRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#ssoRoot{flex:1;overflow-y:auto;background:#eef1f5}
+#oauthRoot{flex:1;overflow-y:auto;background:#eef1f5}
 .pg{padding:0}
 .phd{background:#fff;border-bottom:1px solid #dde3ec;padding:14px 24px 0}
 .phd .bc{font-size:11.5px;color:#93a0b3;margin-bottom:5px}
@@ -96,9 +102,6 @@ button{font-family:inherit}
 .tbar input.s{height:31px;border:1px solid #d5dce7;border-radius:4px;padding:0 10px;font-size:12.5px;width:250px;outline:none;background:#fff}
 .chip{height:31px;border:1px solid #d5dce7;background:#fff;border-radius:4px;padding:0 11px;font-size:12.5px;color:#3c4a5c;display:flex;align-items:center;gap:6px;cursor:pointer}
 .chip:hover{border-color:#FF4F1F;color:#c9401a}
-/* <select class="chip"> filters: the hover text-color above leaks into the
-   native <option> list rendering in Chromium, so reset it back for selects. */
-select.chip:hover{color:#3c4a5c}
 .tbar .sp{flex:1}
 /* table */
 .tblw{background:#fff;border:1px solid #dde3ec;border-radius:6px;overflow:hidden}
@@ -295,3 +298,235 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .galsec{margin-top:26px;font-size:12px;font-weight:700;color:#6b7a90;text-transform:uppercase;letter-spacing:.7px;border-bottom:1px solid #dde3ec;padding-bottom:6px}
 
 #scrim{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(20,35,70,.35);z-index:80}
+
+/* ============ SUBSCRIPTION PAGE REDESIGN ============ */
+
+/* ── Billing countdown banner ── */
+.subs-banner{background:linear-gradient(90deg,#152550 0%,#1d3169 100%);border-radius:8px;padding:13px 20px;display:flex;align-items:center;gap:18px;margin-bottom:18px;flex-wrap:wrap}
+.subs-banner .sb-item{display:flex;flex-direction:column;gap:2px}
+.subs-banner .sb-item span{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:700}
+.subs-banner .sb-item b{font-size:13.5px;color:#fff;font-weight:600}
+.subs-banner .sb-sep{width:1px;height:32px;background:rgba(255,255,255,.15)}
+.subs-banner .sb-sp{flex:1}
+.subs-banner .sb-cta{background:#FF4F1F;color:#fff;border:none;border-radius:5px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
+.subs-banner .sb-cta:hover{background:#e8451a}
+.subs-banner .sb-cycle{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;padding:4px 10px;font-size:11.5px;color:rgba(255,255,255,.75)}
+
+/* ── KPI summary cards (subscription variant) ── */
+.subs-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+.subs-kpi{background:#fff;border:1px solid #dde3ec;border-radius:8px;padding:16px 18px;position:relative;overflow:hidden}
+.subs-kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.subs-kpi.c-navy::before{background:#152550}
+.subs-kpi.c-green::before{background:#2eab6b}
+.subs-kpi.c-amber::before{background:#e8a33d}
+.subs-kpi.c-red::before{background:#d9534f}
+.subs-kpi.c-brand::before{background:#FF4F1F}
+.subs-kpi .sk-label{font-size:10.5px;letter-spacing:.9px;text-transform:uppercase;color:#93a0b3;font-weight:700;margin-bottom:8px;display:block}
+.subs-kpi .sk-val{font-size:24px;font-weight:700;color:#152550;line-height:1;margin-bottom:5px;display:block}
+.subs-kpi .sk-sub{font-size:11.5px;color:#5b6a7d;display:block}
+.subs-kpi .sk-badge{position:absolute;top:14px;right:14px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;letter-spacing:.3px}
+.subs-kpi .sk-badge.ok{background:#e8f7ef;color:#1a7a4a}
+.subs-kpi .sk-badge.warn{background:#fff3cd;color:#8a5c00}
+.subs-kpi .sk-badge.err{background:#fdecea;color:#b3261e}
+
+/* ── Alert / At-risk strip ── */
+.subs-alert{background:#fff8f0;border:1px solid #ffd3b0;border-left:4px solid #FF4F1F;border-radius:6px;padding:12px 16px;margin-bottom:18px}
+.subs-alert .sa-head{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:#8a3a00;margin-bottom:8px}
+.subs-alert .sa-head .sa-icon{font-size:15px}
+.subs-alert .sa-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #ffe4c8;font-size:12px}
+.subs-alert .sa-row:last-child{border-bottom:none;padding-bottom:0}
+.subs-alert .sa-dot{width:7px;height:7px;border-radius:50%;background:#d9534f;flex:none}
+.subs-alert .sa-dot.warn{background:#e8a33d}
+.subs-alert .sa-msg{flex:1;color:#5c3000}
+.subs-alert .sa-btn{background:#FF4F1F;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
+.subs-alert .sa-btn:hover{background:#e8451a}
+
+/* ── Licence product cards grid ── */
+.subs-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:20px}
+.subs-card{background:#fff;border:1px solid #dde3ec;border-radius:8px;overflow:hidden;transition:box-shadow .15s}
+.subs-card:hover{box-shadow:0 4px 18px rgba(20,35,70,.12)}
+.subs-card .sc-head{padding:13px 16px 11px;border-bottom:1px solid #eef1f6;display:flex;align-items:flex-start;gap:10px}
+.subs-card .sc-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none}
+.sc-icon.cx1{background:#e3f2fd;color:#1565c0}
+.sc-icon.cx2{background:#f3e8ff;color:#7c3aed}
+.sc-icon.cx3{background:#e8f7ef;color:#1a7a4a}
+.sc-icon.cx4{background:#fff2ec;color:#FF4F1F}
+.sc-icon.add{background:#f1f4f8;color:#5b6a7d}
+.subs-card .sc-info{flex:1;min-width:0}
+.subs-card .sc-name{font-size:13px;font-weight:700;color:#152550;margin-bottom:3px;display:block}
+.subs-card .sc-model{font-size:11px;color:#8a94a6;display:block}
+.subs-card .sc-tier{font-size:10px;font-weight:700;padding:2px 7px;border-radius:9px;margin-top:3px;display:inline-block}
+.sc-tier.cx1{background:#e3f2fd;color:#1565c0}
+.sc-tier.cx2{background:#f3e8ff;color:#7c3aed}
+.sc-tier.cx3{background:#e8f7ef;color:#1a7a4a}
+.sc-tier.cx4{background:#fff2ec;color:#c9401a}
+.sc-tier.add{background:#f1f4f8;color:#5b6a7d}
+.subs-card .sc-body{padding:12px 16px}
+.subs-card .sc-stats{display:flex;gap:0;margin-bottom:10px}
+.subs-card .sc-stat{flex:1;text-align:center;padding:0 8px;border-right:1px solid #f1f4f8}
+.subs-card .sc-stat:last-child{border-right:none}
+.subs-card .sc-stat .sv{font-size:17px;font-weight:700;color:#152550;display:block;line-height:1.1}
+.subs-card .sc-stat .sl{font-size:10px;color:#93a0b3;text-transform:uppercase;letter-spacing:.6px;margin-top:3px;display:block}
+.subs-card .sc-stat.avail .sv{color:#2eab6b}
+.subs-card .sc-stat.avail.zero .sv{color:#d9534f}
+.subs-card .sc-stat.avail.warn .sv{color:#e8a33d}
+/* utilisation bar inside card */
+.sc-bar-wrap{margin-bottom:10px}
+.sc-bar-label{display:flex;justify-content:space-between;font-size:11px;color:#5b6a7d;margin-bottom:4px}
+.sc-bar-track{height:8px;background:#eef1f6;border-radius:4px;overflow:hidden}
+.sc-bar-fill{height:100%;border-radius:4px;transition:width .4s ease}
+.sc-bar-fill.ok{background:linear-gradient(90deg,#2eab6b,#45c882)}
+.sc-bar-fill.warn{background:linear-gradient(90deg,#e8a33d,#f0b84a)}
+.sc-bar-fill.full{background:linear-gradient(90deg,#d9534f,#e8685c)}
+/* card footer */
+.subs-card .sc-foot{padding:9px 16px;border-top:1px solid #f1f4f8;display:flex;align-items:center;justify-content:space-between;background:#fafbfd}
+.subs-card .sc-price{font-size:12.5px;color:#5b6a7d}
+.subs-card .sc-price b{color:#152550;font-size:13.5px}
+.subs-card .sc-add{background:#fff;color:#FF4F1F;border:1.5px solid #FF4F1F;border-radius:4px;padding:4px 10px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit}
+.subs-card .sc-add:hover{background:#FF4F1F;color:#fff}
+
+/* ── AI Token gauge ── */
+.subs-token-wrap{background:#fff;border:1px solid #dde3ec;border-radius:8px;padding:16px 18px;margin-bottom:20px}
+.subs-token-wrap h4{font-size:12.5px;font-weight:700;color:#152550;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.subs-token-wrap h4 .tk-badge{background:#fff2ec;color:#c9401a;font-size:10.5px;padding:2px 8px;border-radius:9px;font-weight:700}
+.tk-bar-track{height:14px;background:#eef1f6;border-radius:7px;overflow:hidden;margin-bottom:8px;position:relative}
+.tk-bar-fill{height:100%;border-radius:7px;background:linear-gradient(90deg,#FF4F1F,#ff8f45);transition:width .4s ease;position:relative}
+.tk-bar-fill::after{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(90deg,transparent 60%,rgba(255,255,255,.2));border-radius:7px}
+.tk-stats{display:flex;justify-content:space-between;font-size:11.5px;color:#5b6a7d}
+.tk-stats b{color:#152550}
+.tk-warn{background:#fff8e1;border:1px solid #ffe082;border-radius:5px;padding:7px 11px;font-size:12px;color:#8a5c00;margin-top:10px;display:flex;align-items:center;gap:7px}
+.tk-warn .tw-icon{font-size:13px}
+
+/* ── Enhanced table with utilisation bars ── */
+.subs-table .util-bar{width:120px}
+.subs-table .util-track{height:7px;background:#eef1f6;border-radius:4px;overflow:hidden}
+.subs-table .util-fill{height:100%;border-radius:4px}
+.subs-table .util-fill.ok{background:#2eab6b}
+.subs-table .util-fill.warn{background:#e8a33d}
+.subs-table .util-fill.full{background:#d9534f}
+.subs-table .util-pct{font-size:11px;color:#5b6a7d;margin-top:2px}
+
+/* ── Invoice cards ── */
+.inv-list{display:flex;flex-direction:column;gap:8px}
+.inv-card{background:#fff;border:1px solid #dde3ec;border-radius:6px;padding:12px 16px;display:flex;align-items:center;gap:14px}
+.inv-card:hover{border-color:#c4ccd8;background:#fafbfd}
+.inv-card .ic-period{flex:1}
+.inv-card .ic-period b{font-size:13px;color:#152550;display:block}
+.inv-card .ic-period span{font-size:11.5px;color:#8a94a6}
+.inv-card .ic-amount{font-size:15px;font-weight:700;color:#152550;text-align:right;min-width:80px}
+.inv-card .ic-amount small{display:block;font-size:10.5px;color:#8a94a6;font-weight:400}
+.inv-card .ic-dl{background:#eef2f8;color:#152550;border:1px solid #dde3ec;border-radius:4px;padding:5px 11px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
+.inv-card .ic-dl:hover{background:#e3ebf6}
+
+/* ── Usage chart bars ── */
+.usage-chart{padding:14px 16px}
+.uc-row{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.uc-row:last-child{margin-bottom:0}
+.uc-label{width:200px;font-size:12px;color:#3c4a5c;flex:none}
+.uc-track{flex:1;height:22px;background:#eef1f6;border-radius:4px;overflow:hidden;position:relative}
+.uc-fill{height:100%;border-radius:4px;display:flex;align-items:center;padding-left:8px;font-size:11px;font-weight:700;color:#fff;min-width:2px}
+.uc-fill.v{background:linear-gradient(90deg,#2b6cb0,#4a90d9)}
+.uc-fill.m{background:linear-gradient(90deg,#7c3aed,#a855f7)}
+.uc-fill.s{background:linear-gradient(90deg,#1a7a4a,#2eab6b)}
+.uc-fill.a{background:linear-gradient(90deg,#FF4F1F,#ff8f45)}
+.uc-val{width:70px;font-size:12px;font-weight:700;color:#152550;text-align:right;flex:none}
+
+/* ── Section divider labels ── */
+.subs-sec{font-size:11px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:#93a0b3;margin:22px 0 10px;display:flex;align-items:center;gap:10px}
+.subs-sec::after{content:'';flex:1;height:1px;background:#e4e9f0}
+
+/* ============ SUBSCRIPTION TAB IMPROVEMENTS ============ */
+
+/* Make the subs page tabs more distinctive */
+.phd .tabs { gap: 0; border-bottom: none; padding: 0 0 0 0; margin-top: 14px; }
+.phd .tabs .tb {
+  padding: 9px 18px;
+  font-size: 12.5px;
+  color: #5b6a7d;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  border-radius: 4px 4px 0 0;
+  font-weight: 500;
+  transition: background .12s, color .12s;
+  position: relative;
+}
+.phd .tabs .tb:hover { background: #f4f7fb; color: #152550; }
+.phd .tabs .tb.on {
+  color: #c9401a;
+  border-bottom-color: #FF4F1F;
+  font-weight: 700;
+  background: #fff2ec;
+}
+
+/* inv-card-row hover */
+.inv-card-row { transition: box-shadow .15s; }
+.inv-card-row:hover { box-shadow: 0 3px 14px rgba(20,35,70,.1); }
+
+/* ============ SUBSCRIPTION SPACING OVERRIDES ============ */
+
+/* Tighten section divider */
+.subs-sec { margin: 14px 0 8px; font-size: 10.5px; }
+
+/* Tighten KPI cards */
+.subs-kpis { gap: 10px; margin-bottom: 12px; }
+.subs-kpi  { padding: 12px 14px; }
+.subs-kpi .sk-val { font-size: 20px; margin-top: 4px; margin-bottom: 3px; }
+.subs-kpi .sk-label { font-size: 10px; }
+.subs-kpi .sk-sub { font-size: 11px; }
+
+/* Tighten billing banner */
+.subs-banner { padding: 9px 16px; gap: 14px; margin-bottom: 12px; border-radius: 6px; }
+.subs-banner .sb-item span { font-size: 9.5px; }
+.subs-banner .sb-item b { font-size: 12.5px; }
+.subs-banner .sb-sep { height: 24px; }
+
+/* Tighten alert */
+.subs-alert { padding: 9px 14px; margin-bottom: 12px; }
+.subs-alert .sa-head { font-size: 12px; margin-bottom: 6px; }
+.subs-alert .sa-row { padding: 5px 0; font-size: 11.5px; }
+
+/* Tighten token wrap */
+.subs-token-wrap { padding: 12px 14px; margin-bottom: 12px; }
+.subs-token-wrap h4 { font-size: 12px; margin-bottom: 9px; }
+
+/* Tighten usage chart rows */
+.usage-chart { padding: 10px 14px; }
+.uc-row { margin-bottom: 8px; }
+.uc-label { font-size: 11.5px; }
+.uc-fill { font-size: 10.5px; }
+.uc-val { font-size: 11.5px; }
+
+/* Tighten inv-card */
+.inv-card { padding: 9px 14px; gap: 11px; }
+.inv-card .ic-amount { font-size: 13.5px; }
+.inv-card .ic-amount small { font-size: 10px; }
+/* Working tabs on the Subscription page */
+.subs-tabpane { display: none; }
+.subs-tabpane.on { display: block; }
+
+/* Header urgency badge next to the page title */
+.subs-hdr-badge { font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 11px; background: #eef2f8; color: #152550; margin-left: 10px; white-space: nowrap; }
+.subs-hdr-badge.err { background: #fdecea; color: #b3261e; }
+
+/* Utilisation legend under the KPI row */
+.subs-legend { display: flex; align-items: center; gap: 16px; font-size: 11.5px; color: #5b6a7d; margin: -6px 0 16px; padding: 0 2px; flex-wrap: wrap; }
+.subs-legend > span:first-child { font-weight: 700; color: #93a0b3; text-transform: uppercase; letter-spacing: .6px; font-size: 10.5px; }
+.subs-legend .lg-item { display: flex; align-items: center; gap: 5px; }
+.subs-legend .lg-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.subs-legend .lg-dot.ok { background: #2eab6b; }
+.subs-legend .lg-dot.warn { background: #e8a33d; }
+.subs-legend .lg-dot.full { background: #d9534f; }
+
+/* AI token plain-language ceiling line */
+.tk-ceiling { font-size: 11.5px; color: #5b6a7d; margin-top: 8px; padding-top: 8px; border-top: 1px solid #eef1f6; }
+
+/* Lightweight action modal (Manage Plan / Add Seats) */
+.sm-scrim { position: fixed; inset: 0; background: rgba(16,26,45,.38); z-index: 140; }
+.subs-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: #fff; width: 380px; max-width: calc(100vw - 32px); border-radius: 8px; z-index: 141; box-shadow: 0 20px 60px rgba(16,30,60,.3); overflow: hidden; }
+.subs-modal .sm-h { padding: 13px 16px; border-bottom: 1px solid #e4e9f0; display: flex; align-items: center; justify-content: space-between; font-size: 14px; color: #152550; }
+.subs-modal .sm-h .sm-x { cursor: pointer; color: #8a94a6; font-size: 13px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 4px; }
+.subs-modal .sm-h .sm-x:hover { background: #eef1f6; color: #152550; }
+.subs-modal .sm-b { padding: 16px; }
+.subs-modal .sm-b textarea { min-height: 70px; }
+.subs-modal .sm-f { padding: 11px 16px; border-top: 1px solid #e4e9f0; display: flex; gap: 8px; justify-content: flex-end; background: #fbfcfe; }
+.subs-modal .sm-ok { font-size: 13px; color: #1a7a4a; line-height: 1.5; display: flex; align-items: flex-start; gap: 8px; }

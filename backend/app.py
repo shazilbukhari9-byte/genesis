@@ -1,19 +1,35 @@
-import json
-import sqlite3
-import uuid
-from datetime import datetime, timedelta
+import re
+from datetime import datetime
 from calendar import monthrange
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, g
 from flask_cors import CORS
 
+from db import get_db
+from resources import REGISTRY
+from interactions import interactions_bp
+from acd import acd_bp
+from carrier import carrier_bp
+from flow import flow_bp
+from analytics import analytics_bp, CATALOG as REPORT_CATALOG
+from org_settings import org_settings_bp
+from auth import auth_bp, register_auth_guard
+from platform_config import platform_config_bp
+import config
+
+_SAFE_IDENTIFIER = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
 app = Flask(__name__)
+app.secret_key = config.SECRET_KEY
 CORS(app, origins=['http://localhost:8080'])
-
-
-def get_db():
-    conn = sqlite3.connect('subscription.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+app.register_blueprint(interactions_bp)
+app.register_blueprint(acd_bp)
+app.register_blueprint(carrier_bp)
+app.register_blueprint(flow_bp)
+app.register_blueprint(analytics_bp)
+app.register_blueprint(org_settings_bp)
+app.register_blueprint(auth_bp)
+app.register_blueprint(platform_config_bp)
+register_auth_guard(app)
 
 
 @app.route('/')
@@ -25,12 +41,57 @@ def index():
             'POST /api/subscription/plan-change',
             'POST /api/subscription/seats',
             'GET  /api/subscription/audit',
-            'GET    /api/v2/authorization/trusts',
-            'POST   /api/v2/authorization/trusts',
-            'GET    /api/v2/authorization/trusts/<id>',
-            'PUT    /api/v2/authorization/trusts/<id>',
-            'DELETE /api/v2/authorization/trusts/<id>',
-            'GET    /api/v2/authorization/audit-logs',
+        ],
+        'resource_registry': {
+            resource: ['GET /api/' + resource, 'GET /api/' + resource + '/<id>',
+                       'POST /api/' + resource, 'PUT|PATCH /api/' + resource + '/<id>',
+                       'DELETE /api/' + resource + '/<id>']
+            for resource in REGISTRY
+        },
+        'interactions': [
+            'GET  /api/interactions',
+            'GET  /api/interactions/<id>',
+            'POST /api/interactions',
+            'POST /api/interactions/claim-next',
+            'POST /api/interactions/<id>/answer',
+            'POST /api/interactions/<id>/end',
+            'POST /api/interactions/<id>/wrapup',
+            'POST /api/interactions/<id>/transfer',
+            'POST /api/interactions/<id>/messages',
+            'POST /api/interactions/sweep-stale',
+        ],
+        'acd': [
+            'POST /api/acd/presence',
+            'POST /api/acd/sweep',
+            'POST /api/acd/campaigns/<id>/dial',
+            'GET  /api/acd/campaigns/<id>/monitor',
+        ],
+        'carrier': [
+            'POST /api/carrier/normalise',
+            'GET  /api/byoc/route',
+            'GET  /api/call-routes/resolve',
+        ],
+        'flows': [
+            'POST /api/flows/<id>/run',
+            'POST /api/flows/menu',
+        ],
+        'analytics': [
+            'GET /api/live/queues',
+            'GET /api/live/agents',
+            'GET /api/live/summary',
+            'GET /api/reports/<key>  (catalog: ' + ', '.join(sorted(REPORT_CATALOG)) + ')',
+        ],
+        'auth': [
+            'POST /api/auth/login   (public)',
+            'GET  /api/auth/me',
+            'POST /api/auth/logout',
+            'GET  /api/bootstrap',
+            'GET  /api/health       (public)',
+            '--- everything else under /api requires Authorization: Bearer <token> ---',
+        ],
+        'config': [
+            'GET /api/config   (secrets_set only, never real secret values)',
+            'PUT /api/config   (blank value on a secret field leaves it unchanged)',
         ],
     })
 
@@ -38,10 +99,13 @@ def index():
 @app.route('/api/subscription/overview')
 def overview():
     conn = get_db()
-    licenses = conn.execute('SELECT * FROM licenses').fetchall()
-    invoices = conn.execute('SELECT * FROM invoices ORDER BY id DESC LIMIT 3').fetchall()
-    usage_rows = conn.execute('SELECT metric, SUM(amount) AS total FROM usage_log GROUP BY metric').fetchall()
-    conn.close()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM licenses')
+    licenses = cur.fetchall()
+    cur.execute('SELECT * FROM invoices ORDER BY id DESC LIMIT 3')
+    invoices = cur.fetchall()
+    cur.execute('SELECT metric, SUM(amount) AS total FROM usage_log GROUP BY metric')
+    usage_rows = cur.fetchall()
 
     pool = {r['code']: r['purchased'] for r in licenses}
     unit_price = {r['code']: r['unit_price'] for r in licenses}
@@ -49,17 +113,17 @@ def overview():
 
     used_map = {}
     for r in licenses:
-        conn2 = get_db()
-        row = conn2.execute(
-            "SELECT COUNT(*) AS n FROM users WHERE license_code = ? AND state = 'Active'",
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE license_code = %s AND state = 'Active'",
             (r['code'],),
-        ).fetchone()
-        conn2.close()
-        used_map[r['code']] = row['n']
+        )
+        used_map[r['code']] = cur.fetchone()['n']
+
+    conn.close()
 
     total_seats_cost = sum(used_map[c] * unit_price[c] for c in pool)
 
-    usage = {row['metric']: row['total'] for row in usage_rows}
+    usage = {row['metric']: float(row['total']) for row in usage_rows}
     voice_min = usage.get('voice_min', 0)
     msg_n = usage.get('sms', 0)
     stor_gb = usage.get('storage_gb', 0)
@@ -121,9 +185,10 @@ def plan_change():
     data = request.get_json(force=True) or {}
     note = data.get('note', '')
     conn = get_db()
-    conn.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (?,?,?,?)',
-        ('Faisal Khan', 'Plan change requested', note, datetime.now().isoformat()),
+    cur = conn.cursor()
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s,%s)',
+        (g.user_name, 'Plan change requested', note, datetime.now()),
     )
     conn.commit()
     conn.close()
@@ -139,16 +204,19 @@ def add_seats():
         return jsonify({'ok': False, 'error': 'licence and positive qty required'}), 400
 
     conn = get_db()
-    existing = conn.execute('SELECT purchased FROM licenses WHERE code = ?', (lic,)).fetchone()
+    cur = conn.cursor()
+    cur.execute('SELECT purchased FROM licenses WHERE code = %s', (lic,))
+    existing = cur.fetchone()
     if existing is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'unknown licence code'}), 404
 
-    conn.execute('UPDATE licenses SET purchased = purchased + ? WHERE code = ?', (qty, lic))
-    new_total = conn.execute('SELECT purchased FROM licenses WHERE code = ?', (lic,)).fetchone()['purchased']
-    conn.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (?,?,?,?)',
-        ('Faisal Khan', 'Seats requested', f'+{qty} {lic} (pool now {new_total})', datetime.now().isoformat()),
+    cur.execute('UPDATE licenses SET purchased = purchased + %s WHERE code = %s', (qty, lic))
+    cur.execute('SELECT purchased FROM licenses WHERE code = %s', (lic,))
+    new_total = cur.fetchone()['purchased']
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s,%s)',
+        (g.user_name, 'Seats requested', f'+{qty} {lic} (pool now {new_total})', datetime.now()),
     )
     conn.commit()
     conn.close()
@@ -158,183 +226,209 @@ def add_seats():
 @app.route('/api/subscription/audit')
 def audit_log():
     conn = get_db()
-    rows = conn.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200').fetchall()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200')
+    rows = cur.fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
 
-def serialize_trust(row):
-    d = dict(row)
-    d['scope_roles'] = json.loads(d['scope_roles']) if d['scope_roles'] else []
-    d['divisions'] = json.loads(d['divisions']) if d['divisions'] else []
-    return d
+# ---------------------------------------------------------------------------
+# Resource registry — 5 generic CRUD routes shared by every entity in
+# resources.REGISTRY. See resources.py for what each entity declares.
+# ---------------------------------------------------------------------------
+
+def _safe_order(requested, spec):
+    """Validate ?order= against the entity's own declared columns (plus id)
+    instead of interpolating the query param straight into ORDER BY — an
+    attacker-controlled column list previously only had to avoid a handful
+    of punctuation characters, not name a real column."""
+    if not requested:
+        return spec['order']
+    allowed = set(spec['fields']) | {'id'}
+    terms = [t.strip() for t in requested.split(',') if t.strip()]
+    if not terms:
+        return spec['order']
+    for term in terms:
+        parts = term.split()
+        if len(parts) == 1:
+            col = parts[0]
+        elif len(parts) == 2 and parts[1].upper() in ('ASC', 'DESC'):
+            col = parts[0]
+        else:
+            return spec['order']
+        if col not in allowed:
+            return spec['order']
+    return ', '.join(terms)
 
 
-def log_trust_audit(conn, org_domain, actor_name, action_text):
-    conn.execute(
-        'INSERT INTO authorized_org_audit_logs (timestamp, org_domain, actor_name, action_text) VALUES (?,?,?,?)',
-        (datetime.now().isoformat(), org_domain, actor_name, action_text),
-    )
+def _tenant_scoped(spec):
+    """Tables that carry tenant_id are scoped to g.tenant_id on every read
+    and write below — never to a client-supplied value. A client can't read,
+    filter, create-into, or move a row into a tenant that isn't its own."""
+    return 'tenant_id' in spec['fields']
 
 
-@app.route('/api/v2/authorization/trusts')
-def list_trusts():
-    relationship = request.args.get('relationship')
-    division = request.args.get('division')
-    status = request.args.get('status')
-    search = (request.args.get('search') or '').strip().lower()
-
-    query = 'SELECT * FROM authorized_organizations WHERE 1=1'
-    params = []
-    if relationship:
-        query += ' AND relationship = ?'
-        params.append(relationship)
-    if status:
-        query += ' AND status = ?'
-        params.append(status)
-    if division and division.lower() != 'all':
-        query += ' AND divisions LIKE ?'
-        params.append(f'%{division}%')
-    query += ' ORDER BY id'
+@app.route('/api/<resource>')
+def resource_list(resource):
+    spec = REGISTRY.get(resource)
+    if spec is None:
+        return jsonify({'ok': False, 'error': 'unknown resource'}), 404
 
     conn = get_db()
-    rows = [serialize_trust(r) for r in conn.execute(query, params).fetchall()]
+    cur = conn.cursor()
+    where, params = [], []
+
+    q = request.args.get('q')
+    if q and spec['search']:
+        where.append('(' + ' OR '.join(f'{col} ILIKE %s' for col in spec['search']) + ')')
+        params += [f'%{q}%'] * len(spec['search'])
+
+    for key, value in request.args.items():
+        if key in ('q', 'limit', 'offset', 'order', 'tenant_id'):
+            continue
+        # only columns the entity actually declared are filterable — an
+        # unlisted "*_id" query param used to pass straight through into the
+        # WHERE clause as a bare column name
+        if key in spec['fields'] and _SAFE_IDENTIFIER.match(key):
+            where.append(f'{key} = %s')
+            params.append(value)
+
+    if _tenant_scoped(spec):
+        where.append('tenant_id = %s')
+        params.append(g.tenant_id)
+
+    limit = min(int(request.args.get('limit', 100)), 2000)
+    offset = int(request.args.get('offset', 0))
+    order = _safe_order(request.args.get('order'), spec)
+
+    sql = f"SELECT * FROM {spec['table']}"
+    if where:
+        sql += ' WHERE ' + ' AND '.join(where)
+    sql += f' ORDER BY {order} LIMIT %s OFFSET %s'
+    params += [limit, offset]
+
+    cur.execute(sql, params)
+    rows = cur.fetchall()
     conn.close()
-
-    if search:
-        def matches(t):
-            haystack = ' '.join([
-                t['org_name'], t['org_id'], t['relationship'], t['status'],
-                ' '.join(t['scope_roles']), ' '.join(t['divisions']),
-            ]).lower()
-            return search in haystack
-        rows = [t for t in rows if matches(t)]
-
-    return jsonify(rows)
+    return jsonify([dict(r) for r in rows])
 
 
-@app.route('/api/v2/authorization/trusts', methods=['POST'])
-def create_trust():
-    data = request.get_json(force=True) or {}
-    org_name = (data.get('org_name') or '').strip()
-    if not org_name:
-        return jsonify({'ok': False, 'error': 'org_name is required'}), 400
-
-    org_id = data.get('org_id') or str(uuid.uuid4())
-    domain = data.get('domain', '')
-    relationship = data.get('relationship', 'Trustee')
-    scope_roles = data.get('scope_roles') or []
-    divisions = data.get('divisions') or []
-    expires_at = data.get('expires_at')
-    status = data.get('status', 'Active')
-    notes = data.get('notes', '')
-    now = datetime.now()
+@app.route('/api/<resource>/<int:row_id>')
+def resource_get(resource, row_id):
+    spec = REGISTRY.get(resource)
+    if spec is None:
+        return jsonify({'ok': False, 'error': 'unknown resource'}), 404
 
     conn = get_db()
-    existing = conn.execute('SELECT id FROM authorized_organizations WHERE org_id = ?', (org_id,)).fetchone()
-    if existing is not None:
-        conn.close()
-        return jsonify({'ok': False, 'error': 'org_id already exists'}), 409
-
-    cur = conn.execute(
-        '''INSERT INTO authorized_organizations
-           (org_name, org_id, domain, relationship, scope_roles, divisions, expires_at, status, notes, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)''',
-        (org_name, org_id, domain, relationship, json.dumps(scope_roles), json.dumps(divisions),
-         expires_at, status, notes, now.isoformat()),
-    )
-    new_id = cur.lastrowid
-    log_trust_audit(conn, domain, data.get('actor', 'Faisal Khan'), f'Trust authorized for {org_name}')
-    conn.commit()
-    row = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (new_id,)).fetchone()
-    conn.close()
-    return jsonify(serialize_trust(row)), 201
-
-
-@app.route('/api/v2/authorization/trusts/<int:trust_id>')
-def get_trust(trust_id):
-    conn = get_db()
-    row = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (trust_id,)).fetchone()
+    cur = conn.cursor()
+    sql = f"SELECT * FROM {spec['table']} WHERE id = %s"
+    params = [row_id]
+    if _tenant_scoped(spec):
+        sql += ' AND tenant_id = %s'
+        params.append(g.tenant_id)
+    cur.execute(sql, params)
+    row = cur.fetchone()
     conn.close()
     if row is None:
         return jsonify({'ok': False, 'error': 'not found'}), 404
-    return jsonify(serialize_trust(row))
+    return jsonify(dict(row))
 
 
-@app.route('/api/v2/authorization/trusts/<int:trust_id>', methods=['PUT'])
-def update_trust(trust_id):
+@app.route('/api/<resource>', methods=['POST'])
+def resource_create(resource):
+    spec = REGISTRY.get(resource)
+    if spec is None:
+        return jsonify({'ok': False, 'error': 'unknown resource'}), 404
+
     data = request.get_json(force=True) or {}
+    cols = [f for f in spec['fields'] if f in data and f != 'tenant_id']
+    if not cols:
+        return jsonify({'ok': False, 'error': 'no writable fields supplied'}), 400
+
+    values = [data[c] for c in cols]
+    if _tenant_scoped(spec):
+        cols = cols + ['tenant_id']
+        values = values + [g.tenant_id]
+
     conn = get_db()
-    existing = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (trust_id,)).fetchone()
-    if existing is None:
+    cur = conn.cursor()
+    placeholders = ', '.join('%s' for _ in cols)
+    sql = f"INSERT INTO {spec['table']} ({', '.join(cols)}) VALUES ({placeholders}) RETURNING *"
+    cur.execute(sql, values)
+    new_row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return jsonify(dict(new_row)), 201
+
+
+@app.route('/api/<resource>/<int:row_id>', methods=['PUT', 'PATCH'])
+def resource_update(resource, row_id):
+    spec = REGISTRY.get(resource)
+    if spec is None:
+        return jsonify({'ok': False, 'error': 'unknown resource'}), 404
+
+    data = request.get_json(force=True) or {}
+    # tenant_id is never client-settable — a row can't be moved to another
+    # tenant, whether or not the caller even owns it
+    cols = [f for f in spec['fields'] if f in data and f != 'tenant_id']
+    if not cols:
+        return jsonify({'ok': False, 'error': 'no writable fields supplied'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    check_sql = f"SELECT id FROM {spec['table']} WHERE id = %s"
+    check_params = [row_id]
+    if _tenant_scoped(spec):
+        check_sql += ' AND tenant_id = %s'
+        check_params.append(g.tenant_id)
+    cur.execute(check_sql, check_params)
+    if cur.fetchone() is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
 
-    fields = dict(existing)
-    for key in ('org_name', 'domain', 'relationship', 'expires_at', 'status', 'notes'):
-        if key in data:
-            fields[key] = data[key]
-    if 'scope_roles' in data:
-        fields['scope_roles'] = json.dumps(data['scope_roles'])
-    if 'divisions' in data:
-        fields['divisions'] = json.dumps(data['divisions'])
-
-    # Convenience: extend expiry by N days from today and reactivate.
-    if 'extend_days' in data:
-        days = int(data['extend_days'])
-        fields['expires_at'] = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
-        fields['status'] = 'Active'
-
-    conn.execute(
-        '''UPDATE authorized_organizations SET
-           org_name = ?, domain = ?, relationship = ?, scope_roles = ?, divisions = ?,
-           expires_at = ?, status = ?, notes = ?
-           WHERE id = ?''',
-        (fields['org_name'], fields['domain'], fields['relationship'], fields['scope_roles'],
-         fields['divisions'], fields['expires_at'], fields['status'], fields['notes'], trust_id),
-    )
-    log_trust_audit(conn, fields['domain'], data.get('actor', 'Faisal Khan'), f'Trust updated for {fields["org_name"]}')
+    set_clause = ', '.join(f'{c} = %s' for c in cols)
+    update_sql = f"UPDATE {spec['table']} SET {set_clause} WHERE id = %s"
+    update_params = [data[c] for c in cols] + [row_id]
+    if _tenant_scoped(spec):
+        update_sql += ' AND tenant_id = %s'
+        update_params.append(g.tenant_id)
+    update_sql += ' RETURNING *'
+    cur.execute(update_sql, update_params)
+    row = cur.fetchone()
     conn.commit()
-    row = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (trust_id,)).fetchone()
     conn.close()
-    return jsonify(serialize_trust(row))
+    return jsonify(dict(row))
 
 
-@app.route('/api/v2/authorization/trusts/<int:trust_id>', methods=['DELETE'])
-def delete_trust(trust_id):
-    hard = request.args.get('hard', 'false').lower() == 'true'
-    actor = request.args.get('actor', 'Faisal Khan')
+@app.route('/api/<resource>/<int:row_id>', methods=['DELETE'])
+def resource_delete(resource, row_id):
+    spec = REGISTRY.get(resource)
+    if spec is None:
+        return jsonify({'ok': False, 'error': 'unknown resource'}), 404
 
     conn = get_db()
-    existing = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (trust_id,)).fetchone()
-    if existing is None:
+    cur = conn.cursor()
+    check_sql = f"SELECT id FROM {spec['table']} WHERE id = %s"
+    check_params = [row_id]
+    if _tenant_scoped(spec):
+        check_sql += ' AND tenant_id = %s'
+        check_params.append(g.tenant_id)
+    cur.execute(check_sql, check_params)
+    if cur.fetchone() is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
 
-    if hard:
-        conn.execute('DELETE FROM authorized_organizations WHERE id = ?', (trust_id,))
-        log_trust_audit(conn, existing['domain'], actor, f'Trust permanently deleted for {existing["org_name"]}')
-        conn.commit()
-        conn.close()
-        return jsonify({'ok': True, 'deleted': True})
-
-    conn.execute("UPDATE authorized_organizations SET status = 'Revoked' WHERE id = ?", (trust_id,))
-    log_trust_audit(conn, existing['domain'], actor, f'Trust revoked for {existing["org_name"]}')
+    delete_sql = f"DELETE FROM {spec['table']} WHERE id = %s"
+    delete_params = [row_id]
+    if _tenant_scoped(spec):
+        delete_sql += ' AND tenant_id = %s'
+        delete_params.append(g.tenant_id)
+    cur.execute(delete_sql, delete_params)
     conn.commit()
-    row = conn.execute('SELECT * FROM authorized_organizations WHERE id = ?', (trust_id,)).fetchone()
     conn.close()
-    return jsonify(serialize_trust(row))
-
-
-@app.route('/api/v2/authorization/audit-logs')
-def trust_audit_logs():
-    conn = get_db()
-    rows = conn.execute(
-        'SELECT * FROM authorized_org_audit_logs ORDER BY id DESC LIMIT 200'
-    ).fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify({'ok': True})
 
 
 if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+    app.run(host=config.HOST, port=config.PORT, debug=True)
