@@ -503,3 +503,30 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 /* Working tabs on the Subscription page */
 .subs-tabpane { display: none; }
 .subs-tabpane.on { display: block; }
+
+/* Header urgency badge next to the page title */
+.subs-hdr-badge { font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 11px; background: #eef2f8; color: #152550; margin-left: 10px; white-space: nowrap; }
+.subs-hdr-badge.err { background: #fdecea; color: #b3261e; }
+
+/* Utilisation legend under the KPI row */
+.subs-legend { display: flex; align-items: center; gap: 16px; font-size: 11.5px; color: #5b6a7d; margin: -6px 0 16px; padding: 0 2px; flex-wrap: wrap; }
+.subs-legend > span:first-child { font-weight: 700; color: #93a0b3; text-transform: uppercase; letter-spacing: .6px; font-size: 10.5px; }
+.subs-legend .lg-item { display: flex; align-items: center; gap: 5px; }
+.subs-legend .lg-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.subs-legend .lg-dot.ok { background: #2eab6b; }
+.subs-legend .lg-dot.warn { background: #e8a33d; }
+.subs-legend .lg-dot.full { background: #d9534f; }
+
+/* AI token plain-language ceiling line */
+.tk-ceiling { font-size: 11.5px; color: #5b6a7d; margin-top: 8px; padding-top: 8px; border-top: 1px solid #eef1f6; }
+
+/* Lightweight action modal (Manage Plan / Add Seats) */
+.sm-scrim { position: fixed; inset: 0; background: rgba(16,26,45,.38); z-index: 140; }
+.subs-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: #fff; width: 380px; max-width: calc(100vw - 32px); border-radius: 8px; z-index: 141; box-shadow: 0 20px 60px rgba(16,30,60,.3); overflow: hidden; }
+.subs-modal .sm-h { padding: 13px 16px; border-bottom: 1px solid #e4e9f0; display: flex; align-items: center; justify-content: space-between; font-size: 14px; color: #152550; }
+.subs-modal .sm-h .sm-x { cursor: pointer; color: #8a94a6; font-size: 13px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border-radius: 4px; }
+.subs-modal .sm-h .sm-x:hover { background: #eef1f6; color: #152550; }
+.subs-modal .sm-b { padding: 16px; }
+.subs-modal .sm-b textarea { min-height: 70px; }
+.subs-modal .sm-f { padding: 11px 16px; border-top: 1px solid #e4e9f0; display: flex; gap: 8px; justify-content: flex-end; background: #fbfcfe; }
+.subs-modal .sm-ok { font-size: 13px; color: #1a7a4a; line-height: 1.5; display: flex; align-items: flex-start; gap: 8px; }
