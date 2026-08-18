@@ -25,6 +25,12 @@ button{font-family:inherit}
 .btn.sec{background:#fff;color:#2b3a4d;border:1px solid #ccd4e0}
 .btn.sec:hover{background:#f4f6fa}
 .btn.gh{background:transparent;color:#c9401a}
+.rowbtn{display:inline-block;padding:4px 10px;border-radius:5px;border:1px solid #ccd4e0;background:#fff;color:#2b3a4d;font-size:11.5px;font-weight:600;cursor:pointer;margin-right:6px;white-space:nowrap}
+.rowbtn:hover{background:#f4f6fa;border-color:#a9b3c2}
+.rowbtn.primary{color:#c9401a;border-color:#ffd9c9;background:#fff2ec}
+.rowbtn.primary:hover{background:#ffe6d8}
+.rowbtn.danger{color:#b3261e;border-color:#f5c6c0}
+.rowbtn.danger:hover{background:#fdecea}
 .lbox .alt{text-align:center;margin-top:16px;font-size:12px;color:#8a94a6}
 .lbox .alt a{color:#c9401a;text-decoration:none;cursor:pointer}
 .lbox .div{display:flex;align-items:center;gap:10px;margin:18px 0;color:#a9b3c2;font-size:11px}
