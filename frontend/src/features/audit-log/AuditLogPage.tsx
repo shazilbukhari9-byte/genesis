@@ -125,13 +125,39 @@ export function AuditLogPage() {
               />
             )}
           </div>
-          <select value={who} onChange={(e) => setWho(e.target.value)} style={{ fontSize: 12.5 }}>
+          <select
+            value={who}
+            onChange={(e) => setWho(e.target.value)}
+            style={{
+              fontSize: 12.5,
+              height: 34,
+              padding: "0 10px",
+              background: "#fff",
+              border: "1px solid #d5dce7",
+              borderRadius: 7,
+              color: "#20303f",
+              outline: "none",
+            }}
+          >
             <option value="">Everyone</option>
             {whoOptions.map((w) => (
               <option key={w}>{w}</option>
             ))}
           </select>
-          <select value={type} onChange={(e) => setType(e.target.value)} style={{ fontSize: 12.5 }}>
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            style={{
+              fontSize: 12.5,
+              height: 34,
+              padding: "0 10px",
+              background: "#fff",
+              border: "1px solid #d5dce7",
+              borderRadius: 7,
+              color: "#20303f",
+              outline: "none",
+            }}
+          >
             <option value="">All action types</option>
             {AUDIT_ACTION_TYPES.map((t) => (
               <option key={t}>{t}</option>
