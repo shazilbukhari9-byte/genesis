@@ -723,3 +723,23 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .authorg-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 @keyframes authorgSlideIn{from{transform:translateX(24px);opacity:.4}to{transform:translateX(0);opacity:1}}
+
+/* ============ Performance page — visual refresh only ============
+   Scoped entirely to #pf_body (the shared container all 9 Performance
+   tabs render into) so nothing outside this page is affected. Same
+   colors, fonts, and behavior as everywhere else — just more spacing,
+   elevation and rounding. */
+#pf_body{padding-top:2px}
+#pf_body .tbar{background:#fff;border:1px solid #e4e9f0;border-radius:10px;padding:10px 12px;margin-bottom:18px;box-shadow:0 1px 2px rgba(21,37,80,.04)}
+#pf_body .chip{border-radius:6px}
+#pf_body .kpis{gap:14px;margin-bottom:22px}
+#pf_body .kpi{border-radius:12px;border-color:#e7ebf1;box-shadow:0 1px 3px rgba(21,37,80,.06);padding:16px 17px 15px;transition:box-shadow .15s ease,transform .15s ease}
+#pf_body .kpi:hover{box-shadow:0 6px 16px rgba(21,37,80,.1);transform:translateY(-2px)}
+#pf_body .kpi span{letter-spacing:1px}
+#pf_body .kpi b{font-size:27px}
+#pf_body .panel{border-radius:12px;border-color:#e7ebf1;box-shadow:0 1px 3px rgba(21,37,80,.06);margin-bottom:18px}
+#pf_body .panel h3{padding:13px 17px;font-size:13px}
+#pf_body .tblw{border-radius:12px;border-color:#e7ebf1;box-shadow:0 1px 3px rgba(21,37,80,.06)}
+#pf_body table.dt th{padding:11px 17px}
+#pf_body table.dt td{padding:12px 17px}
+#pf_body table.dt tbody tr:hover td{background:#f7f9fd}
