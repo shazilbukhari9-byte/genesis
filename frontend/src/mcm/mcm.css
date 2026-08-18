@@ -100,13 +100,13 @@ button{font-family:inherit}
 .phd .rt{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;row-gap:8px;align-items:center}
 .phd .rt .btn{white-space:nowrap}
 .phd .rt select.btn{padding-right:30px;font-weight:500}
-.ws-card{box-shadow:0 1px 2px rgba(21,37,80,.04);transition:box-shadow .15s}
-.ws-card[style*="border-style:dashed"]{background:#fbfcfe!important;box-shadow:none;padding:28px 18px!important}
-.copilot-card{box-shadow:0 1px 3px rgba(123,97,201,.08)}
-.ws-sec-hdr{font-weight:600;color:#152550;letter-spacing:.1px}
-.ws-sec-hdr .tag{font-weight:500;vertical-align:1px}
-.ws-sec-hdr .lnk{font-weight:500!important}
-.ws-list-box{box-shadow:0 1px 2px rgba(21,37,80,.04)}
+.ws-card{box-shadow:0 1px 4px rgba(21,37,80,.07);margin-bottom:16px!important}
+.ws-card[style*="border-style:dashed"]{background:#fbfcfe!important;box-shadow:none;padding:22px 18px!important}
+.copilot-card{box-shadow:0 1px 4px rgba(123,97,201,.12)}
+.ws-sec-hdr{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-weight:600;color:#152550;letter-spacing:.1px;margin-bottom:10px!important}
+.ws-sec-hdr .tag{font-weight:500}
+.ws-sec-hdr .lnk{font-weight:500!important;margin-left:auto}
+.ws-list-box{box-shadow:0 1px 4px rgba(21,37,80,.07);border-radius:10px!important;padding:10px 16px!important}
 .tabs{display:flex;gap:2px;margin-top:12px}
 .tabs .tb{padding:8px 14px;font-size:12.5px;color:#5b6a7d;cursor:pointer;border-bottom:3px solid transparent}
 .tabs .tb:hover{color:#152550}
