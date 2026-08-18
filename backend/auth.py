@@ -22,7 +22,13 @@ TOKEN_TTL_HOURS = config.TOKEN_TTL_HOURS
 
 # Paths that never require a token. Prefixes, not exact matches, so
 # /api/auth/login itself and /api/health both pass with a simple startswith.
-PUBLIC_PATHS = ('/api/auth/login', '/api/auth/signup', '/api/health')
+PUBLIC_PATHS = (
+    '/api/auth/login', '/api/auth/signup', '/api/health',
+    # Twilio webhooks — Twilio can't send our bearer token, so these are
+    # public and rely on Twilio's own request-signature check instead
+    # (see telephony.py's _verify_twilio_signature).
+    '/api/telephony/sms-webhook', '/api/telephony/voice-webhook', '/api/telephony/status-webhook',
+)
 
 
 def register_auth_guard(app):

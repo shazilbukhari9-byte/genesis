@@ -66,3 +66,12 @@ HOST = os.environ.get('OG_HOST', '127.0.0.1')
 PORT = int(os.environ.get('OG_PORT', '5000'))
 DEFAULT_TENANT = os.environ.get('OG_DEFAULT_TENANT', 'MCM Group')
 PUBLIC_BASE_URL = os.environ.get('OG_PUBLIC_BASE_URL', f'http://{HOST}:{PORT}')
+
+# --- real telephony (Twilio), optional — left unset until a real account
+# exists. telephony.py checks these before every call instead of failing
+# fast at import, so the app keeps booting (and every other feature keeps
+# working) with no Twilio account configured at all.
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN')
+TWILIO_FROM_NUMBER = os.environ.get('TWILIO_FROM_NUMBER')
+TWILIO_WHATSAPP_FROM = os.environ.get('TWILIO_WHATSAPP_FROM')

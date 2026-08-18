@@ -14,6 +14,7 @@ from analytics import analytics_bp, CATALOG as REPORT_CATALOG
 from org_settings import org_settings_bp
 from auth import auth_bp, register_auth_guard
 from platform_config import platform_config_bp
+from telephony import telephony_bp
 import config
 import init_db
 
@@ -32,6 +33,7 @@ app.register_blueprint(analytics_bp)
 app.register_blueprint(org_settings_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(platform_config_bp)
+app.register_blueprint(telephony_bp)
 register_auth_guard(app)
 
 
