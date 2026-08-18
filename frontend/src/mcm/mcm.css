@@ -95,9 +95,11 @@ button{font-family:inherit}
 .phd{background:#fff;border-bottom:1px solid #dde3ec;padding:14px 24px 0}
 .phd .bc{font-size:11.5px;color:#93a0b3;margin-bottom:5px}
 .phd .bc a{color:#c9401a;cursor:pointer;text-decoration:none}
-.phd .tt{display:flex;align-items:center;gap:12px}
+.phd .tt{display:flex;align-items:center;gap:12px;flex-wrap:wrap;row-gap:10px}
 .phd h1{font-size:19px;font-weight:600;color:#152550}
-.phd .rt{margin-left:auto;display:flex;gap:8px}
+.phd .rt{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;row-gap:8px;align-items:center}
+.phd .rt .btn{white-space:nowrap}
+.phd .rt select.btn{padding-right:30px;font-weight:500}
 .tabs{display:flex;gap:2px;margin-top:12px}
 .tabs .tb{padding:8px 14px;font-size:12.5px;color:#5b6a7d;cursor:pointer;border-bottom:3px solid transparent}
 .tabs .tb:hover{color:#152550}
