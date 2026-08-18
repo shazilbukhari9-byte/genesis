@@ -19,21 +19,22 @@ LICENSES = [
     ('Communicate', 'Communicate', 50, 18),
 ]
 
+# division matches the frontend's fixed 5-division set (d_home/d_ret/d_dig/d_col/d_man)
 USERS = [
-    ('Faisal Khan', 'CX 3', 'Active'),
-    ('Adnan Shaikh', 'CX 3', 'Active'),
-    ('Sofia Petrova', 'CX 2', 'Active'),
-    ('James Okafor', 'CX 2', 'Active'),
-    ('Priya Nair', 'CX 2', 'Active'),
-    ('Marco Rossi', 'CX 1', 'Active'),
-    ('Aisha Rahman', 'CX 1', 'Active'),
-    ('Carlos Mendez', 'CX 2', 'Active'),
-    ('Grace Adeyemi', 'CX 3', 'Active'),
-    ('Rajan Patel', 'CX 2', 'Inactive'),
-    ('Elena Volkov', 'CX 4', 'Active'),
-    ('Tariq Malik', 'CX 4', 'Active'),
-    ('Ngozi Eze', 'Communicate', 'Active'),
-    ('Haruto Sato', 'Communicate', 'Active'),
+    ('Faisal Khan', 'CX 3', 'Active', 'd_home'),
+    ('Adnan Shaikh', 'CX 3', 'Active', 'd_home'),
+    ('Sofia Petrova', 'CX 2', 'Active', 'd_ret'),
+    ('James Okafor', 'CX 2', 'Active', 'd_ret'),
+    ('Priya Nair', 'CX 2', 'Active', 'd_ret'),
+    ('Marco Rossi', 'CX 1', 'Active', 'd_dig'),
+    ('Aisha Rahman', 'CX 1', 'Active', 'd_dig'),
+    ('Carlos Mendez', 'CX 2', 'Active', 'd_col'),
+    ('Grace Adeyemi', 'CX 3', 'Active', 'd_col'),
+    ('Rajan Patel', 'CX 2', 'Inactive', 'd_col'),
+    ('Elena Volkov', 'CX 4', 'Active', 'd_man'),
+    ('Tariq Malik', 'CX 4', 'Active', 'd_man'),
+    ('Ngozi Eze', 'Communicate', 'Active', 'd_home'),
+    ('Haruto Sato', 'Communicate', 'Active', 'd_ret'),
 ]
 
 
@@ -61,10 +62,17 @@ def run():
 
     cur.execute('SELECT COUNT(*) AS n FROM users')
     if cur.fetchone()['n'] == 0:
-        for name, license_code, state in USERS:
+        for name, license_code, state, division in USERS:
             cur.execute(
-                'INSERT INTO users (tenant_id, name, license_code, state) VALUES (%s,%s,%s,%s)',
-                (tenant_id, name, license_code, state),
+                'INSERT INTO users (tenant_id, name, license_code, state, division) VALUES (%s,%s,%s,%s,%s)',
+                (tenant_id, name, license_code, state, division),
+            )
+    else:
+        # backfill division on users seeded before this column existed
+        for name, license_code, state, division in USERS:
+            cur.execute(
+                'UPDATE users SET division = %s WHERE name = %s AND division IS NULL',
+                (division, name),
             )
 
     conn.commit()

@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
+-- division is a simple free-text tag (matches the frontend's fixed 5-division
+-- set: d_home/d_ret/d_dig/d_col/d_man) rather than a normalised divisions
+-- table + FK — there's no other real usage of divisions as entities yet.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS division TEXT;
 
 CREATE TABLE IF NOT EXISTS usage_log (
   id SERIAL PRIMARY KEY,
