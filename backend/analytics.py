@@ -112,6 +112,7 @@ def live_queues():
             queue_id,
             COUNT(*) AS total_today,
             COUNT(*) FILTER (WHERE result = 'Abandoned') AS abandoned_today,
+            COUNT(*) FILTER (WHERE result = 'Handled') AS handled_today,
             COUNT(*) FILTER (WHERE result IN ('Handled', 'Abandoned')) AS closed_today,
             COUNT(*) FILTER (WHERE answered_at IS NOT NULL) AS answered_today,
             COUNT(*) FILTER (WHERE answered_at IS NOT NULL AND wait_s <= q.service_level_threshold_s) AS within_sl
@@ -125,6 +126,7 @@ def live_queues():
           COALESCE(waiting.n, 0) AS waiting,
           COALESCE(talking.n, 0) AS talking,
           COALESCE(staff.n, 0) AS staff,
+          COALESCE(today_agg.handled_today, 0) AS handled_today,
           ROUND(100.0 * COALESCE(today_agg.within_sl, 0) / NULLIF(today_agg.answered_today, 0), 1) AS service_level,
           ROUND(100.0 * COALESCE(today_agg.abandoned_today, 0) / NULLIF(today_agg.closed_today, 0), 1) AS abandon_rate
         FROM queues q
