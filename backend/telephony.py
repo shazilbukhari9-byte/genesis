@@ -1,68 +1,78 @@
 """
-Real telephony (Twilio) — layered on top of the existing interactions/
+Real telephony (Telnyx) — layered on top of the existing interactions/
 messages tables so a real SMS/WhatsApp/call shows up in the same "My
 interactions" UI as a simulated one, not a separate system.
 
-Nothing here runs until the TWILIO_* env vars are set (config.py leaves
-them optional so the app keeps booting without a Twilio account) — every
+Nothing here runs until the TELNYX_* env vars are set (config.py leaves
+them optional so the app keeps booting without a Telnyx account) — every
 route checks _configured() first and returns a clear 503 otherwise.
 
-Voice calls use click-to-call: Twilio rings the agent's own phone first,
-and once they pick up, dials the customer and bridges the two legs. This
-is the standard way to get a real phone call in and out of a browser app
-without embedding the Twilio Voice JS SDK (which would need Access Tokens
-and real browser mic/speaker permissions — a bigger follow-up, not built
-here). Real *inbound* calls (a customer dialling in and ringing a live
-agent) need that same SDK to actually ring a browser tab, so that
-direction isn't built yet either — only outbound click-to-call is real.
+Telnyx's Voice product is Call Control (webhook-driven), not TwiML —
+there's no single declarative response. Click-to-call outbound voice
+works like this: dial() rings the agent's own phone; when Telnyx posts
+the call.answered event for that leg to voice_webhook, we immediately
+call actions.transfer() on that same call_control_id to dial the
+customer number and bridge the two legs together. call.hangup on either
+leg closes out the interaction.
+
+Real *inbound* calls (a customer dialling in and ringing a live agent's
+browser) need the Telnyx WebRTC SDK to actually ring a browser tab, so
+that direction isn't built yet — only outbound click-to-call is real.
 """
 
+import base64
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request, g
-from twilio.rest import Client
-from twilio.request_validator import RequestValidator
-from twilio.twiml.voice_response import VoiceResponse
-from twilio.twiml.messaging_response import MessagingResponse
+from telnyx import Telnyx
+from nacl.signing import VerifyKey
+from nacl.exceptions import BadSignatureError
 
 from db import get_db
 import config
 
 telephony_bp = Blueprint('telephony', __name__)
 
-# Twilio posts here — it can't send our bearer token, so these three are
+# Telnyx posts here — it can't send our bearer token, so these two are
 # public (see auth.py's PUBLIC_PATHS). Authenticity is checked instead via
-# Twilio's own request signature (_verify_twilio_signature).
+# Telnyx's own Ed25519 webhook signature (_verify_telnyx_signature).
 PUBLIC_TELEPHONY_PATHS = (
     '/api/telephony/sms-webhook',
     '/api/telephony/voice-webhook',
-    '/api/telephony/status-webhook',
 )
 
 
 def _configured():
-    return bool(config.TWILIO_ACCOUNT_SID and config.TWILIO_AUTH_TOKEN and config.TWILIO_FROM_NUMBER)
+    return bool(config.TELNYX_API_KEY and config.TELNYX_FROM_NUMBER)
 
 
 def _client():
-    return Client(config.TWILIO_ACCOUNT_SID, config.TWILIO_AUTH_TOKEN)
+    return Telnyx(api_key=config.TELNYX_API_KEY)
 
 
-def _verify_twilio_signature():
-    validator = RequestValidator(config.TWILIO_AUTH_TOKEN)
-    signature = request.headers.get('X-Twilio-Signature', '')
-    return validator.validate(request.url, request.form, signature)
+def _verify_telnyx_signature():
+    sig_b64 = request.headers.get('Telnyx-Signature-Ed25519', '')
+    ts = request.headers.get('Telnyx-Timestamp', '')
+    if not sig_b64 or not ts or not config.TELNYX_PUBLIC_KEY:
+        return False
+    try:
+        verify_key = VerifyKey(base64.b64decode(config.TELNYX_PUBLIC_KEY))
+        signed_payload = ts.encode() + b'|' + request.get_data()
+        verify_key.verify(signed_payload, base64.b64decode(sig_b64))
+        return True
+    except (BadSignatureError, Exception):
+        return False
 
 
 @telephony_bp.route('/api/telephony/status')
 def telephony_status():
-    return jsonify({'configured': _configured(), 'whatsapp_configured': bool(config.TWILIO_WHATSAPP_FROM)})
+    return jsonify({'configured': _configured(), 'whatsapp_configured': bool(config.TELNYX_WHATSAPP_FROM)})
 
 
 @telephony_bp.route('/api/telephony/sms', methods=['POST'])
 def send_sms():
     """Agent starts a new real SMS/WhatsApp conversation."""
     if not _configured():
-        return jsonify({'ok': False, 'error': 'Twilio not configured'}), 503
+        return jsonify({'ok': False, 'error': 'Telnyx not configured'}), 503
 
     data = request.get_json(force=True) or {}
     to = data.get('to')
@@ -71,7 +81,7 @@ def send_sms():
     if not to or not body:
         return jsonify({'ok': False, 'error': 'to and body required'}), 400
 
-    from_number = config.TWILIO_WHATSAPP_FROM if channel == 'WhatsApp' else config.TWILIO_FROM_NUMBER
+    from_number = config.TELNYX_WHATSAPP_FROM if channel == 'WhatsApp' else config.TELNYX_FROM_NUMBER
     if not from_number:
         return jsonify({'ok': False, 'error': f'no {channel} sender number configured'}), 503
 
@@ -88,32 +98,40 @@ def send_sms():
     )
     interaction = cur.fetchone()
 
+    client = _client()
     try:
-        msg = _client().messages.create(
-            to=('whatsapp:' + to) if channel == 'WhatsApp' else to,
-            from_=from_number,
-            body=body,
-        )
+        if channel == 'WhatsApp':
+            # Free-text only works inside an existing 24h customer-service
+            # window (i.e. the customer messaged first); a cold outbound
+            # WhatsApp message needs a pre-approved template instead — not
+            # handled here, matching this module's "simple case only" scope.
+            resp = client.messages.whatsapp(
+                from_=from_number, to=to,
+                whatsapp_message={'type': 'text', 'text': {'body': body}},
+            )
+        else:
+            resp = client.messages.send(from_=from_number, to=to, text=body)
     except Exception as e:
         conn.rollback()
         conn.close()
         return jsonify({'ok': False, 'error': str(e)}), 502
 
+    message_id = getattr(getattr(resp, 'data', resp), 'id', None)
     cur.execute(
         'INSERT INTO messages (interaction_id, from_agent, body, complete) VALUES (%s, true, %s, false)',
         (interaction['id'], body),
     )
-    cur.execute('UPDATE interactions SET provider_sid = %s WHERE id = %s', (msg.sid, interaction['id']))
+    cur.execute('UPDATE interactions SET provider_sid = %s WHERE id = %s', (message_id, interaction['id']))
     conn.commit()
     conn.close()
-    return jsonify({'ok': True, 'interaction_id': interaction['id'], 'message_sid': msg.sid}), 201
+    return jsonify({'ok': True, 'interaction_id': interaction['id'], 'message_id': message_id}), 201
 
 
 @telephony_bp.route('/api/telephony/sms/<uuid:interaction_id>/reply', methods=['POST'])
 def reply_sms(interaction_id):
     """Agent sends a follow-up in an existing real SMS/WhatsApp thread."""
     if not _configured():
-        return jsonify({'ok': False, 'error': 'Twilio not configured'}), 503
+        return jsonify({'ok': False, 'error': 'Telnyx not configured'}), 503
 
     data = request.get_json(force=True) or {}
     body = data.get('body')
@@ -129,35 +147,47 @@ def reply_sms(interaction_id):
         return jsonify({'ok': False, 'error': 'not found'}), 404
 
     is_whatsapp = interaction['media'] == 'WhatsApp'
-    from_number = config.TWILIO_WHATSAPP_FROM if is_whatsapp else config.TWILIO_FROM_NUMBER
-    to = ('whatsapp:' + interaction['dnis']) if is_whatsapp else interaction['dnis']
+    from_number = config.TELNYX_WHATSAPP_FROM if is_whatsapp else config.TELNYX_FROM_NUMBER
+    to = interaction['dnis']
 
+    client = _client()
     try:
-        msg = _client().messages.create(to=to, from_=from_number, body=body)
+        if is_whatsapp:
+            resp = client.messages.whatsapp(
+                from_=from_number, to=to,
+                whatsapp_message={'type': 'text', 'text': {'body': body}},
+            )
+        else:
+            resp = client.messages.send(from_=from_number, to=to, text=body)
     except Exception as e:
         conn.close()
         return jsonify({'ok': False, 'error': str(e)}), 502
 
+    message_id = getattr(getattr(resp, 'data', resp), 'id', None)
     cur.execute(
         'INSERT INTO messages (interaction_id, from_agent, body, complete) VALUES (%s, true, %s, false)',
         (str(interaction_id), body),
     )
     conn.commit()
     conn.close()
-    return jsonify({'ok': True, 'message_sid': msg.sid})
+    return jsonify({'ok': True, 'message_id': message_id})
 
 
 @telephony_bp.route('/api/telephony/sms-webhook', methods=['POST'])
 def sms_webhook():
-    """Twilio calls this when a real SMS/WhatsApp message arrives inbound."""
-    if _configured() and not _verify_twilio_signature():
+    """Telnyx calls this when a real SMS/WhatsApp message arrives inbound."""
+    if _configured() and not _verify_telnyx_signature():
         return ('Invalid signature', 403)
 
-    raw_from = request.form.get('From', '')
-    body = request.form.get('Body', '')
-    is_whatsapp = raw_from.startswith('whatsapp:')
-    channel = 'WhatsApp' if is_whatsapp else 'SMS'
-    clean_from = raw_from.replace('whatsapp:', '')
+    body = request.get_json(silent=True) or {}
+    event = body.get('data', {})
+    if event.get('event_type') != 'message.received':
+        return ('', 204)
+
+    payload = event.get('payload', {})
+    raw_from = (payload.get('from') or {}).get('phone_number', '')
+    text = payload.get('text', '') or ''
+    channel = 'WhatsApp' if payload.get('type') == 'WHATSAPP' else 'SMS'
 
     conn = get_db()
     cur = conn.cursor()
@@ -166,26 +196,24 @@ def sms_webhook():
 
     cur.execute(
         "INSERT INTO interactions (tenant_id, direction, media, ani, result) VALUES (%s,'inbound',%s,%s,'Active') RETURNING id",
-        (tenant['id'], channel, clean_from),
+        (tenant['id'], channel, raw_from),
     )
     interaction = cur.fetchone()
     cur.execute(
         'INSERT INTO messages (interaction_id, from_agent, body, complete) VALUES (%s, false, %s, false)',
-        (interaction['id'], body),
+        (interaction['id'], text),
     )
     conn.commit()
     conn.close()
-
-    return str(MessagingResponse()), 200, {'Content-Type': 'text/xml'}
+    return ('', 204)
 
 
 @telephony_bp.route('/api/telephony/call', methods=['POST'])
 def outbound_call():
-    """Click-to-call: rings agent_phone first; once answered, dials `to`
-    and bridges the two legs. agent_phone has no persisted field yet, so
-    the agent types it in each time (see the dial pad's real-call prompt)."""
-    if not _configured():
-        return jsonify({'ok': False, 'error': 'Twilio not configured'}), 503
+    """Click-to-call: rings agent_phone first; once Telnyx reports that leg
+    as answered (see voice_webhook), transfers/bridges it to `to`."""
+    if not _configured() or not config.TELNYX_CONNECTION_ID:
+        return jsonify({'ok': False, 'error': 'Telnyx not configured'}), 503
 
     data = request.get_json(force=True) or {}
     agent_phone = data.get('agent_phone')
@@ -205,64 +233,60 @@ def outbound_call():
     interaction = cur.fetchone()
     interaction_id = str(interaction['id'])
 
-    bridge_url = f"{config.PUBLIC_BASE_URL}/api/telephony/voice-webhook?to={customer_number}"
-    status_url = f"{config.PUBLIC_BASE_URL}/api/telephony/status-webhook?interaction_id={interaction_id}"
+    webhook_url = f"{config.PUBLIC_BASE_URL}/api/telephony/voice-webhook?interaction_id={interaction_id}&bridge_to={customer_number}"
 
     try:
-        call = _client().calls.create(
+        resp = _client().calls.dial(
+            connection_id=config.TELNYX_CONNECTION_ID,
             to=agent_phone,
-            from_=config.TWILIO_FROM_NUMBER,
-            url=bridge_url,
-            status_callback=status_url,
-            status_callback_event=['answered', 'completed'],
+            from_=config.TELNYX_FROM_NUMBER,
+            webhook_url=webhook_url,
         )
     except Exception as e:
         conn.rollback()
         conn.close()
         return jsonify({'ok': False, 'error': str(e)}), 502
 
-    cur.execute('UPDATE interactions SET provider_sid = %s WHERE id = %s', (call.sid, interaction_id))
+    call_control_id = resp.data.call_control_id
+    cur.execute('UPDATE interactions SET provider_sid = %s WHERE id = %s', (call_control_id, interaction_id))
     conn.commit()
     conn.close()
-    return jsonify({'ok': True, 'interaction_id': interaction_id, 'call_sid': call.sid}), 201
+    return jsonify({'ok': True, 'interaction_id': interaction_id, 'call_control_id': call_control_id}), 201
 
 
 @telephony_bp.route('/api/telephony/voice-webhook', methods=['POST'])
 def voice_webhook():
-    """Twilio calls this once the agent's leg connects; bridges to the customer."""
-    if _configured() and not _verify_twilio_signature():
-        return ('Invalid signature', 403)
-    to = request.args.get('to', '')
-    resp = VoiceResponse()
-    resp.say('Connecting your call now.')
-    if to:
-        resp.dial(to)
-    return str(resp), 200, {'Content-Type': 'text/xml'}
-
-
-@telephony_bp.route('/api/telephony/status-webhook', methods=['POST'])
-def status_webhook():
-    """Twilio call-status callback — marks the interaction answered/ended."""
-    if _configured() and not _verify_twilio_signature():
+    """Telnyx Call Control events for the agent's leg — bridges to the
+    customer on answer, closes out the interaction on hangup."""
+    if _configured() and not _verify_telnyx_signature():
         return ('Invalid signature', 403)
 
+    body = request.get_json(silent=True) or {}
+    event = body.get('data', {})
+    event_type = event.get('event_type')
+    payload = event.get('payload', {})
+    call_control_id = payload.get('call_control_id')
     interaction_id = request.args.get('interaction_id')
-    call_status = request.form.get('CallStatus')
-    if not interaction_id:
-        return ('', 204)
+    bridge_to = request.args.get('bridge_to')
 
     conn = get_db()
     cur = conn.cursor()
     now = datetime.now(timezone.utc)
-    if call_status == 'in-progress':
+
+    if event_type == 'call.answered' and call_control_id and bridge_to:
+        try:
+            _client().calls.actions.transfer(call_control_id, to=bridge_to)
+        except Exception:
+            pass
+        if interaction_id:
+            cur.execute(
+                'UPDATE interactions SET answered_at = %s WHERE id = %s AND answered_at IS NULL',
+                (now, interaction_id),
+            )
+    elif event_type == 'call.hangup' and interaction_id:
         cur.execute(
-            'UPDATE interactions SET answered_at = %s WHERE id = %s AND answered_at IS NULL',
+            "UPDATE interactions SET ended_at = %s, result = 'Handled' WHERE id = %s AND ended_at IS NULL",
             (now, interaction_id),
-        )
-    elif call_status in ('completed', 'busy', 'no-answer', 'failed', 'canceled'):
-        cur.execute(
-            "UPDATE interactions SET ended_at = %s, result = %s WHERE id = %s AND ended_at IS NULL",
-            (now, 'Handled' if call_status == 'completed' else 'Abandoned', interaction_id),
         )
     conn.commit()
     conn.close()

@@ -67,11 +67,13 @@ PORT = int(os.environ.get('OG_PORT', '5000'))
 DEFAULT_TENANT = os.environ.get('OG_DEFAULT_TENANT', 'MCM Group')
 PUBLIC_BASE_URL = os.environ.get('OG_PUBLIC_BASE_URL', f'http://{HOST}:{PORT}')
 
-# --- real telephony (Twilio), optional — left unset until a real account
+# --- real telephony (Telnyx), optional — left unset until a real account
 # exists. telephony.py checks these before every call instead of failing
 # fast at import, so the app keeps booting (and every other feature keeps
-# working) with no Twilio account configured at all.
-TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID')
-TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN')
-TWILIO_FROM_NUMBER = os.environ.get('TWILIO_FROM_NUMBER')
-TWILIO_WHATSAPP_FROM = os.environ.get('TWILIO_WHATSAPP_FROM')
+# working) with no Telnyx account configured at all.
+TELNYX_API_KEY = os.environ.get('TELNYX_API_KEY')
+TELNYX_FROM_NUMBER = os.environ.get('TELNYX_FROM_NUMBER')
+TELNYX_CONNECTION_ID = os.environ.get('TELNYX_CONNECTION_ID')
+TELNYX_MESSAGING_PROFILE_ID = os.environ.get('TELNYX_MESSAGING_PROFILE_ID')
+TELNYX_WHATSAPP_FROM = os.environ.get('TELNYX_WHATSAPP_FROM')
+TELNYX_PUBLIC_KEY = os.environ.get('TELNYX_PUBLIC_KEY')
