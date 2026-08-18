@@ -77,3 +77,13 @@ TELNYX_CONNECTION_ID = os.environ.get('TELNYX_CONNECTION_ID')
 TELNYX_MESSAGING_PROFILE_ID = os.environ.get('TELNYX_MESSAGING_PROFILE_ID')
 TELNYX_WHATSAPP_FROM = os.environ.get('TELNYX_WHATSAPP_FROM')
 TELNYX_PUBLIC_KEY = os.environ.get('TELNYX_PUBLIC_KEY')
+
+# --- real alert emails (SMTP), optional — same pattern as Telnyx above:
+# alerts.py checks these before sending and never fails fast at import,
+# so alert rules still fire and log to audit_log even with no SMTP
+# account configured, just without the email step.
+SMTP_HOST = os.environ.get('SMTP_HOST')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER = os.environ.get('SMTP_USER')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD')
+ALERT_EMAIL_FROM = os.environ.get('ALERT_EMAIL_FROM')
