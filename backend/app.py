@@ -15,6 +15,9 @@ from org_settings import org_settings_bp
 from auth import auth_bp, register_auth_guard
 from platform_config import platform_config_bp
 import config
+import init_db
+
+init_db.run()
 
 _SAFE_IDENTIFIER = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 

@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
   state TEXT NOT NULL DEFAULT 'Active'
 );
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
+
 CREATE TABLE IF NOT EXISTS usage_log (
   id SERIAL PRIMARY KEY,
   metric TEXT NOT NULL,       -- 'voice_min' | 'sms' | 'storage_gb' | 'ai_tokens'

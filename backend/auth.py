@@ -22,7 +22,7 @@ TOKEN_TTL_HOURS = config.TOKEN_TTL_HOURS
 
 # Paths that never require a token. Prefixes, not exact matches, so
 # /api/auth/login itself and /api/health both pass with a simple startswith.
-PUBLIC_PATHS = ('/api/auth/login', '/api/health')
+PUBLIC_PATHS = ('/api/auth/login', '/api/auth/signup', '/api/health')
 
 
 def register_auth_guard(app):
@@ -91,6 +91,50 @@ def login():
         'expires_at': expires_at.isoformat(),
         'user': {'id': user['id'], 'name': user['name'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
     })
+
+
+@auth_bp.route('/api/auth/signup', methods=['POST'])
+def signup():
+    """Prototype signup — creates a real user row (no password stored, matching
+    login's own 'any credentials work' behavior) and logs them straight in,
+    scoped to the single tenant this app currently supports (config.DEFAULT_TENANT)."""
+    data = request.get_json(force=True) or {}
+    name = data.get('name')
+    email = data.get('email')
+    if not name:
+        return jsonify({'ok': False, 'error': 'name required'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT id FROM users WHERE name = %s', (name,))
+    if cur.fetchone() is not None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'a user with that name already exists'}), 409
+
+    cur.execute('SELECT id FROM tenants WHERE name = %s', (config.DEFAULT_TENANT,))
+    tenant = cur.fetchone()
+
+    cur.execute(
+        'INSERT INTO users (tenant_id, name, email, state) VALUES (%s, %s, %s, %s) RETURNING id, name, presence, tenant_id',
+        (tenant['id'], name, email, 'Active'),
+    )
+    user = cur.fetchone()
+
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=TOKEN_TTL_HOURS)
+    cur.execute(
+        'INSERT INTO sessions (token, user_id, expires_at) VALUES (%s, %s, %s)',
+        (token, user['id'], expires_at),
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'ok': True,
+        'token': token,
+        'expires_at': expires_at.isoformat(),
+        'user': {'id': user['id'], 'name': user['name'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
+    }), 201
 
 
 @auth_bp.route('/api/auth/me')
