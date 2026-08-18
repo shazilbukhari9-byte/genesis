@@ -23,7 +23,7 @@ _SAFE_IDENTIFIER = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
-CORS(app, origins=['http://localhost:8080'])
+CORS(app, origins=['http://localhost:8080', 'https://genesis-eta-six.vercel.app'])
 app.register_blueprint(interactions_bp)
 app.register_blueprint(acd_bp)
 app.register_blueprint(carrier_bp)
