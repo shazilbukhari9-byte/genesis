@@ -224,6 +224,7 @@ table.dt tbody tr:hover td{background:#fafcff}
 .kv b{color:#31404f;font-weight:600}
 .wrapb{background:#fff;border:1px solid #dde3ec;border-radius:6px;padding:14px 16px;margin-top:14px}
 /* apps */
+.ic2{width:40px;height:40px;border-radius:9px;background:#fff2ec;color:#FF4F1F;display:flex;align-items:center;justify-content:center;flex:none}
 .apgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
 .appc{background:#fff;border:1px solid #dde3ec;border-radius:8px;padding:18px;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease}
 .appc:hover{border-color:#FF4F1F;box-shadow:0 8px 20px rgba(15,23,42,.09);transform:translateY(-2px)}
@@ -238,6 +239,15 @@ table.dt tbody tr:hover td{background:#fafcff}
 .app-badge.app-badge-active{color:#0f9d63;background:#e6f9f1}
 .app-badge.app-badge-inactive{color:#8a94a6;background:#f1f4f8}
 .app-badge.app-badge-error{color:#c0392b;background:#fdecea}
+
+/* Apps > Available tab — category pills + Install button */
+.app-cat-badge{display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;padding:3px 10px;border-radius:11px;white-space:nowrap}
+.app-cat-badge.app-cat-crm{color:#2b6cb0;background:#eef2f8}
+.app-cat-badge.app-cat-uc{color:#7b61c9;background:#f3f0fc}
+.app-cat-badge.app-cat-ticketing{color:#b45309;background:#fef3e0}
+.app-cat-badge.app-cat-analytics{color:#1a7a4a;background:#e8f7ef}
+.app-install-btn{transition:transform .12s ease,box-shadow .12s ease}
+.app-install-btn:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(255,79,31,.18)}
 
 
 /* ---------- Architect ---------- */
