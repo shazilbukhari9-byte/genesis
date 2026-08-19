@@ -135,6 +135,27 @@ CANNED_RESPONSES = [
      '2026-01-18T12:00:00Z', '2026-01-18T12:00:00Z'),
 ]
 
+# Matches frontend/src/mcm/certs-redesign.ts's CERTIFICATES_FALLBACK exactly
+# — the same 7 certificates the page's static prototype HTML used to hardcode
+# (id, name, purpose, issued_to, issuer, division, valid_from, expires_at).
+# '' division = not division-scoped (root/global CAs).
+CERTIFICATES = [
+    ('cert-byoc-sbc-2026', 'byoc-sbc-2026.pem', 'BYOC trunk', 'sbc.mcmgroup.example', 'DigiCert TLS RSA',
+     'd_home', '2026-02-14', '2027-02-14'),
+    ('cert-edge-hq-lon-01', 'edge-hq-lon-01.pem', 'Edge SIP TLS', 'edge-hq-lon-01.mcm.local', 'MCM Internal CA',
+     'd_home', '2026-01-02', '2027-01-02'),
+    ('cert-edge-hq-lon-02', 'edge-hq-lon-02.pem', 'Edge SIP TLS', 'edge-hq-lon-02.mcm.local', 'MCM Internal CA',
+     'd_home', '2026-01-02', '2027-01-02'),
+    ('cert-entra-signing-2026', 'entra-signing-2026.cer', 'SAML signing', 'sts.windows.net', 'Microsoft',
+     '', '2026-02-14', '2027-02-14'),
+    ('cert-partner-mtls-northstar', 'partner-mtls-northstar.pem', 'Mutual TLS', 'api.northstarbpo.example', 'Sectigo',
+     'd_man', '2025-08-30', '2026-08-30'),
+    ('cert-legacy-pbx-2024', 'legacy-pbx-2024.pem', 'PBX trunk', 'pbx.mcm.local', 'MCM Internal CA',
+     'd_ret', '2024-11-11', '2025-11-11'),
+    ('cert-mcm-internal-root', 'mcm-internal-root.pem', 'Root CA', 'MCM Internal CA', 'Self-signed',
+     '', '2024-01-01', '2034-01-01'),
+]
+
 USERS = [
     ('Faisal Khan', 'fkhan@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
     ('Adnan Shaikh', 'ashaikh@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
@@ -212,6 +233,17 @@ def run():
             """,
             (cr_id, tenant_id, name, category, CANNED_CATEGORY_LABELS.get(category, 'General'), body,
              _extract_substitution_fields(body), created_at, updated_at),
+        )
+
+    for cert_id, name, purpose, issued_to, issuer, division, valid_from, expires_at in CERTIFICATES:
+        cur.execute(
+            """
+            INSERT INTO certificates (id, tenant_id, name, purpose, issued_to, issuer, division,
+                                       valid_from, expires_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (cert_id, tenant_id, name, purpose, issued_to, issuer, division, valid_from, expires_at),
         )
 
     cur.execute('SELECT COUNT(*) AS n FROM users')
