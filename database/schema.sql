@@ -373,6 +373,27 @@ CREATE TABLE IF NOT EXISTS forecasts (
   UNIQUE(tenant_id, week)
 );
 
+-- Admin > Quality & WEM > Gamification page's metric profiles. m2/t2/w2 are
+-- nullable/zero because the edit form's second metric slot is optional.
+CREATE TABLE IF NOT EXISTS gamification_profiles (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  applies_to TEXT NOT NULL DEFAULT 'Division',
+  target TEXT,
+  m1 TEXT NOT NULL,
+  t1 INTEGER NOT NULL DEFAULT 0,
+  w1 INTEGER NOT NULL DEFAULT 0,
+  m2 TEXT,
+  t2 INTEGER NOT NULL DEFAULT 0,
+  w2 INTEGER NOT NULL DEFAULT 0,
+  leaderboard BOOLEAN NOT NULL DEFAULT true,
+  badges BOOLEAN NOT NULL DEFAULT true,
+  challenges BOOLEAN NOT NULL DEFAULT true,
+  reset_period TEXT NOT NULL DEFAULT 'Weekly',
+  status TEXT NOT NULL DEFAULT 'Active'
+);
+
 -- Edge Groups (Admin > Telephony > Edge Groups) are plain named-list
 -- entities like ACD Skills/Languages, so they reuse simple_entities with
 -- kind='edge_group' instead of a dedicated table.
