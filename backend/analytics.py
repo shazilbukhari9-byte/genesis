@@ -48,20 +48,61 @@ def _filters(prefix=''):
 
 @analytics_bp.route('/api/live/queues')
 def live_queues():
+<<<<<<< HEAD
     tenant_id = g.tenant_id
+=======
+    """?division= scopes staff/talking counts to agents in that division
+    (queues themselves aren't division-owned in this schema — only agents
+    are). ?media= scopes every count to one media type."""
+    tenant_id = g.tenant_id
+    division = request.args.get('division')
+    media = request.args.get('media')
+
+    media_clause = 'AND media = %s' if media else ''
+    div_join = 'JOIN users au ON au.id = i.agent_id' if division else ''
+    div_clause = 'AND au.division = %s' if division else ''
+    staff_div_clause = 'AND u.division = %s' if division else ''
+
+    # Params in the exact order their %s placeholders appear below: today,
+    # waiting, talking (tenant + optional media + optional division), staff
+    # (optional division), and the final tenant filter.
+    params = [tenant_id]
+    if media:
+        params.append(media)
+    params.append(tenant_id)
+    if media:
+        params.append(media)
+    params.append(tenant_id)
+    if media:
+        params.append(media)
+    if division:
+        params.append(division)
+    if division:
+        params.append(division)
+    params.append(tenant_id)
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
+<<<<<<< HEAD
         """
         WITH today AS (
           SELECT queue_id, result, wait_s, answered_at
           FROM interactions
           WHERE tenant_id = %s AND started_at >= date_trunc('day', now())
+=======
+        f"""
+        WITH today AS (
+          SELECT queue_id, result, wait_s, answered_at
+          FROM interactions
+          WHERE tenant_id = %s AND started_at >= date_trunc('day', now()) {media_clause}
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
         ),
         waiting AS (
           SELECT queue_id, COUNT(*) AS n
           FROM interactions
+<<<<<<< HEAD
           WHERE tenant_id = %s AND result = 'Active' AND answered_at IS NULL
           GROUP BY queue_id
         ),
@@ -70,12 +111,27 @@ def live_queues():
           FROM interactions
           WHERE tenant_id = %s AND result = 'Active' AND answered_at IS NOT NULL
           GROUP BY queue_id
+=======
+          WHERE tenant_id = %s AND result = 'Active' AND answered_at IS NULL {media_clause}
+          GROUP BY queue_id
+        ),
+        talking AS (
+          SELECT i.queue_id, COUNT(*) AS n
+          FROM interactions i
+          {div_join}
+          WHERE i.tenant_id = %s AND i.result = 'Active' AND i.answered_at IS NOT NULL {media_clause} {div_clause}
+          GROUP BY i.queue_id
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
         ),
         staff AS (
           SELECT aq.queue_id, COUNT(*) AS n
           FROM agent_queues aq
           JOIN users u ON u.id = aq.agent_id
+<<<<<<< HEAD
           WHERE u.on_queue = true
+=======
+          WHERE u.on_queue = true {staff_div_clause}
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
           GROUP BY aq.queue_id
         ),
         today_agg AS (
@@ -83,6 +139,10 @@ def live_queues():
             queue_id,
             COUNT(*) AS total_today,
             COUNT(*) FILTER (WHERE result = 'Abandoned') AS abandoned_today,
+<<<<<<< HEAD
+=======
+            COUNT(*) FILTER (WHERE result = 'Handled') AS handled_today,
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
             COUNT(*) FILTER (WHERE result IN ('Handled', 'Abandoned')) AS closed_today,
             COUNT(*) FILTER (WHERE answered_at IS NOT NULL) AS answered_today,
             COUNT(*) FILTER (WHERE answered_at IS NOT NULL AND wait_s <= q.service_level_threshold_s) AS within_sl
@@ -96,6 +156,10 @@ def live_queues():
           COALESCE(waiting.n, 0) AS waiting,
           COALESCE(talking.n, 0) AS talking,
           COALESCE(staff.n, 0) AS staff,
+<<<<<<< HEAD
+=======
+          COALESCE(today_agg.handled_today, 0) AS handled_today,
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
           ROUND(100.0 * COALESCE(today_agg.within_sl, 0) / NULLIF(today_agg.answered_today, 0), 1) AS service_level,
           ROUND(100.0 * COALESCE(today_agg.abandoned_today, 0) / NULLIF(today_agg.closed_today, 0), 1) AS abandon_rate
         FROM queues q
@@ -106,7 +170,11 @@ def live_queues():
         WHERE q.tenant_id = %s
         ORDER BY q.name
         """,
+<<<<<<< HEAD
         (tenant_id, tenant_id, tenant_id, tenant_id),
+=======
+        params,
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
     )
     rows = cur.fetchall()
     conn.close()
@@ -120,12 +188,30 @@ def live_queues():
 
 @analytics_bp.route('/api/live/agents')
 def live_agents():
+<<<<<<< HEAD
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
         """
         SELECT
           u.id, u.name, u.presence, u.on_queue, u.routing_status,
+=======
+    division = request.args.get('division')
+    media = request.args.get('media')
+    media_clause = 'AND media = %s' if media else ''
+    div_clause = 'AND u.division = %s' if division else ''
+
+    # Order matches the %s placeholders below: active (media), handled (media),
+    # then the final tenant + division filter.
+    params = ([media] if media else []) + ([media] if media else []) + [g.tenant_id] + ([division] if division else [])
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        SELECT
+          u.id, u.name, u.presence, u.on_queue, u.routing_status, u.division,
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
           COALESCE(active.n, 0) AS active_count,
           COALESCE(handled.n, 0) AS handled_today,
           handled.aht_today,
@@ -133,7 +219,11 @@ def live_agents():
         FROM users u
         LEFT JOIN (
           SELECT agent_id, COUNT(*) AS n
+<<<<<<< HEAD
           FROM interactions WHERE result = 'Active' AND agent_id IS NOT NULL
+=======
+          FROM interactions WHERE result = 'Active' AND agent_id IS NOT NULL {media_clause}
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
           GROUP BY agent_id
         ) active ON active.agent_id = u.id
         LEFT JOIN (
@@ -141,7 +231,11 @@ def live_agents():
             COUNT(*) AS n,
             ROUND(AVG(COALESCE(talk_s, 0) + COALESCE(acw_s, 0))) AS aht_today
           FROM interactions
+<<<<<<< HEAD
           WHERE result = 'Handled' AND started_at >= date_trunc('day', now()) AND agent_id IS NOT NULL
+=======
+          WHERE result = 'Handled' AND started_at >= date_trunc('day', now()) AND agent_id IS NOT NULL {media_clause}
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
           GROUP BY agent_id
         ) handled ON handled.agent_id = u.id
         LEFT JOIN (
@@ -149,10 +243,57 @@ def live_agents():
           FROM agent_queues aq JOIN queues q ON q.id = aq.queue_id
           GROUP BY aq.agent_id
         ) memberships ON memberships.agent_id = u.id
+<<<<<<< HEAD
         WHERE u.tenant_id = %s
         ORDER BY u.name
         """,
         (g.tenant_id,),
+=======
+        WHERE u.tenant_id = %s {div_clause}
+        ORDER BY u.name
+        """,
+        params,
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+# ---------------------------------------------------------------------------
+# /api/live/flows — per-flow entry/abandon counts, joined to interactions
+# by the flow_id set at call-routing time. ?division= scopes to interactions
+# answered by an agent in that division; ?media= scopes to one media type.
+# ---------------------------------------------------------------------------
+
+@analytics_bp.route('/api/live/flows')
+def live_flows():
+    tenant_id = g.tenant_id
+    division = request.args.get('division')
+    media = request.args.get('media')
+
+    div_join = 'LEFT JOIN users au ON au.id = i.agent_id' if division else ''
+    div_clause = 'AND (au.division = %s OR i.agent_id IS NULL)' if division else ''
+    media_clause = 'AND i.media = %s' if media else ''
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        SELECT
+          f.id, f.name,
+          COUNT(i.id) AS entries,
+          COUNT(*) FILTER (WHERE i.result = 'Abandoned') AS abandoned,
+          COUNT(*) FILTER (WHERE i.result = 'Handled') AS completed
+        FROM flows f
+        LEFT JOIN interactions i ON i.flow_id = f.id {media_clause}
+        {div_join}
+        WHERE f.tenant_id = %s {div_clause}
+        GROUP BY f.id, f.name
+        ORDER BY f.name
+        """,
+        # media (if any) binds inside the LEFT JOIN clause, tenant_id then division
+        ([media] if media else []) + [tenant_id] + ([division] if division else []),
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
     )
     rows = cur.fetchall()
     conn.close()

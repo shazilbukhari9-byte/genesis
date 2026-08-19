@@ -66,3 +66,27 @@ HOST = os.environ.get('OG_HOST', '127.0.0.1')
 PORT = int(os.environ.get('OG_PORT', '5000'))
 DEFAULT_TENANT = os.environ.get('OG_DEFAULT_TENANT', 'MCM Group')
 PUBLIC_BASE_URL = os.environ.get('OG_PUBLIC_BASE_URL', f'http://{HOST}:{PORT}')
+<<<<<<< HEAD
+=======
+
+# --- real telephony (Telnyx), optional — left unset until a real account
+# exists. telephony.py checks these before every call instead of failing
+# fast at import, so the app keeps booting (and every other feature keeps
+# working) with no Telnyx account configured at all.
+TELNYX_API_KEY = os.environ.get('TELNYX_API_KEY')
+TELNYX_FROM_NUMBER = os.environ.get('TELNYX_FROM_NUMBER')
+TELNYX_CONNECTION_ID = os.environ.get('TELNYX_CONNECTION_ID')
+TELNYX_MESSAGING_PROFILE_ID = os.environ.get('TELNYX_MESSAGING_PROFILE_ID')
+TELNYX_WHATSAPP_FROM = os.environ.get('TELNYX_WHATSAPP_FROM')
+TELNYX_PUBLIC_KEY = os.environ.get('TELNYX_PUBLIC_KEY')
+
+# --- real alert emails (SMTP), optional — same pattern as Telnyx above:
+# alerts.py checks these before sending and never fails fast at import,
+# so alert rules still fire and log to audit_log even with no SMTP
+# account configured, just without the email step.
+SMTP_HOST = os.environ.get('SMTP_HOST')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER = os.environ.get('SMTP_USER')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD')
+ALERT_EMAIL_FROM = os.environ.get('ALERT_EMAIL_FROM')
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e

@@ -95,9 +95,24 @@ button{font-family:inherit}
 .phd{background:#fff;border-bottom:1px solid #dde3ec;padding:14px 24px 0}
 .phd .bc{font-size:11.5px;color:#93a0b3;margin-bottom:5px}
 .phd .bc a{color:#c9401a;cursor:pointer;text-decoration:none}
+<<<<<<< HEAD
 .phd .tt{display:flex;align-items:center;gap:12px}
 .phd h1{font-size:19px;font-weight:600;color:#152550}
 .phd .rt{margin-left:auto;display:flex;gap:8px}
+=======
+.phd .tt{display:flex;align-items:center;gap:12px;flex-wrap:wrap;row-gap:10px}
+.phd h1{font-size:19px;font-weight:600;color:#152550}
+.phd .rt{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;row-gap:8px;align-items:center}
+.phd .rt .btn{white-space:nowrap}
+.phd .rt select.btn{padding-right:30px;font-weight:500}
+.ws-card{box-shadow:0 1px 4px rgba(21,37,80,.07);margin-bottom:16px!important}
+.ws-card[style*="border-style:dashed"]{background:#fbfcfe!important;box-shadow:none;padding:22px 18px!important}
+.copilot-card{box-shadow:0 1px 4px rgba(123,97,201,.12)}
+.ws-sec-hdr{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-weight:600;color:#152550;letter-spacing:.1px;margin-bottom:10px!important}
+.ws-sec-hdr .tag{font-weight:500}
+.ws-sec-hdr .lnk{font-weight:500!important;margin-left:auto}
+.ws-list-box{box-shadow:0 1px 4px rgba(21,37,80,.07);border-radius:10px!important;padding:10px 16px!important}
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 .tabs{display:flex;gap:2px;margin-top:12px}
 .tabs .tb{padding:8px 14px;font-size:12.5px;color:#5b6a7d;cursor:pointer;border-bottom:3px solid transparent}
 .tabs .tb:hover{color:#152550}
@@ -536,3 +551,205 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .subs-modal .sm-b textarea { min-height: 70px; }
 .subs-modal .sm-f { padding: 11px 16px; border-top: 1px solid #e4e9f0; display: flex; gap: 8px; justify-content: flex-end; background: #fbfcfe; }
 .subs-modal .sm-ok { font-size: 13px; color: #1a7a4a; line-height: 1.5; display: flex; align-items: flex-start; gap: 8px; }
+<<<<<<< HEAD
+=======
+
+/* ============ AUTHORIZED ORGANIZATIONS (AuthOrg) REDESIGN ============ */
+
+/* Header badge + tab badges */
+.authorg-header-badge{display:inline-flex;align-items:center;gap:5px;background:#fff2ec;color:#c9401a;font-size:11px;font-weight:700;padding:3px 10px;border-radius:11px;margin-left:10px;white-space:nowrap;vertical-align:middle}
+.authorg-tab-badge{display:inline-block;background:#eef2f8;color:#5b6a7d;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:9px;margin-left:6px}
+.tabs .tb.on .authorg-tab-badge{background:#ffe0d1;color:#c9401a}
+
+.authorg-wrap{display:flex;flex-direction:column;gap:0}
+
+/* Bulk actions bar */
+.authorg-bulk-bar{display:flex;align-items:center;gap:10px;background:#152550;color:#fff;border-radius:6px;padding:8px 14px;margin-bottom:10px}
+.authorg-bulk-count{font-size:12.5px;font-weight:600}
+.authorg-bulk-bar .sp{flex:1}
+
+/* Toolbar chips (search + division/status/columns/refresh) */
+.authorg-chip{height:31px;border:1px solid #d5dce7;background:#fff;border-radius:6px;padding:0 11px;font-size:12.5px;color:#3c4a5c;display:inline-flex;align-items:center;gap:5px;cursor:pointer;position:relative;white-space:nowrap}
+.authorg-chip:hover{border-color:#FF4F1F;color:#c9401a}
+.authorg-chip.active{border-color:#FF4F1F;color:#c9401a;background:#fff8f5}
+
+/* Dropdown menu (division/status/rows-per-page) */
+.authorg-dropdown-menu{position:absolute;top:calc(100% + 5px);left:0;background:#fff;border:1px solid #dbe1ea;border-radius:6px;box-shadow:0 10px 30px rgba(16,30,60,.18);min-width:180px;z-index:160;overflow:hidden;padding:4px}
+.authorg-dropdown-item{padding:7px 10px;font-size:12.5px;color:#3c4a5c;border-radius:4px;cursor:pointer;white-space:nowrap}
+.authorg-dropdown-item:hover{background:#f4f7fb}
+.authorg-dropdown-item.selected{background:#fff2ec;color:#c9401a;font-weight:600}
+
+/* ---------- Table ---------- */
+.authorg-table-wrap{background:#fff;border:1px solid #dde3ec;border-radius:6px;overflow-x:auto;overflow-y:hidden}
+.authorg-table{width:100%;min-width:980px;table-layout:fixed;border-collapse:collapse}
+.authorg-table th,.authorg-table td{padding:10px 14px;vertical-align:middle;overflow:hidden}
+.authorg-table th{background:#f7f9fc;text-align:left;font-size:11.3px;color:#5b6a7d;font-weight:700;letter-spacing:.2px;border-bottom:1px solid #e4e9f0;white-space:nowrap}
+.authorg-table td{border-bottom:1px solid #f1f4f8;font-size:12.6px;color:#31404f}
+.authorg-table tbody tr{cursor:pointer}
+.authorg-table tbody tr:hover td{background:#fafcff}
+.authorg-table tbody tr:last-child td{border-bottom:none}
+
+/* Column widths — mirror the data-col order rendered by authorg-redesign.ts */
+.authorg-table th[data-col="chk"],.authorg-table td[data-col="chk"]{width:32px;padding-left:8px;padding-right:6px}
+.authorg-table th[data-col="org"],.authorg-table td[data-col="org"]{width:17%}
+.authorg-table th[data-col="uuid"],.authorg-table td[data-col="uuid"]{width:11%}
+.authorg-table th[data-col="rel"],.authorg-table td[data-col="rel"]{width:10%}
+.authorg-table th[data-col="roles"],.authorg-table td[data-col="roles"]{width:19%}
+.authorg-table th[data-col="divs"],.authorg-table td[data-col="divs"]{width:16%}
+.authorg-table th[data-col="exp"],.authorg-table td[data-col="exp"]{width:13%}
+.authorg-table th[data-col="stat"],.authorg-table td[data-col="stat"]{width:9%}
+.authorg-table th[data-col="act"],.authorg-table td[data-col="act"]{width:44px;padding-left:4px;padding-right:8px}
+
+.authorg-sortable{cursor:pointer;user-select:none}
+.authorg-sortable:hover{color:#152550}
+.authorg-sort-icon{display:inline-flex;align-items:center;vertical-align:middle;margin-left:3px;color:#a9b3c2}
+.authorg-sortable.authorg-sort-active,.authorg-sort-active .authorg-sort-icon{color:#c9401a}
+
+.authorg-name{display:block;font-weight:600;color:#152550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.authorg-name.lnk{color:#c9401a;cursor:pointer}
+
+.authorg-id-chip{display:inline-flex;align-items:center;gap:6px;background:#f4f6fa;border:1px solid #e4e9f0;border-radius:5px;padding:3px 8px;font-family:monospace;font-size:11.5px;color:#3c4a5c;max-width:100%;cursor:pointer}
+.authorg-id-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.authorg-copy-btn{border:none;background:transparent;color:#8a94a6;padding:0;display:flex;align-items:center;cursor:pointer;flex:none}
+.authorg-copy-btn:hover{color:#c9401a}
+
+.authorg-rel-badge{display:inline-flex;align-items:center;gap:5px;font-size:11.3px;font-weight:600;padding:3px 9px;border-radius:11px;white-space:nowrap}
+.authorg-rel-badge.rel-owner{background:#eef2f8;color:#152550}
+.authorg-rel-badge.rel-trustee{background:#e8f7ef;color:#1a7a4a}
+.authorg-rel-badge.rel-trustor{background:#fff2ec;color:#c9401a}
+
+.authorg-table td[data-col="roles"],.authorg-table td[data-col="divs"]{overflow:visible;white-space:normal}
+.authorg-pill{display:inline-block;max-width:100%;font-size:11px;padding:3px 8px;border-radius:9px;margin:1px 4px 3px 0;white-space:normal;word-break:break-word;line-height:1.4;vertical-align:top}
+.authorg-pill.role-pill{background:#eef2f8;color:#33425c;border:1px solid #e2e8f1}
+.authorg-pill.div-pill{background:#f4f6fa;color:#5b6a7d;border:1px solid #e4e9f0}
+
+.authorg-expiry-cell{display:flex;flex-direction:column;gap:2px}
+.authorg-expiry-date{font-weight:600;color:#152550}
+.authorg-expiry-sub{font-size:11px;color:#8a94a6}
+.authorg-expiry-sub.warn{color:#d97706;display:inline-flex;align-items:center}
+
+.authorg-status{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:11px;white-space:nowrap}
+.authorg-status .dot{width:7px;height:7px;border-radius:50%;background:#a9b3c2;flex:none}
+.authorg-status.status-active{background:#e8f7ef;color:#1a7a4a}
+.authorg-status.status-active .dot{background:#2eab6b}
+.authorg-status.status-expiring{background:#fff8e1;color:#8a5c00}
+.authorg-status.status-expiring .dot{background:#e8a33d}
+.authorg-status.status-revoked{background:#fdecea;color:#b3261e}
+.authorg-status.status-revoked .dot{background:#d9534f}
+.authorg-status.status-owner{background:#eef2f8;color:#152550}
+.authorg-status.status-owner .dot{background:#2b6cb0}
+
+.authorg-more-btn{border:none;background:transparent;color:#8a94a6;font-size:16px;line-height:1;width:26px;height:26px;border-radius:5px;cursor:pointer}
+.authorg-more-btn:hover{background:#eef1f6;color:#152550}
+
+/* Pagination row */
+.authorg-rpp{display:inline-flex;align-items:center;gap:4px}
+.authorg-rpp-val{cursor:pointer;color:#31404f;position:relative}
+.authorg-page-nav{display:inline-flex;align-items:center;gap:8px}
+.authorg-page-btn{width:24px;height:24px;border:1px solid #d5dce7;background:#fff;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#3c4a5c}
+.authorg-page-btn:hover:not(:disabled){border-color:#FF4F1F;color:#c9401a}
+.authorg-page-btn:disabled{opacity:.4;cursor:not-allowed}
+.authorg-page-num{font-size:12px;color:#5b6a7d;min-width:44px;text-align:center}
+
+/* ---------- Help & Resources panel ---------- */
+.authorg-help-box{background:#fff;border:1px solid #dde3ec;border-radius:6px;margin-top:18px;overflow:hidden}
+.authorg-help-header{display:flex;align-items:center;gap:10px;padding:12px 16px;background:#fafbfd;border-bottom:1px solid #eef1f6;cursor:pointer}
+.authorg-help-title-wrap{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#152550;flex-wrap:wrap}
+.authorg-help-tag{background:#eef2f8;color:#5b6a7d;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:9px;text-transform:uppercase;letter-spacing:.4px}
+.authorg-help-toggle-btn{margin-left:auto;display:inline-flex;align-items:center;gap:5px;border:1px solid #d5dce7;background:#fff;border-radius:5px;padding:5px 11px;font-size:11.5px;color:#3c4a5c;cursor:pointer;flex:none}
+.authorg-help-toggle-btn:hover{border-color:#FF4F1F;color:#c9401a}
+
+.authorg-help-body{display:grid;grid-template-columns:1.3fr 1fr;gap:24px;padding:16px 18px}
+@media(max-width:1100px){.authorg-help-body{grid-template-columns:1fr}}
+.authorg-help-col h5{display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:12px;font-weight:700;color:#152550}
+.authorg-help-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+.authorg-help-list-item{display:flex;align-items:flex-start;gap:9px;font-size:12.4px;line-height:1.55;color:#3c4a5c}
+.authorg-help-check-icon{flex:none;display:flex;align-items:center;margin-top:2px}
+
+.authorg-keywords-grid{display:flex;flex-wrap:wrap;gap:6px}
+.authorg-keyword-chip{display:inline-block;background:#eef2f8;border:1px solid #dde3ec;color:#33425c;border-radius:11px;padding:3px 10px;font-size:11px}
+.authorg-keyword-chip.accent{background:#fff1eb;border-color:#ffd2c0;color:#c23c11}
+
+.authorg-resource-cards{display:flex;flex-direction:column;gap:8px}
+.authorg-resource-card{display:flex;align-items:center;gap:11px;padding:10px 12px;border:1px solid #eef1f6;border-radius:6px;text-decoration:none;transition:background .12s,border-color .12s}
+.authorg-resource-card:hover{background:#fff8f5;border-color:#ffd2c0}
+.authorg-resource-icon{flex:none;width:32px;height:32px;border-radius:6px;background:#eef2f8;color:#3c4a5c;display:flex;align-items:center;justify-content:center}
+.authorg-resource-content{min-width:0}
+.authorg-resource-title{font-size:12.5px;font-weight:600;color:#152550;display:flex;align-items:center;gap:5px}
+.authorg-resource-sub{font-size:11.3px;color:#8a94a6;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.authorg-resource-sub code{font-family:monospace}
+
+/* ---------- Columns modal (side popover) ---------- */
+.authorg-modal-scrim{position:fixed;inset:0;background:rgba(16,26,45,.32);z-index:170}
+.authorg-modal-card{position:fixed;background:#fff;width:230px;border-radius:8px;box-shadow:0 16px 44px rgba(16,30,60,.25);z-index:171;overflow:hidden}
+.authorg-modal-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #eef1f6}
+.authorg-modal-header h3{font-size:13px;font-weight:700;color:#152550}
+.authorg-modal-close{border:none;background:transparent;color:#8a94a6;cursor:pointer;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px}
+.authorg-modal-close:hover{background:#eef1f6;color:#152550}
+.authorg-modal-body{padding:8px 6px;max-height:320px;overflow-y:auto}
+.authorg-col-item{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:12.5px;color:#3c4a5c;border-radius:4px;cursor:pointer}
+.authorg-col-item:hover{background:#f4f7fb}
+.authorg-modal-footer{padding:10px 14px;border-top:1px solid #eef1f6;display:flex;justify-content:flex-end;background:#fafbfd}
+.authorg-btn-done{height:30px;padding:0 14px;border:none;border-radius:5px;background:#FF4F1F;color:#fff;font-size:12.5px;font-weight:600;cursor:pointer}
+.authorg-btn-done:hover{background:#e8441a}
+
+/* ---------- 3-dot context menu ---------- */
+.authorg-ctx-menu{position:fixed;background:#fff;border:1px solid #dbe1ea;border-radius:6px;box-shadow:0 10px 30px rgba(16,30,60,.2);min-width:210px;z-index:180;overflow:hidden;padding:4px}
+.authorg-ctx-item{display:flex;align-items:center;gap:9px;padding:8px 11px;font-size:12.5px;color:#3c4a5c;border-radius:4px;cursor:pointer}
+.authorg-ctx-item:hover{background:#f4f7fb}
+.authorg-ctx-item.danger{color:#b3261e}
+.authorg-ctx-item.danger:hover{background:#fdecea}
+.authorg-ctx-icon{display:flex;align-items:center;flex:none}
+.authorg-ctx-divider{height:1px;background:#eef1f6;margin:4px 6px}
+
+/* ---------- Confirm dialog ---------- */
+.authorg-confirm-card{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;width:400px;max-width:calc(100vw - 32px);border-radius:8px;z-index:171;box-shadow:0 20px 60px rgba(16,30,60,.3);overflow:hidden}
+.authorg-confirm-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #e4e9f0}
+.authorg-confirm-header h3{font-size:14.5px;font-weight:700;color:#152550}
+.authorg-confirm-body{padding:16px 18px;font-size:13px;color:#3c4a5c;line-height:1.6}
+.authorg-confirm-footer{padding:12px 18px;border-top:1px solid #e4e9f0;display:flex;gap:8px;justify-content:flex-end;background:#fbfcfe}
+
+/* ---------- Detail drawer sections ---------- */
+.authorg-drawer-section{margin-bottom:20px}
+.authorg-drawer-title{display:flex;align-items:center;font-size:12px;font-weight:700;color:#152550;margin-bottom:10px}
+.authorg-meta-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #f1f4f8;font-size:12.5px}
+.authorg-meta-row:last-child{border-bottom:none}
+.authorg-meta-label{color:#8a94a6;flex:none}
+.authorg-meta-val{color:#31404f;font-weight:600;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Checkbox lists (edit drawer: roles / divisions) */
+.authorg-checkbox-list{display:flex;flex-direction:column;gap:2px;border:1px solid #e4e9f0;border-radius:6px;padding:6px;max-height:180px;overflow-y:auto}
+.fld label.authorg-checkbox-label,.authorg-checkbox-label{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;font-size:12.5px;color:#3c4a5c;border-radius:6px;cursor:pointer;transition:background .12s ease;margin-bottom:0;font-weight:400}
+.authorg-checkbox-label:hover{background:#f4f7fb}
+.fld .authorg-checkbox-list input.authorg-custom-chk,
+.authorg-custom-chk{width:16px;height:16px;min-width:16px;min-height:16px;max-width:16px;max-height:16px;margin:0;padding:0;flex:none;order:2}
+.authorg-chk-text{flex:1;order:1}
+
+.authorg-field-hint{font-size:11px;color:#8a94a6;margin-top:4px}
+
+/* Toast (module-local fallback) */
+.authorg-toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(10px);background:#152550;color:#fff;padding:10px 18px;border-radius:5px;font-size:12.5px;z-index:300;box-shadow:0 8px 24px rgba(0,0,0,.3);opacity:0;transition:opacity .2s,transform .2s;pointer-events:none}
+.authorg-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@keyframes authorgSlideIn{from{transform:translateX(24px);opacity:.4}to{transform:translateX(0);opacity:1}}
+
+/* ============ Performance page — visual refresh only ============
+   Scoped entirely to #pf_body (the shared container all 9 Performance
+   tabs render into) so nothing outside this page is affected. Same
+   colors, fonts, and behavior as everywhere else — just more spacing,
+   elevation and rounding. */
+#pf_body{padding-top:2px}
+#pf_body .tbar{background:#fff;border:1px solid #e4e9f0;border-radius:10px;padding:10px 12px;margin-bottom:18px;box-shadow:0 1px 2px rgba(21,37,80,.04)}
+#pf_body .chip{border-radius:6px}
+#pf_body .kpis{gap:14px;margin-bottom:22px}
+#pf_body .kpi{border-radius:12px;border-color:#e7ebf1;box-shadow:0 1px 3px rgba(21,37,80,.06);padding:16px 17px 15px;transition:box-shadow .15s ease,transform .15s ease}
+#pf_body .kpi:hover{box-shadow:0 6px 16px rgba(21,37,80,.1);transform:translateY(-2px)}
+#pf_body .kpi span{letter-spacing:1px}
+#pf_body .kpi b{font-size:27px}
+#pf_body .panel{border-radius:12px;border-color:#e7ebf1;box-shadow:0 1px 3px rgba(21,37,80,.06);margin-bottom:18px}
+#pf_body .panel h3{padding:13px 17px;font-size:13px}
+#pf_body .tblw{border-radius:12px;border-color:#e7ebf1;box-shadow:0 1px 3px rgba(21,37,80,.06)}
+#pf_body table.dt th{padding:11px 17px}
+#pf_body table.dt td{padding:12px 17px}
+#pf_body table.dt tbody tr:hover td{background:#f7f9fd}
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e

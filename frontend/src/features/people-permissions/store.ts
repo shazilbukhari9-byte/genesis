@@ -1,4 +1,59 @@
 import type { DirectoryData, Division, Group, Person, Role, SimpleEntity } from "./types";
+<<<<<<< HEAD
+=======
+import { apiFetch } from "../shared/backend";
+
+// People (this file's `people` list only — Roles/Divisions/Groups/Skills/
+// Languages below are still localStorage-backed, a separate follow-up) are
+// backed by the real `users` table via the generic /api/people resource
+// registered in backend/resources.py. roles/skills/langs aren't columns on
+// that table yet, so they come back empty from the backend for now.
+interface BackendPerson {
+  id: number;
+  name: string;
+  email: string | null;
+  license_code: string | null;
+  state: string;
+  division: string | null;
+  title: string | null;
+  dept: string | null;
+  station: string | null;
+  ext: string | null;
+}
+
+function fromBackendPerson(u: BackendPerson): Person {
+  return {
+    id: String(u.id),
+    name: u.name,
+    email: u.email ?? "",
+    title: u.title ?? "",
+    dept: u.dept ?? "",
+    division: u.division ?? "",
+    roles: [],
+    license: u.license_code ?? "",
+    skills: {},
+    langs: [],
+    station: u.station ?? "",
+    state: (u.state as Person["state"]) || "Active",
+    created: "",
+    ext: u.ext ?? "",
+  };
+}
+
+function toBackendPerson(person: Partial<Person>): Record<string, unknown> {
+  return {
+    name: person.name,
+    email: person.email,
+    license_code: person.license,
+    state: person.state,
+    division: person.division,
+    title: person.title,
+    dept: person.dept,
+    station: person.station,
+    ext: person.ext,
+  };
+}
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 
 // -----------------------------------------------------------------------------
 // Shared data layer for every People & Permissions page (People, Roles,
@@ -164,6 +219,7 @@ function writeStore(data: DirectoryData): void {
 }
 
 export async function fetchDirectory(): Promise<DirectoryData> {
+<<<<<<< HEAD
   return delay(readStore());
 }
 
@@ -207,6 +263,47 @@ export async function bulkUpdatePeople(ids: string[], action: "activate" | "deac
   logAudit("Bulk " + action, ids.length + " people");
   writeStore(data);
   return delay(data);
+=======
+  const data = readStore();
+  try {
+    const users = await apiFetch<BackendPerson[]>("/api/people?limit=500");
+    data.people = users.map(fromBackendPerson);
+  } catch {
+    // offline / not logged in yet — fall back to whatever was last cached locally
+  }
+  return data;
+}
+
+export async function upsertPerson(person: Omit<Person, "id" | "created"> & { id?: string }): Promise<DirectoryData> {
+  const payload = toBackendPerson(person);
+  if (person.id) {
+    await apiFetch(`/api/people/${person.id}`, { method: "PUT", body: JSON.stringify(payload) });
+    logAudit("Edit person", person.name);
+  } else {
+    await apiFetch("/api/people", { method: "POST", body: JSON.stringify({ ...payload, state: person.state || "Active" }) });
+    logAudit("Create person", person.name);
+  }
+  return fetchDirectory();
+}
+
+export async function deletePerson(id: string): Promise<DirectoryData> {
+  await apiFetch(`/api/people/${id}`, { method: "DELETE" });
+  logAudit("Delete person", `person #${id}`);
+  return fetchDirectory();
+}
+
+export async function bulkUpdatePeople(ids: string[], action: "activate" | "deactivate" | "delete"): Promise<DirectoryData> {
+  if (action === "delete") {
+    await Promise.all(ids.map((id) => apiFetch(`/api/people/${id}`, { method: "DELETE" }).catch(() => undefined)));
+  } else {
+    const state = action === "activate" ? "Active" : "Inactive";
+    await Promise.all(
+      ids.map((id) => apiFetch(`/api/people/${id}`, { method: "PUT", body: JSON.stringify({ state }) }).catch(() => undefined)),
+    );
+  }
+  logAudit("Bulk " + action, ids.length + " people");
+  return fetchDirectory();
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 }
 
 export async function upsertRole(role: Omit<Role, "id" | "base"> & { id?: string }): Promise<DirectoryData> {
@@ -348,6 +445,7 @@ export async function deleteSimpleEntity(kind: SimpleEntityKind, id: string): Pr
 }
 
 export async function assignLicence(personId: string, license: string): Promise<DirectoryData> {
+<<<<<<< HEAD
   const data = readStore();
   const person = data.people.find((p) => p.id === personId);
   if (person) {
@@ -357,27 +455,47 @@ export async function assignLicence(personId: string, license: string): Promise<
   }
   writeStore(data);
   return delay(data);
+=======
+  await apiFetch(`/api/people/${personId}`, { method: "PUT", body: JSON.stringify({ license_code: license }) });
+  logAudit("Change licence", `person #${personId} → ${license}`);
+  return fetchDirectory();
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 }
 
 // CSV columns: name,email,title,department,division,license,skills
 // Skills use Skill:proficiency separated by ';', e.g. "Billing:5;Sales:3".
 // Name and email are mandatory. Unknown divisions fall back to Home.
+<<<<<<< HEAD
 export async function bulkImportPeopleCsv(csvText: string): Promise<{ data: DirectoryData; imported: number; errors: string[] }> {
   const data = readStore();
+=======
+// CSV columns: name,email,title,department,division,license
+// Skills aren't backend-persisted yet, so the skills column (if present) is
+// parsed but discarded — a follow-up once ACD Skills has its own backend.
+export async function bulkImportPeopleCsv(csvText: string): Promise<{ data: DirectoryData; imported: number; errors: string[] }> {
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
   const errors: string[] = [];
   let imported = 0;
   const lines = csvText.split("\n").map((l) => l.trim()).filter(Boolean);
   const startIdx = lines[0]?.toLowerCase().startsWith("name,") ? 1 : 0;
+<<<<<<< HEAD
   const homeId = data.divisions.find((d) => d.home)?.id ?? "d_home";
   const created = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
   for (let i = startIdx; i < lines.length; i++) {
     const cols = (lines[i] ?? "").split(",").map((c) => c.trim());
     const [name, email, title = "", dept = "", divisionName = "", license = "CX 1", skillsStr = ""] = cols;
+=======
+
+  for (let i = startIdx; i < lines.length; i++) {
+    const cols = (lines[i] ?? "").split(",").map((c) => c.trim());
+    const [name, email, title = "", dept = "", divisionName = "", license = "CX 1"] = cols;
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
     if (!name || !email) {
       errors.push(`Row ${i + 1}: name and email are required`);
       continue;
     }
+<<<<<<< HEAD
     const division = data.divisions.find((d) => d.name.toLowerCase() === divisionName.toLowerCase())?.id ?? homeId;
     const skills: Record<string, number> = {};
     skillsStr
@@ -410,6 +528,22 @@ export async function bulkImportPeopleCsv(csvText: string): Promise<{ data: Dire
   if (imported > 0) logAudit("CSV import", `${imported} people`);
   writeStore(data);
   return delay({ data, imported, errors });
+=======
+    try {
+      await apiFetch("/api/people", {
+        method: "POST",
+        body: JSON.stringify({ name, email, title, dept, division: divisionName, license_code: license, state: "Active" }),
+      });
+      imported++;
+    } catch (e) {
+      errors.push(`Row ${i + 1}: ${e instanceof Error ? e.message : "import failed"}`);
+    }
+  }
+
+  if (imported > 0) logAudit("CSV import", `${imported} people`);
+  const data = await fetchDirectory();
+  return { data, imported, errors };
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 }
 
 export async function exportAllDirectoryData(): Promise<DirectoryData> {

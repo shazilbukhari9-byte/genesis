@@ -8,7 +8,10 @@ import "../mcm/mcm.css";
 import { MCM_HTML } from "../mcm/markup";
 import { MCM_SCRIPT } from "../mcm/scripts";
 import { AUTHORG_SCRIPT } from "../mcm/authorg-redesign";
+<<<<<<< HEAD
 import { DIRECTORY_SCRIPT } from "../mcm/directory-redesign";
+=======
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
 import { AuditLogPage } from "../features/audit-log/AuditLogPage";
@@ -171,11 +174,14 @@ function McmCloudCx() {
     authorgScript.type = "text/javascript";
     authorgScript.textContent = AUTHORG_SCRIPT;
     document.body.appendChild(authorgScript);
+<<<<<<< HEAD
 
     const directoryScript = document.createElement("script");
     directoryScript.type = "text/javascript";
     directoryScript.textContent = DIRECTORY_SCRIPT;
     document.body.appendChild(directoryScript);
+=======
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
   }, []);
 
   return <div id="mcm-app" dangerouslySetInnerHTML={{ __html: MCM_HTML }} />;

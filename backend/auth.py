@@ -12,6 +12,10 @@ for a bearer-token guard, which is what actually matters here.
 import secrets
 from datetime import datetime, timedelta, timezone
 from flask import Blueprint, jsonify, request, g
+<<<<<<< HEAD
+=======
+from werkzeug.security import generate_password_hash, check_password_hash
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 
 from db import get_db
 import config
@@ -22,7 +26,17 @@ TOKEN_TTL_HOURS = config.TOKEN_TTL_HOURS
 
 # Paths that never require a token. Prefixes, not exact matches, so
 # /api/auth/login itself and /api/health both pass with a simple startswith.
+<<<<<<< HEAD
 PUBLIC_PATHS = ('/api/auth/login', '/api/auth/signup', '/api/health')
+=======
+PUBLIC_PATHS = (
+    '/api/auth/login', '/api/auth/signup', '/api/health',
+    # Telnyx webhooks — Telnyx can't send our bearer token, so these are
+    # public and rely on Telnyx's own Ed25519 webhook signature instead
+    # (see telephony.py's _verify_telnyx_signature).
+    '/api/telephony/sms-webhook', '/api/telephony/voice-webhook',
+)
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 
 
 def register_auth_guard(app):
@@ -61,6 +75,7 @@ def register_auth_guard(app):
 
 @auth_bp.route('/api/auth/login', methods=['POST'])
 def login():
+<<<<<<< HEAD
     """Prototype — any credentials work, matching the rest of this app's own
     stated login behavior. Looks the user up by name; doesn't check a password."""
     data = request.get_json(force=True) or {}
@@ -75,6 +90,28 @@ def login():
     if user is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'unknown user'}), 401
+=======
+    """Real auth: looks the user up by email and verifies their password
+    hash. Previously accepted any credentials and matched by name, which
+    silently logged people into the wrong account whenever the name they
+    typed matched someone else — email is unique so that can't happen now."""
+    data = request.get_json(force=True) or {}
+    email = data.get('email')
+    password = data.get('password')
+    if not email or not password:
+        return jsonify({'ok': False, 'error': 'email and password required'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT id, name, email, presence, tenant_id, password_hash FROM users WHERE email = %s', (email,))
+    user = cur.fetchone()
+    if user is None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'no account with that email'}), 401
+    if not user['password_hash'] or not check_password_hash(user['password_hash'], password):
+        conn.close()
+        return jsonify({'ok': False, 'error': 'incorrect password'}), 401
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(hours=TOKEN_TTL_HOURS)
@@ -89,12 +126,17 @@ def login():
         'ok': True,
         'token': token,
         'expires_at': expires_at.isoformat(),
+<<<<<<< HEAD
         'user': {'id': user['id'], 'name': user['name'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
+=======
+        'user': {'id': user['id'], 'name': user['name'], 'email': user['email'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
     })
 
 
 @auth_bp.route('/api/auth/signup', methods=['POST'])
 def signup():
+<<<<<<< HEAD
     """Prototype signup — creates a real user row (no password stored, matching
     login's own 'any credentials work' behavior) and logs them straight in,
     scoped to the single tenant this app currently supports (config.DEFAULT_TENANT)."""
@@ -110,13 +152,37 @@ def signup():
     if cur.fetchone() is not None:
         conn.close()
         return jsonify({'ok': False, 'error': 'a user with that name already exists'}), 409
+=======
+    """Real signup — requires a password (hashed, never stored plain), and
+    rejects an email that's already registered instead of silently letting
+    a second account collide with an existing one under a different name.
+    Scoped to the single tenant this app currently supports (config.DEFAULT_TENANT)."""
+    data = request.get_json(force=True) or {}
+    name = data.get('name')
+    email = data.get('email')
+    password = data.get('password')
+    if not name or not email or not password:
+        return jsonify({'ok': False, 'error': 'name, email and password are required'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT id FROM users WHERE email = %s', (email,))
+    if cur.fetchone() is not None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'an account with that email already exists'}), 409
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 
     cur.execute('SELECT id FROM tenants WHERE name = %s', (config.DEFAULT_TENANT,))
     tenant = cur.fetchone()
 
     cur.execute(
+<<<<<<< HEAD
         'INSERT INTO users (tenant_id, name, email, state) VALUES (%s, %s, %s, %s) RETURNING id, name, presence, tenant_id',
         (tenant['id'], name, email, 'Active'),
+=======
+        'INSERT INTO users (tenant_id, name, email, password_hash, state) VALUES (%s, %s, %s, %s, %s) RETURNING id, name, email, presence, tenant_id',
+        (tenant['id'], name, email, generate_password_hash(password), 'Active'),
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
     )
     user = cur.fetchone()
 
@@ -133,7 +199,11 @@ def signup():
         'ok': True,
         'token': token,
         'expires_at': expires_at.isoformat(),
+<<<<<<< HEAD
         'user': {'id': user['id'], 'name': user['name'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
+=======
+        'user': {'id': user['id'], 'name': user['name'], 'email': user['email'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
     }), 201
 
 

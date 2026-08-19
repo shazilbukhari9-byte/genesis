@@ -14,6 +14,26 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
+<<<<<<< HEAD
+=======
+-- division is a simple free-text tag (matches the frontend's fixed 5-division
+-- set: d_home/d_ret/d_dig/d_col/d_man) rather than a normalised divisions
+-- table + FK — there's no other real usage of divisions as entities yet.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS division TEXT;
+-- People page (frontend/src/features/people-permissions) fields — plain
+-- text, same reasoning as division above.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS dept TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS station TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ext TEXT;
+
+-- Real auth (fixes login/signup silently accepting any credentials and
+-- matching the wrong user). email must be unique so login can look a user
+-- up by it unambiguously; NULL is still allowed (Postgres treats each NULL
+-- as distinct, so legacy seeded rows without an email don't collide).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email) WHERE email IS NOT NULL;
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 
 CREATE TABLE IF NOT EXISTS usage_log (
   id SERIAL PRIMARY KEY,

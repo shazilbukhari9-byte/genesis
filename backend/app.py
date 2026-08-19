@@ -14,6 +14,11 @@ from analytics import analytics_bp, CATALOG as REPORT_CATALOG
 from org_settings import org_settings_bp
 from auth import auth_bp, register_auth_guard
 from platform_config import platform_config_bp
+<<<<<<< HEAD
+=======
+from telephony import telephony_bp
+from alerts import alerts_bp
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 import config
 import init_db
 
@@ -32,6 +37,11 @@ app.register_blueprint(analytics_bp)
 app.register_blueprint(org_settings_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(platform_config_bp)
+<<<<<<< HEAD
+=======
+app.register_blueprint(telephony_bp)
+app.register_blueprint(alerts_bp)
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 register_auth_guard(app)
 
 
@@ -226,8 +236,29 @@ def add_seats():
     return jsonify({'ok': True, 'total': new_total})
 
 
+<<<<<<< HEAD
 @app.route('/api/subscription/audit')
 def audit_log():
+=======
+@app.route('/api/subscription/audit', methods=['GET', 'POST'])
+def audit_log():
+    if request.method == 'POST':
+        data = request.get_json(force=True) or {}
+        action = data.get('action')
+        if not action:
+            return jsonify({'ok': False, 'error': 'action required'}), 400
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s,%s) RETURNING *',
+            (g.user_name, action, data.get('detail', ''), datetime.now()),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        conn.close()
+        return jsonify(dict(row)), 201
+
+>>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
     conn = get_db()
     cur = conn.cursor()
     cur.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200')
