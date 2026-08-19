@@ -230,8 +230,24 @@ def add_seats():
     return jsonify({'ok': True, 'total': new_total})
 
 
-@app.route('/api/subscription/audit')
+@app.route('/api/subscription/audit', methods=['GET', 'POST'])
 def audit_log():
+    if request.method == 'POST':
+        data = request.get_json(force=True) or {}
+        action = data.get('action')
+        if not action:
+            return jsonify({'ok': False, 'error': 'action required'}), 400
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s,%s) RETURNING *',
+            (g.user_name, action, data.get('detail', ''), datetime.now()),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        conn.close()
+        return jsonify(dict(row)), 201
+
     conn = get_db()
     cur = conn.cursor()
     cur.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200')
