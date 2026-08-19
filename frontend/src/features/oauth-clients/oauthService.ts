@@ -1,18 +1,47 @@
 import type { OAuthClient } from "./types";
+import { apiFetch } from "../shared/backend";
 
-// Swap the bodies of these functions for real API calls when the backend is
-// ready — the page only depends on this contract.
+// ── Backend API (primary) with localStorage fallback ──
 
 const STORAGE_KEY = "mcm_oauth_clients_v2";
-const SIMULATED_LATENCY_MS = 200;
 
-function delay<T>(value: T): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(value), SIMULATED_LATENCY_MS));
+/* Map backend row → frontend OAuthClient */
+function mapFromApi(row: any): OAuthClient {
+  const grantMap: Record<string, string> = {
+    client_credentials: "Client Credentials",
+    authorization_code: "Code Authorization",
+    implicit: "Implicit Grant",
+  };
+  return {
+    id: String(row.id),
+    name: row.name ?? "",
+    grantType: grantMap[row.grant_types] ?? row.grant_types ?? "Client Credentials",
+    clientId: row.client_id ?? "",
+    scope: row.scopes ?? "read",
+    tokenDurationSec: 3600,
+    lastUsed: row.updated_at ? new Date(row.updated_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Never",
+    status: row.enabled ? "Active" : "Disabled",
+    statusNote: undefined,
+  };
 }
 
-function uid(): string {
-  return "id" + Math.random().toString(36).slice(2, 10);
+/* Map frontend fields → backend write payload */
+function mapToApi(c: Partial<OAuthClient>) {
+  const grantMap: Record<string, string> = {
+    "Client Credentials": "client_credentials",
+    "Code Authorization": "authorization_code",
+    "Implicit Grant": "implicit",
+    "SAML2 Bearer": "saml2_bearer",
+  };
+  const payload: Record<string, any> = {};
+  if (c.name !== undefined) payload.name = c.name;
+  if (c.grantType !== undefined) payload.grant_types = grantMap[c.grantType] ?? "client_credentials";
+  if (c.scope !== undefined) payload.scopes = c.scope;
+  if (c.status !== undefined) payload.enabled = c.status === "Active";
+  return payload;
 }
+
+/* ── localStorage fallback (same as original) ── */
 
 function defaultClients(): OAuthClient[] {
   return [
@@ -29,11 +58,7 @@ function defaultClients(): OAuthClient[] {
 function readStore(): OAuthClient[] {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
-    try {
-      return JSON.parse(raw) as OAuthClient[];
-    } catch {
-      // fall through to defaults
-    }
+    try { return JSON.parse(raw) as OAuthClient[]; } catch { /* fall through */ }
   }
   const data = defaultClients();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -44,34 +69,65 @@ function writeStore(data: OAuthClient[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
+/* ── Exported service functions ── */
+
 export async function fetchOAuthClients(): Promise<OAuthClient[]> {
-  return delay(readStore());
+  try {
+    const rows = await apiFetch<any[]>("/api/oauth/clients");
+    const mapped = rows.map(mapFromApi);
+    writeStore(mapped);
+    return mapped;
+  } catch {
+    return readStore();
+  }
 }
 
 export async function createOAuthClient(client: Pick<OAuthClient, "name" | "grantType" | "scope" | "tokenDurationSec">): Promise<OAuthClient[]> {
-  const data = readStore();
-  data.push({
-    id: uid(),
-    name: client.name,
-    grantType: client.grantType,
-    clientId: Math.random().toString(36).slice(2, 6) + "…" + Math.random().toString(36).slice(2, 5),
-    scope: client.scope,
-    tokenDurationSec: client.tokenDurationSec,
-    lastUsed: "Never",
-    status: "Active",
-  });
-  writeStore(data);
-  return delay(data);
+  try {
+    await apiFetch("/api/oauth/clients", {
+      method: "POST",
+      body: JSON.stringify(mapToApi(client)),
+    });
+    return fetchOAuthClients();
+  } catch {
+    // Fallback to localStorage
+    const data = readStore();
+    data.push({
+      id: "id" + Math.random().toString(36).slice(2, 10),
+      name: client.name,
+      grantType: client.grantType,
+      clientId: Math.random().toString(36).slice(2, 6) + "…" + Math.random().toString(36).slice(2, 5),
+      scope: client.scope,
+      tokenDurationSec: client.tokenDurationSec,
+      lastUsed: "Never",
+      status: "Active",
+    });
+    writeStore(data);
+    return data;
+  }
 }
 
 export async function revokeOAuthClient(id: string): Promise<OAuthClient[]> {
-  const data = readStore().map((c) => (c.id === id ? { ...c, status: "Disabled" as const } : c));
-  writeStore(data);
-  return delay(data);
+  try {
+    await apiFetch(`/api/oauth/clients/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled: false }),
+    });
+    return fetchOAuthClients();
+  } catch {
+    const data = readStore().map((c) => (c.id === id ? { ...c, status: "Disabled" as const } : c));
+    writeStore(data);
+    return data;
+  }
 }
 
 export async function deleteOAuthClient(id: string): Promise<OAuthClient[]> {
-  const data = readStore().filter((c) => c.id !== id);
-  writeStore(data);
-  return delay(data);
+  try {
+    await apiFetch(`/api/oauth/clients/${id}`, { method: "DELETE" });
+    return fetchOAuthClients();
+  } catch {
+    const data = readStore().filter((c) => c.id !== id);
+    writeStore(data);
+    return data;
+  }
 }
