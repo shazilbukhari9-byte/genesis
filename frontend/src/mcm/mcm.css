@@ -249,6 +249,21 @@ table.dt tbody tr:hover td{background:#fafcff}
 .app-install-btn{transition:transform .12s ease,box-shadow .12s ease}
 .app-install-btn:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(255,79,31,.18)}
 
+/* Canned Responses — category pills, row actions, substitution-field chips */
+.canned-cat-badge{display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;padding:3px 10px;border-radius:11px;white-space:nowrap}
+.canned-cat-badge.canned-cat-greetings{color:#2b6cb0;background:#eef2f8}
+.canned-cat-badge.canned-cat-billing{color:#b45309;background:#fef3e0}
+.canned-cat-badge.canned-cat-technical{color:#7b61c9;background:#f3f0fc}
+.canned-cat-badge.canned-cat-escalation{color:#b3261e;background:#fdecea}
+.canned-cat-badge.canned-cat-closing{color:#1a7a4a;background:#e8f7ef}
+.canned-cat-badge.canned-cat-general{color:#5b6a7d;background:#eef1f6}
+.canned-sub-count{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#eef2f8;color:#33425c;font-size:10.5px;font-weight:700}
+.canned-row-btn{border:none;background:transparent;color:#8a94a6;font-size:13px;width:26px;height:26px;border-radius:5px;cursor:pointer;transition:background .12s,color .12s}
+.canned-row-btn:hover{background:#eef1f6;color:#152550}
+.canned-row-btn-danger:hover{background:#fdecea;color:#b3261e}
+.canned-field-list{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 2px}
+.canned-field-chip{display:inline-block;background:#fff2ec;border:1px solid #ffd2c0;color:#c23c11;border-radius:9px;padding:3px 9px;font-size:11px;font-family:monospace}
+
 
 /* ---------- Architect ---------- */
 .arch{display:flex;flex-direction:column;height:calc(100vh - 48px);background:#eef1f6}
