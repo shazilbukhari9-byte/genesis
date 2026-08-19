@@ -156,6 +156,65 @@ CERTIFICATES = [
      '', '2024-01-01', '2034-01-01'),
 ]
 
+# Matches frontend/src/mcm/contactlists-redesign.ts's CONTACT_LISTS_FALLBACK
+# exactly — the same 2 lists (13 contacts total) scripts.ts's ensureOB()
+# used to seed DB.contactLists in-memory on first page load.
+CONTACT_LISTS = [
+    (
+        'cl-collections-q3-uk', 'Collections_Q3_UK', 'd_col',
+        ['FirstName', 'LastName', 'Phone', 'Balance', 'TimeZone'],
+        [
+            {'FirstName': 'Oliver', 'LastName': 'Smith', 'Phone': '+447700900101', 'Balance': '£240.50', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Amelia', 'LastName': 'Jones', 'Phone': '+447700900102', 'Balance': '£1,120.00', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Harry', 'LastName': 'Williams', 'Phone': '+447700900103', 'Balance': '£86.20', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Isla', 'LastName': 'Brown', 'Phone': '+447700900104', 'Balance': '£410.00', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'George', 'LastName': 'Taylor', 'Phone': '+447700900105', 'Balance': '£55.75', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Ava', 'LastName': 'Davies', 'Phone': '+447700900106', 'Balance': '£730.10', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Jack', 'LastName': 'Evans', 'Phone': '+447700900107', 'Balance': '£199.99', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Emily', 'LastName': 'Thomas', 'Phone': '+447700900108', 'Balance': '£315.40', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Noah', 'LastName': 'Roberts', 'Phone': '+447700900109', 'Balance': '£67.00', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Mia', 'LastName': 'Walker', 'Phone': '+447700900110', 'Balance': '£925.60', 'TimeZone': 'Europe/London'},
+        ],
+    ),
+    (
+        'cl-renewal-reminders', 'Renewal_Reminders', 'd_ret',
+        ['FirstName', 'LastName', 'Phone', 'RenewalDate'],
+        [
+            {'FirstName': 'Priya', 'LastName': 'Shah', 'Phone': '+447700900201', 'RenewalDate': '15 Sep 2026'},
+            {'FirstName': 'Tom', 'LastName': 'Hughes', 'Phone': '+447700900202', 'RenewalDate': '18 Sep 2026'},
+            {'FirstName': 'Zara', 'LastName': 'Khan', 'Phone': '+447700900203', 'RenewalDate': '21 Sep 2026'},
+        ],
+    ),
+]
+
+# Matches frontend/src/mcm/dataact-redesign.ts's DATA_ACTIONS_FALLBACK exactly
+# — the same 9 data actions the page's static prototype HTML used to hardcode
+# (id, name, integration, method, endpoint, contract, division, avg_latency_ms,
+# status, last_error). Legacy_Balance_Lookup keeps its seeded 'Failing' state
+# until someone runs Test Action on it (which recomputes deterministically —
+# see backend/dataact.py's _simulate_test — and would keep it Failing anyway
+# since its endpoint contains 'legacy').
+DATA_ACTIONS = [
+    ('da-crm-lookup-customer', 'CRM_Lookup_Customer', 'Salesforce', 'GET', '/services/data/v60.0/query',
+     'ani → tier, name, accountId', 'd_home', 410, 'Published', ''),
+    ('da-crm-create-case', 'CRM_Create_Case', 'Salesforce', 'POST', '/services/data/v60.0/sobjects/Case',
+     'subject, desc → caseId', 'd_home', 620, 'Published', ''),
+    ('da-verify-account-pin', 'Verify_Account_PIN', 'Web Services', 'POST', 'https://api.mcmgroup.example/verify',
+     'accountId, pin → valid', 'd_col', 180, 'Published', ''),
+    ('da-get-invoice-balance', 'Get_Invoice_Balance', 'Web Services', 'GET', 'https://api.mcmgroup.example/billing/{id}',
+     'accountId → balance, dueDate', 'd_col', 240, 'Published', ''),
+    ('da-snow-open-incident', 'SNOW_Open_Incident', 'ServiceNow', 'POST', '/api/now/table/incident',
+     'short_desc → number', 'd_dig', 780, 'Published', ''),
+    ('da-snow-get-incident', 'SNOW_Get_Incident', 'ServiceNow', 'GET', '/api/now/table/incident',
+     'number → state, assignee', 'd_dig', 350, 'Published', ''),
+    ('da-post-callback-request', 'Post_Callback_Request', 'Web Services', 'POST', 'https://api.mcmgroup.example/callback',
+     'number, window → ref', 'd_ret', 200, 'Published', ''),
+    ('da-get-delivery-status', 'Get_Delivery_Status', 'Web Services', 'GET', 'https://api.mcmgroup.example/track',
+     'orderId → status, eta', 'd_ret', 1240, 'Slow', ''),
+    ('da-legacy-balance-lookup', 'Legacy_Balance_Lookup', 'Web Services', 'GET', 'https://legacy.mcm.local/bal',
+     'accountId → balance', 'd_man', None, 'Failing', 'Connection refused (503)'),
+]
+
 USERS = [
     ('Faisal Khan', 'fkhan@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
     ('Adnan Shaikh', 'ashaikh@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
@@ -244,6 +303,29 @@ def run():
             ON CONFLICT (id) DO NOTHING
             """,
             (cert_id, tenant_id, name, purpose, issued_to, issuer, division, valid_from, expires_at),
+        )
+
+    for list_id, name, division, cols, contacts in CONTACT_LISTS:
+        cur.execute(
+            'INSERT INTO contact_lists (id, tenant_id, name, division, cols) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+            (list_id, tenant_id, name, division, cols),
+        )
+        for contact in contacts:
+            contact_id = list_id + '-' + re.sub(r'[^0-9]', '', contact['Phone'])[-6:]
+            cur.execute(
+                'INSERT INTO contacts (id, tenant_id, list_id, data) VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+                (contact_id, tenant_id, list_id, contact),
+            )
+
+    for da_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error in DATA_ACTIONS:
+        cur.execute(
+            """
+            INSERT INTO data_actions (id, tenant_id, name, integration, method, endpoint, contract, division,
+                                       avg_latency_ms, status, last_error)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (da_id, tenant_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error),
         )
 
     cur.execute('SELECT COUNT(*) AS n FROM users')

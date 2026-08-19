@@ -1032,6 +1032,165 @@ CREATE TRIGGER trg_canned_responses_touch BEFORE UPDATE ON canned_responses
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
 -- ============================================================
+-- Prompts Module
+CREATE TABLE IF NOT EXISTS prompts (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  tts TEXT NOT NULL DEFAULT '',
+  lang TEXT NOT NULL DEFAULT 'en-GB',
+  audio_name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_prompts_tenant ON prompts(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_prompts_touch ON prompts;
+CREATE TRIGGER trg_prompts_touch BEFORE UPDATE ON prompts
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Phone Base Settings Module
+CREATE TABLE IF NOT EXISTS base_settings (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  codec TEXT NOT NULL DEFAULT '',
+  rtp_port INTEGER NOT NULL DEFAULT 16384,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_base_settings_tenant ON base_settings(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_base_settings_touch ON base_settings;
+CREATE TRIGGER trg_base_settings_touch BEFORE UPDATE ON base_settings
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Phone Management Module
+CREATE TABLE IF NOT EXISTS phones (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  base_name TEXT NOT NULL DEFAULT '',
+  site_name TEXT NOT NULL DEFAULT '',
+  assigned_user TEXT DEFAULT '',
+  mac TEXT DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'Not registered',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_phones_tenant ON phones(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_phones_touch ON phones;
+CREATE TRIGGER trg_phones_touch BEFORE UPDATE ON phones
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Number Plans Module (child of Telephony Sites)
+CREATE TABLE IF NOT EXISTS number_plans (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  site_name TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL,
+  match_type TEXT NOT NULL DEFAULT 'Regex',
+  match_spec JSONB NOT NULL DEFAULT '{}',
+  classification TEXT NOT NULL DEFAULT 'National',
+  normalisation TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_number_plans_tenant_site ON number_plans(tenant_id, site_name);
+
+DROP TRIGGER IF EXISTS trg_number_plans_touch ON number_plans;
+CREATE TRIGGER trg_number_plans_touch BEFORE UPDATE ON number_plans
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Outbound Routes Module (child of Telephony Sites)
+CREATE TABLE IF NOT EXISTS outbound_routes (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  site_name TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL,
+  classifications TEXT[] NOT NULL DEFAULT '{}',
+  trunk_ids TEXT[] NOT NULL DEFAULT '{}',
+  distribution TEXT NOT NULL DEFAULT 'Sequential',
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_outbound_routes_tenant_site ON outbound_routes(tenant_id, site_name);
+
+DROP TRIGGER IF EXISTS trg_outbound_routes_touch ON outbound_routes;
+CREATE TRIGGER trg_outbound_routes_touch BEFORE UPDATE ON outbound_routes
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Message Channels Module (Message Routing)
+CREATE TABLE IF NOT EXISTS message_channels (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  channel_type TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  config JSONB NOT NULL DEFAULT '{}',
+  queue_id TEXT DEFAULT '',
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_message_channels_tenant ON message_channels(tenant_id, channel_type);
+
+DROP TRIGGER IF EXISTS trg_message_channels_touch ON message_channels;
+CREATE TRIGGER trg_message_channels_touch BEFORE UPDATE ON message_channels
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- Admin > Telephony > Phone Base Settings.
+CREATE TABLE IF NOT EXISTS phone_base_settings (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  model TEXT,
+  codec TEXT,
+  port INTEGER NOT NULL DEFAULT 16384
+);
+
+-- Admin > Telephony > Carrier Connections (BYOC). kind/direction/term/auth/
+-- codecs/byocSid/policySid/note vary a lot by carrier kind, so they live in
+-- config (JSONB) rather than one column each — same pattern as queues.config.
+CREATE TABLE IF NOT EXISTS byoc_trunks (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 100,
+  status TEXT NOT NULL DEFAULT 'Active',
+  locked BOOLEAN NOT NULL DEFAULT false,
+  config JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- Admin > Outbound > Campaigns page edits a richer object than acd.py's
+-- campaigns table (id/tenant_id/name only, used by the dial/monitor
+-- endpoints) had — these are purely additive. queue/script/list/dnc
+-- reference the local queue/script/contact-list/DNC-list ids as plain
+-- text, not real FKs — same simplification as Call Routes' flow reference.
+-- stats/log are simulated live-dialer runtime state, not admin-edited
+-- config, so they aren't persisted here — only what saveCamp() edits is.
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS division TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'Progressive';
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS queue_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS script_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS list_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS dnc_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS caller_id TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS caller_name TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS pace REAL NOT NULL DEFAULT 1.0;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'Off';
+
+-- ============================================================
 -- Digital Certificates Module — backs frontend/src/mcm/certs-redesign.ts's
 -- Telephony > Digital Certificates page (see backend/certs.py for the
 -- /api/certs endpoints). status ('Valid' | 'Expiring' | 'Expired') is
@@ -1061,4 +1220,165 @@ CREATE INDEX IF NOT EXISTS idx_certificates_tenant_expires ON certificates(tenan
 
 DROP TRIGGER IF EXISTS trg_certificates_touch ON certificates;
 CREATE TRIGGER trg_certificates_touch BEFORE UPDATE ON certificates
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Admin > Quality & WEM > Schedules (WFM) — a 5-sub-tab module
+-- (Schedules/Work Plans/Activity Codes/Time Off/Shift Trades), each its
+-- own entity here. agent_ref/from_ref/to_ref store the local user id as
+-- plain text (not a FK) — same simplification used throughout for
+-- cross-entity references the admin UI only ever displays, not queries.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS work_plans (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  days TEXT[] NOT NULL DEFAULT '{}',
+  shift_len INTEGER NOT NULL DEFAULT 8,
+  flex_from TEXT,
+  flex_to TEXT,
+  paid INTEGER,
+  agents TEXT[] NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS activity_codes (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category TEXT,
+  paid BOOLEAN NOT NULL DEFAULT false,
+  adherence TEXT
+);
+
+CREATE TABLE IF NOT EXISTS time_off_requests (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  agent_ref TEXT,
+  code TEXT,
+  dates TEXT,
+  day TEXT,
+  status TEXT NOT NULL DEFAULT 'Pending'
+);
+
+CREATE TABLE IF NOT EXISTS shift_trades (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  from_ref TEXT,
+  to_ref TEXT,
+  day TEXT,
+  status TEXT NOT NULL DEFAULT 'Pending'
+);
+
+-- The generated week schedule itself (genSchedule/pubSchedule/delSchedule).
+-- entries (agent -> day -> shift-or-off) is exactly the shape the frontend
+-- already computes locally, so it round-trips through data (JSONB) whole
+-- rather than being normalised — same pattern as flows.graph.
+CREATE TABLE IF NOT EXISTS wfm_schedules (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  week TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Draft',
+  data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- ============================================================
+-- Admin > Quality & WEM > Calibrations — comparing multiple evaluators'
+-- scores against the same interaction/eval-form to check scoring
+-- consistency. No local seed/functions existed for this page before —
+-- built alongside its backend connection, not just wired to one.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS calibrations (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  form_ref TEXT,
+  interaction_ref TEXT,
+  status TEXT NOT NULL DEFAULT 'In Progress',
+  evaluators JSONB NOT NULL DEFAULT '[]'::jsonb,
+  notes TEXT
+);
+
+-- ============================================================
+-- Admin > Integrations > Bot Connectors — same story as Calibrations: no
+-- local functions existed, built alongside the backend connection.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS bot_connectors (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  platform TEXT NOT NULL DEFAULT 'Custom',
+  status TEXT NOT NULL DEFAULT 'Disconnected',
+  webhook_url TEXT,
+  notes TEXT
+);
+
+-- Contact Lists Module — backs frontend/src/mcm/contactlists-redesign.ts's
+-- Outbound > Contact Lists page (see backend/contactlists.py for the
+-- /api/contactlists endpoints). Each list has its own arbitrary column set
+-- (cols), so per-contact field values live in a JSONB `data` blob keyed by
+-- those column names rather than fixed columns — same "schema owned by the
+-- list, not the table" shape scripts.ts's original in-memory DB.contactLists
+-- used (l.cols / ct.data).
+CREATE TABLE IF NOT EXISTS contact_lists (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  division TEXT NOT NULL DEFAULT '',      -- '' = not division-scoped, else d_home/d_ret/d_dig/d_col/d_man
+  cols TEXT[] NOT NULL DEFAULT ARRAY['FirstName','LastName','Phone'],
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_contact_lists_tenant ON contact_lists(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_contact_lists_touch ON contact_lists;
+CREATE TRIGGER trg_contact_lists_touch BEFORE UPDATE ON contact_lists
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+CREATE TABLE IF NOT EXISTS contacts (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  list_id TEXT NOT NULL REFERENCES contact_lists(id) ON DELETE CASCADE,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'Not attempted',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_result TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_contacts_list ON contacts(list_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_tenant ON contacts(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_contacts_touch ON contacts;
+CREATE TRIGGER trg_contacts_touch BEFORE UPDATE ON contacts
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Data Actions Module — backs frontend/src/mcm/dataact-redesign.ts's
+-- Integrations > Data Actions page (see backend/dataact.py for the
+-- /api/dataact endpoints). avg_latency_ms/status/last_error are written by
+-- the Test Action endpoint (a deterministic simulated call — this prototype
+-- has no real Salesforce/ServiceNow/web-service backends to reach, and a
+-- backend that made outbound requests to a user-editable endpoint field
+-- would be an SSRF risk), not hand-edited through the drawer.
+CREATE TABLE IF NOT EXISTS data_actions (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  integration TEXT NOT NULL DEFAULT 'Web Services',   -- Salesforce | ServiceNow | Web Services
+  method TEXT NOT NULL DEFAULT 'GET',
+  endpoint TEXT NOT NULL DEFAULT '',
+  contract TEXT NOT NULL DEFAULT '',                  -- short request → response summary, e.g. 'ani → tier, name'
+  division TEXT NOT NULL DEFAULT '',                  -- '' = not division-scoped, else d_home/d_ret/d_dig/d_col/d_man
+  avg_latency_ms INTEGER,
+  status TEXT NOT NULL DEFAULT 'Draft',               -- Draft | Published | Slow | Failing
+  last_error TEXT NOT NULL DEFAULT '',
+  last_tested_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_data_actions_tenant ON data_actions(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_data_actions_touch ON data_actions;
+CREATE TRIGGER trg_data_actions_touch BEFORE UPDATE ON data_actions
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();

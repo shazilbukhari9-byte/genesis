@@ -25,6 +25,8 @@ from authorg import authorg_bp
 from adherence import adherence_bp
 from canned import canned_bp
 from certs import certs_bp
+from contactlists import contactlists_bp
+from dataact import dataact_bp
 import config
 import init_db
 
@@ -53,6 +55,8 @@ app.register_blueprint(authorg_bp)
 app.register_blueprint(adherence_bp)
 app.register_blueprint(canned_bp)
 app.register_blueprint(certs_bp)
+app.register_blueprint(contactlists_bp)
+app.register_blueprint(dataact_bp)
 register_auth_guard(app)
 
 
@@ -183,11 +187,53 @@ def index():
             'PUT    /api/canned/<id>',
             'DELETE /api/canned/<id>',
         ],
+        'prompts': [
+            'GET/POST   /api/prompts',
+            'GET/PUT/DELETE /api/prompts/<id>',
+        ],
+        'base_settings': [
+            'GET/POST   /api/base-settings',
+            'GET/PUT/DELETE /api/base-settings/<id>',
+        ],
+        'phones': [
+            'GET/POST   /api/phones',
+            'GET/PUT/DELETE /api/phones/<id>',
+        ],
+        'number_plans': [
+            'GET/POST   /api/number-plans  (filter: ?site_name=)',
+            'GET/PUT/DELETE /api/number-plans/<id>',
+        ],
+        'outbound_routes': [
+            'GET/POST   /api/outbound-routes  (filter: ?site_name=)',
+            'GET/PUT/DELETE /api/outbound-routes/<id>',
+        ],
+        'message_channels': [
+            'GET/POST   /api/message-channels  (filter: ?channel_type=)',
+            'GET/PUT/DELETE /api/message-channels/<id>',
+        ],
         'certs': [
             'GET    /api/certs  (optional ?division=, ?status=, ?q=)',
             'POST   /api/certs',
             'PUT    /api/certs/<id>',
             'DELETE /api/certs/<id>',
+        ],
+        'contactlists': [
+            'GET    /api/contactlists  (optional ?division=, ?q=)',
+            'GET    /api/contactlists/<id>  (includes contacts)',
+            'POST   /api/contactlists',
+            'PUT    /api/contactlists/<id>',
+            'DELETE /api/contactlists/<id>',
+            'POST   /api/contactlists/<id>/contacts',
+            'POST   /api/contactlists/<id>/contacts/import',
+            'DELETE /api/contactlists/<id>/contacts/<contact_id>',
+            'PATCH  /api/contactlists/<id>/contacts/<contact_id>/dnc',
+        ],
+        'dataact': [
+            'GET    /api/dataact  (optional ?integration=, ?division=, ?status=, ?q=)',
+            'POST   /api/dataact',
+            'PUT    /api/dataact/<id>',
+            'DELETE /api/dataact/<id>',
+            'POST   /api/dataact/<id>/test',
         ],
     })
 
