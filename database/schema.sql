@@ -1083,3 +1083,94 @@ CREATE INDEX IF NOT EXISTS idx_certificates_tenant_expires ON certificates(tenan
 DROP TRIGGER IF EXISTS trg_certificates_touch ON certificates;
 CREATE TRIGGER trg_certificates_touch BEFORE UPDATE ON certificates
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Admin > Quality & WEM > Schedules (WFM) — a 5-sub-tab module
+-- (Schedules/Work Plans/Activity Codes/Time Off/Shift Trades), each its
+-- own entity here. agent_ref/from_ref/to_ref store the local user id as
+-- plain text (not a FK) — same simplification used throughout for
+-- cross-entity references the admin UI only ever displays, not queries.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS work_plans (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  days TEXT[] NOT NULL DEFAULT '{}',
+  shift_len INTEGER NOT NULL DEFAULT 8,
+  flex_from TEXT,
+  flex_to TEXT,
+  paid INTEGER,
+  agents TEXT[] NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS activity_codes (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category TEXT,
+  paid BOOLEAN NOT NULL DEFAULT false,
+  adherence TEXT
+);
+
+CREATE TABLE IF NOT EXISTS time_off_requests (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  agent_ref TEXT,
+  code TEXT,
+  dates TEXT,
+  day TEXT,
+  status TEXT NOT NULL DEFAULT 'Pending'
+);
+
+CREATE TABLE IF NOT EXISTS shift_trades (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  from_ref TEXT,
+  to_ref TEXT,
+  day TEXT,
+  status TEXT NOT NULL DEFAULT 'Pending'
+);
+
+-- The generated week schedule itself (genSchedule/pubSchedule/delSchedule).
+-- entries (agent -> day -> shift-or-off) is exactly the shape the frontend
+-- already computes locally, so it round-trips through data (JSONB) whole
+-- rather than being normalised — same pattern as flows.graph.
+CREATE TABLE IF NOT EXISTS wfm_schedules (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  week TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Draft',
+  data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- ============================================================
+-- Admin > Quality & WEM > Calibrations — comparing multiple evaluators'
+-- scores against the same interaction/eval-form to check scoring
+-- consistency. No local seed/functions existed for this page before —
+-- built alongside its backend connection, not just wired to one.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS calibrations (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  form_ref TEXT,
+  interaction_ref TEXT,
+  status TEXT NOT NULL DEFAULT 'In Progress',
+  evaluators JSONB NOT NULL DEFAULT '[]'::jsonb,
+  notes TEXT
+);
+
+-- ============================================================
+-- Admin > Integrations > Bot Connectors — same story as Calibrations: no
+-- local functions existed, built alongside the backend connection.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS bot_connectors (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  platform TEXT NOT NULL DEFAULT 'Custom',
+  status TEXT NOT NULL DEFAULT 'Disconnected',
+  webhook_url TEXT,
+  notes TEXT
+);
