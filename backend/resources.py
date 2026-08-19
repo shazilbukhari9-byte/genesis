@@ -301,6 +301,20 @@ REGISTRY = {
         search=["name"],
         perm=None,
     ),
+    "installed-integrations": dict(
+        table="installed_integrations",
+        order="name",
+        fields=["tenant_id", "name", "category", "type", "credentials", "used_by", "division", "status"],
+        search=["name", "category", "type"],
+        perm=None,
+    ),
+    "integration-credentials": dict(
+        table="integration_credentials",
+        order="name",
+        fields=["tenant_id", "name", "integration_name", "rotated_at"],
+        search=["name", "integration_name"],
+        perm=None,
+    ),
     "work-plans": dict(
         table="work_plans",
         order="name",

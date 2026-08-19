@@ -394,6 +394,33 @@ CREATE TABLE IF NOT EXISTS gamification_profiles (
   status TEXT NOT NULL DEFAULT 'Active'
 );
 
+-- Admin > Integrations > Integrations page's "Installed" tab. Scoped to
+-- just that tab for now — Catalogue/Client Applications/Credentials stay
+-- static display, no table needed for them yet.
+CREATE TABLE IF NOT EXISTS installed_integrations (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category TEXT,
+  type TEXT,
+  credentials TEXT,
+  used_by TEXT,
+  division TEXT,
+  status TEXT NOT NULL DEFAULT 'Active'
+);
+
+-- Admin > Integrations > Integrations page's "Credentials" tab. No secret
+-- value column on purpose — the page's own text says credentials are
+-- write-only and never displayed after saving, so the entered value is
+-- never sent to or stored by the backend either, only this metadata.
+CREATE TABLE IF NOT EXISTS integration_credentials (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  integration_name TEXT,
+  rotated_at DATE
+);
+
 -- Edge Groups (Admin > Telephony > Edge Groups) are plain named-list
 -- entities like ACD Skills/Languages, so they reuse simple_entities with
 -- kind='edge_group' instead of a dedicated table.
