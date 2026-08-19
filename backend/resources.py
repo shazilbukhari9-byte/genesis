@@ -117,4 +117,18 @@ REGISTRY = {
         search=["phone_number"],
         perm=None,
     ),
+    "edges": dict(
+        table="edges",
+        order="name",
+        fields=["tenant_id", "name", "model", "edge_group", "state"],
+        search=["name"],
+        perm=None,
+    ),
+    "emergency-groups": dict(
+        table="emergency_groups",
+        order="name",
+        fields=["tenant_id", "name", "flows", "active"],
+        search=["name"],
+        perm=None,
+    ),
 }

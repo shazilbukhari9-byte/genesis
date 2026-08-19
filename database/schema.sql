@@ -315,6 +315,29 @@ CREATE TABLE IF NOT EXISTS did_assignments (
 ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS assignment_type TEXT;
 ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS target_label TEXT;
 
+-- Edge Groups (Admin > Telephony > Edge Groups) are plain named-list
+-- entities like ACD Skills/Languages, so they reuse simple_entities with
+-- kind='edge_group' instead of a dedicated table.
+CREATE TABLE IF NOT EXISTS edges (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  model TEXT,
+  edge_group TEXT,
+  state TEXT NOT NULL DEFAULT 'Online'
+);
+
+-- Admin > Routing > Emergency Groups — no create/edit UI, only toggling an
+-- existing group active/inactive, so flows is just a snapshot list rather
+-- than a normalised join.
+CREATE TABLE IF NOT EXISTS emergency_groups (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  flows TEXT[] NOT NULL DEFAULT '{}',
+  active BOOLEAN NOT NULL DEFAULT false
+);
+
 -- Now that flows/queues exist, wire the interactions.flow_id FK too.
 DO $$
 BEGIN
