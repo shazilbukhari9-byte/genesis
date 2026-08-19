@@ -477,6 +477,51 @@ def audit_log():
 
 
 # ---------------------------------------------------------------------------
+# Admin > Contact Center > Utilization — one settings row per tenant (which
+# media types can interrupt which, and their max concurrent-interaction
+# caps), not a list of entities, so it's a hand-written GET/PUT rather than
+# a resources.REGISTRY entry, same reasoning as /api/subscription/* above.
+# ---------------------------------------------------------------------------
+
+DEFAULT_UTILIZATION = {
+    'Voice': {'cap': 1, 'intBy': []},
+    'Callback': {'cap': 1, 'intBy': ['Voice']},
+    'Chat': {'cap': 2, 'intBy': ['Voice']},
+    'Email': {'cap': 3, 'intBy': ['Voice', 'Chat']},
+    'Message': {'cap': 2, 'intBy': ['Voice']},
+}
+
+
+@app.route('/api/utilization')
+def get_utilization():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT data FROM utilization_settings WHERE tenant_id = %s', (g.tenant_id,))
+    row = cur.fetchone()
+    conn.close()
+    return jsonify(row['data'] if row else DEFAULT_UTILIZATION)
+
+
+@app.route('/api/utilization', methods=['PUT', 'PATCH'])
+def put_utilization():
+    data = request.get_json(force=True) or {}
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO utilization_settings (tenant_id, data, updated_at) VALUES (%s, %s, now())
+        ON CONFLICT (tenant_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()
+        RETURNING data
+        """,
+        (g.tenant_id, data),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return jsonify(row['data'])
+
+
+# ---------------------------------------------------------------------------
 # Resource registry — 5 generic CRUD routes shared by every entity in
 # resources.REGISTRY. See resources.py for what each entity declares.
 # ---------------------------------------------------------------------------

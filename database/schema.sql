@@ -1361,3 +1361,46 @@ CREATE INDEX IF NOT EXISTS idx_data_actions_tenant ON data_actions(tenant_id);
 DROP TRIGGER IF EXISTS trg_data_actions_touch ON data_actions;
 CREATE TRIGGER trg_data_actions_touch BEFORE UPDATE ON data_actions
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Admin > Telephony > Sites. plans/routes stay JSONB blobs — same
+-- pattern as flows.graph and eval_forms.groups — rather than a
+-- normalised schema, since the Number Plans / Outbound Routes pages
+-- edit them as a nested list within the site, not as their own entities.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS sites (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  location TEXT,
+  tz TEXT,
+  media TEXT NOT NULL DEFAULT 'Cloud',    -- Cloud | Premises — immutable after creation (frontend-enforced)
+  is_default BOOLEAN NOT NULL DEFAULT false,
+  edge_group TEXT,
+  plans JSONB NOT NULL DEFAULT '[]'::jsonb,
+  routes JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_sites_tenant ON sites(tenant_id);
+
+-- ============================================================
+-- Admin > Contact Center > Wrap-up Codes — the code catalogue (not the
+-- per-interaction wrapup text field on interactions, a separate thing).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS wrapup_codes (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wrapup_codes_tenant ON wrapup_codes(tenant_id);
+
+-- ============================================================
+-- Admin > Contact Center > Utilization — one settings row per tenant
+-- (not a list entity), so it's a hand-written GET/PUT in app.py rather
+-- than the generic list-CRUD registry, same pattern as /api/subscription.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS utilization_settings (
+  tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
