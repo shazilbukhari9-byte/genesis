@@ -303,7 +303,7 @@ REGISTRY = {
     "activity-codes": dict(
         table="activity_codes",
         order="name",
-        fields=["tenant_id", "name", "category", "paid", "adherence"],
+        fields=["tenant_id", "name", "category", "paid", "adherence", "adherence_rule", "enabled"],
         search=["name"],
         perm=None,
     ),
@@ -324,7 +324,7 @@ REGISTRY = {
     "wfm-schedules": dict(
         table="wfm_schedules",
         order="week DESC",
-        fields=["tenant_id", "week", "status", "data"],
+        fields=["tenant_id", "week", "status", "data", "entries"],
         search=["week"],
         perm=None,
     ),

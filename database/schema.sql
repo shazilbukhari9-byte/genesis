@@ -916,9 +916,15 @@ CREATE TABLE IF NOT EXISTS activity_codes (
   name TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT 'On Queue',  -- On Queue | Break | Meal | Meeting | Training | Time Off
   paid BOOLEAN NOT NULL DEFAULT true,
-  adherence_rule TEXT NOT NULL DEFAULT 'Adherent when On Queue'
+  adherence_rule TEXT NOT NULL DEFAULT 'Adherent when On Queue',
+  adherence TEXT,
+  enabled BOOLEAN NOT NULL DEFAULT true
 );
 CREATE INDEX IF NOT EXISTS idx_activity_codes_tenant ON activity_codes(tenant_id);
+-- backfill: ensure both column sets exist regardless of which CREATE ran first
+ALTER TABLE activity_codes ADD COLUMN IF NOT EXISTS adherence TEXT;
+ALTER TABLE activity_codes ADD COLUMN IF NOT EXISTS adherence_rule TEXT NOT NULL DEFAULT 'Adherent when On Queue';
+ALTER TABLE activity_codes ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS management_units (
   id SERIAL PRIMARY KEY,
@@ -934,10 +940,16 @@ CREATE TABLE IF NOT EXISTS wfm_schedules (
   week TEXT NOT NULL,               -- ISO week label e.g. '2026-W34'
   status TEXT NOT NULL DEFAULT 'Draft',  -- 'Draft' | 'Published'
   entries JSONB NOT NULL DEFAULT '{}'::jsonb,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_wfm_schedules_tenant ON wfm_schedules(tenant_id);
+-- backfill: ensure both column sets exist regardless of which CREATE ran first
+ALTER TABLE wfm_schedules ADD COLUMN IF NOT EXISTS entries JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE wfm_schedules ADD COLUMN IF NOT EXISTS data JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE wfm_schedules ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE wfm_schedules ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 DROP TRIGGER IF EXISTS trg_wfm_schedules_touch ON wfm_schedules;
 CREATE TRIGGER trg_wfm_schedules_touch BEFORE UPDATE ON wfm_schedules
