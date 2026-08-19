@@ -937,9 +937,15 @@ CREATE TABLE IF NOT EXISTS activity_codes (
   name TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT 'On Queue',  -- On Queue | Break | Meal | Meeting | Training | Time Off
   paid BOOLEAN NOT NULL DEFAULT true,
-  adherence_rule TEXT NOT NULL DEFAULT 'Adherent when On Queue'
+  adherence_rule TEXT NOT NULL DEFAULT 'Adherent when On Queue',
+  adherence TEXT,
+  enabled BOOLEAN NOT NULL DEFAULT true
 );
 CREATE INDEX IF NOT EXISTS idx_activity_codes_tenant ON activity_codes(tenant_id);
+-- backfill: ensure both column sets exist regardless of which CREATE ran first
+ALTER TABLE activity_codes ADD COLUMN IF NOT EXISTS adherence TEXT;
+ALTER TABLE activity_codes ADD COLUMN IF NOT EXISTS adherence_rule TEXT NOT NULL DEFAULT 'Adherent when On Queue';
+ALTER TABLE activity_codes ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS management_units (
   id SERIAL PRIMARY KEY,
@@ -955,10 +961,16 @@ CREATE TABLE IF NOT EXISTS wfm_schedules (
   week TEXT NOT NULL,               -- ISO week label e.g. '2026-W34'
   status TEXT NOT NULL DEFAULT 'Draft',  -- 'Draft' | 'Published'
   entries JSONB NOT NULL DEFAULT '{}'::jsonb,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_wfm_schedules_tenant ON wfm_schedules(tenant_id);
+-- backfill: ensure both column sets exist regardless of which CREATE ran first
+ALTER TABLE wfm_schedules ADD COLUMN IF NOT EXISTS entries JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE wfm_schedules ADD COLUMN IF NOT EXISTS data JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE wfm_schedules ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE wfm_schedules ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 DROP TRIGGER IF EXISTS trg_wfm_schedules_touch ON wfm_schedules;
 CREATE TRIGGER trg_wfm_schedules_touch BEFORE UPDATE ON wfm_schedules
@@ -1425,3 +1437,33 @@ CREATE TABLE IF NOT EXISTS utilization_settings (
   data JSONB NOT NULL DEFAULT '{}'::jsonb,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- DNC Lists Module — backs frontend/src/mcm/dnclists-redesign.ts's
+-- Outbound > DNC Lists page (see backend/dnclists.py for the
+-- /api/dnclists endpoints). Numbers live in their own table (not a TEXT[]
+-- column on dnc_lists) so a single number can be looked up across every
+-- list in the tenant in one indexed query — see dncNumberLookup() /
+-- GET /api/dnclists/lookup — the same job the page's own "Number Lookup"
+-- drawer already did client-side over the in-memory DB.dncLists array.
+CREATE TABLE IF NOT EXISTS dnc_lists (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_dnc_lists_tenant ON dnc_lists(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_dnc_lists_touch ON dnc_lists;
+CREATE TRIGGER trg_dnc_lists_touch BEFORE UPDATE ON dnc_lists
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+CREATE TABLE IF NOT EXISTS dnc_numbers (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  list_id TEXT NOT NULL REFERENCES dnc_lists(id) ON DELETE CASCADE,
+  phone TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dnc_numbers_list_phone ON dnc_numbers(list_id, phone);
+CREATE INDEX IF NOT EXISTS idx_dnc_numbers_tenant_phone ON dnc_numbers(tenant_id, phone);

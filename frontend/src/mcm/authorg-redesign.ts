@@ -374,7 +374,7 @@ export const AUTHORG_SCRIPT: string = `
         '</div>' +
 
         '<!-- Toolbar -->' +
-        '<div class="tbar" style="margin-bottom:0">' +
+        '<div class="tbar">' +
           '<div style="position:relative;display:flex;align-items:center">' +
             '<span style="position:absolute;left:10px;pointer-events:none;display:flex">' + ICONS.search + '</span>' +
             '<input class="s" id="authorg_search" placeholder="Search authorized organizations" oninput="authorgSearch(this.value)" style="width:310px;padding-left:32px;border-radius:6px">' +
