@@ -142,3 +142,38 @@
     color: var(--color-foreground);
   }
 }
+
+/* ============================================================
+   Global toast notifications (react-toastify) — mounted once in
+   routes/__root.tsx and fed by the window.toast bridge there, so every
+   module across the app (legacy MCM engine included) renders through this
+   single top-right system. Styled to match the MCM Cloud CX product
+   (frontend/src/mcm/mcm.css's palette/typography), not the shadcn tokens
+   above, since MCM is effectively the whole app surface.
+   ============================================================ */
+.Toastify__toast-container {
+  font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.mcm-toast.Toastify__toast {
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  font-size: 13px;
+  padding: 10px 14px;
+  min-height: 0;
+}
+.mcm-toast .Toastify__toast-body {
+  padding: 2px 4px;
+}
+.mcm-toast .Toastify__progress-bar--success {
+  background: #0f9d63;
+}
+.mcm-toast .Toastify__progress-bar--error {
+  background: #d0342c;
+}
+.mcm-toast .Toastify__progress-bar--warning {
+  background: #e8a33d;
+}
+.mcm-toast .Toastify__progress-bar--info,
+.mcm-toast .Toastify__progress-bar {
+  background: #ff4f1f;
+}

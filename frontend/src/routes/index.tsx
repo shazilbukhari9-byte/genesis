@@ -10,6 +10,7 @@ import { MCM_SCRIPT } from "../mcm/scripts";
 import { AUTHORG_SCRIPT } from "../mcm/authorg-redesign";
 import { DIRECTORY_SCRIPT } from "../mcm/directory-redesign";
 import { APPS_SCRIPT } from "../mcm/apps-redesign";
+import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
 import { AuditLogPage } from "../features/audit-log/AuditLogPage";
@@ -185,6 +186,12 @@ function McmCloudCx() {
     appsScript.type = "text/javascript";
     appsScript.textContent = APPS_SCRIPT;
     document.body.appendChild(appsScript);
+
+    // Re-assert the toast bridge (see lib/global-toast.tsx) now that
+    // MCM_SCRIPT has run and defined its own window.toast — this call is
+    // what actually wins, since it runs after scripts.ts's assignment
+    // above, not routes/__root.tsx's earlier baseline call.
+    bridgeGlobalToast();
   }, []);
 
   return <div id="mcm-app" dangerouslySetInnerHTML={{ __html: MCM_HTML }} />;
