@@ -705,3 +705,93 @@ CREATE INDEX IF NOT EXISTS idx_apps_tenant_installed ON apps(tenant_id, installe
 DROP TRIGGER IF EXISTS trg_apps_touch ON apps;
 CREATE TRIGGER trg_apps_touch BEFORE UPDATE ON apps
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Authorized Organizations — inter-tenant trust relationships.
+-- Each row is a trust granting (or revoking) another org's
+-- access to specific roles and divisions inside this tenant.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS auth_org_trusts (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  org_name TEXT NOT NULL,
+  org_id TEXT,                           -- external org UUID (informational)
+  domain TEXT,
+  relationship TEXT NOT NULL DEFAULT 'Trustee',  -- 'Owner' | 'Trustee' | 'Trustor'
+  scope_roles TEXT[] NOT NULL DEFAULT '{}',
+  divisions TEXT[] NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'Active',         -- 'Active' | 'Owner' | 'Revoked' | 'Expiring soon'
+  expires_at DATE,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_auth_org_trusts_tenant ON auth_org_trusts(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_auth_org_trusts_touch ON auth_org_trusts;
+CREATE TRIGGER trg_auth_org_trusts_touch BEFORE UPDATE ON auth_org_trusts
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Alert Rules — threshold-based rules that fire notifications
+-- when live KPIs exceed configured limits. Evaluated by the
+-- frontend timer; the backend stores and syncs the definitions.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS alert_rules (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  metric TEXT NOT NULL,           -- 'Interactions waiting' | 'Longest wait (min)' | etc.
+  cond TEXT NOT NULL DEFAULT '>',  -- '>' | '<' | '>=' | '<='
+  threshold REAL NOT NULL DEFAULT 0,
+  dur INTEGER NOT NULL DEFAULT 0,  -- minutes the condition must hold (0 = immediate)
+  notify TEXT[] NOT NULL DEFAULT '{}',  -- user IDs to alert
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_alert_rules_tenant ON alert_rules(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_alert_rules_touch ON alert_rules;
+CREATE TRIGGER trg_alert_rules_touch BEFORE UPDATE ON alert_rules
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Adherence / WFM — activity codes, management units, and
+-- schedule data backing the Workforce Management module.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS activity_codes (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'On Queue',  -- On Queue | Break | Meal | Meeting | Training | Time Off
+  paid BOOLEAN NOT NULL DEFAULT true,
+  adherence_rule TEXT NOT NULL DEFAULT 'Adherent when On Queue'
+);
+CREATE INDEX IF NOT EXISTS idx_activity_codes_tenant ON activity_codes(tenant_id);
+
+CREATE TABLE IF NOT EXISTS management_units (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  agents TEXT[] NOT NULL DEFAULT '{}'  -- user IDs assigned to this MU
+);
+CREATE INDEX IF NOT EXISTS idx_management_units_tenant ON management_units(tenant_id);
+
+CREATE TABLE IF NOT EXISTS wfm_schedules (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  week TEXT NOT NULL,               -- ISO week label e.g. '2026-W34'
+  status TEXT NOT NULL DEFAULT 'Draft',  -- 'Draft' | 'Published'
+  entries JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_wfm_schedules_tenant ON wfm_schedules(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_wfm_schedules_touch ON wfm_schedules;
+CREATE TRIGGER trg_wfm_schedules_touch BEFORE UPDATE ON wfm_schedules
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();

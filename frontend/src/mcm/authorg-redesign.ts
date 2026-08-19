@@ -155,10 +155,17 @@ export const AUTHORG_SCRIPT: string = `
     };
   }
 
+  /* Auth header helper — reuses window.__authToken set by the login flow. */
+  function authHeaders() {
+    var h = { 'Content-Type': 'application/json' };
+    if (window.__authToken) h['Authorization'] = 'Bearer ' + window.__authToken;
+    return h;
+  }
+
   /* Loads live trusts from the backend on startup; keeps the local mock
      data (and the app fully usable) if the server is unreachable. */
   function loadTrustsFromApi() {
-    fetch(API_BASE + '/trusts')
+    fetch(API_BASE + '/trusts', { headers: authHeaders() })
       .then(function(res) { if (!res.ok) throw new Error('bad status'); return res.json(); })
       .then(function(list) {
         if (!list || !list.length) return;
@@ -278,7 +285,7 @@ export const AUTHORG_SCRIPT: string = `
       authorgData.unshift(org);
       fetch(API_BASE + '/trusts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify(toApiPayload(org))
       })
         .then(function(res) { return res.ok ? res.json() : null; })
@@ -299,14 +306,14 @@ export const AUTHORG_SCRIPT: string = `
       for (var k in changes) { if (changes.hasOwnProperty(k)) org[k] = changes[k]; }
       fetch(API_BASE + '/trusts/' + org.id, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify(toApiPayload(org))
       }).catch(function() {});
       return org;
     },
     remove: function(id) {
       authorgData = authorgData.filter(function(x){ return x.id !== id; });
-      fetch(API_BASE + '/trusts/' + id + '?hard=true', { method: 'DELETE' }).catch(function() {});
+      fetch(API_BASE + '/trusts/' + id + '?hard=true', { method: 'DELETE', headers: authHeaders() }).catch(function() {});
     },
     getStats: function() {
       var total = authorgData.length;

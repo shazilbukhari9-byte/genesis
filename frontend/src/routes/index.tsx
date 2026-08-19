@@ -10,6 +10,7 @@ import { MCM_SCRIPT } from "../mcm/scripts";
 import { AUTHORG_SCRIPT } from "../mcm/authorg-redesign";
 import { DIRECTORY_SCRIPT } from "../mcm/directory-redesign";
 import { APPS_SCRIPT } from "../mcm/apps-redesign";
+import { BACKEND_SYNC_SCRIPT } from "../mcm/backend-sync";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
 import { AuditLogPage } from "../features/audit-log/AuditLogPage";
@@ -185,6 +186,13 @@ function McmCloudCx() {
     appsScript.type = "text/javascript";
     appsScript.textContent = APPS_SCRIPT;
     document.body.appendChild(appsScript);
+
+    // Alert Rules + Adherence/WFM backend sync — wraps the window.*
+    // functions MCM_SCRIPT already defined with API fetch/persist logic.
+    const syncScript = document.createElement("script");
+    syncScript.type = "text/javascript";
+    syncScript.textContent = BACKEND_SYNC_SCRIPT;
+    document.body.appendChild(syncScript);
   }, []);
 
   return <div id="mcm-app" dangerouslySetInnerHTML={{ __html: MCM_HTML }} />;
