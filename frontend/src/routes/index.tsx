@@ -9,6 +9,7 @@ import { MCM_HTML } from "../mcm/markup";
 import { MCM_SCRIPT } from "../mcm/scripts";
 import { AUTHORG_SCRIPT } from "../mcm/authorg-redesign";
 import { DIRECTORY_SCRIPT } from "../mcm/directory-redesign";
+import { APPS_SCRIPT } from "../mcm/apps-redesign";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
 import { AuditLogPage } from "../features/audit-log/AuditLogPage";
@@ -176,6 +177,14 @@ function McmCloudCx() {
     directoryScript.type = "text/javascript";
     directoryScript.textContent = DIRECTORY_SCRIPT;
     document.body.appendChild(directoryScript);
+
+    // Same pattern as authorgScript above — patches window.SNAP.__apps (the
+    // Apps > Installed page content) with backend-ready data and polished,
+    // interactive cards after MCM_SCRIPT has set up window.SNAP.
+    const appsScript = document.createElement("script");
+    appsScript.type = "text/javascript";
+    appsScript.textContent = APPS_SCRIPT;
+    document.body.appendChild(appsScript);
   }, []);
 
   return <div id="mcm-app" dangerouslySetInnerHTML={{ __html: MCM_HTML }} />;
