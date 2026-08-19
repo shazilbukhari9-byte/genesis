@@ -68,6 +68,22 @@ REGISTRY = {
     # tenant-scoped" — but app.py never lets a client set or filter it
     # directly: create forces it from g.tenant_id, list/get/update/delete all
     # scope by it automatically. See _tenant_scoped() in app.py.
+    "callbacks": dict(
+        table="callbacks",
+        order="requested_at DESC",
+        fields=["tenant_id", "customer_name", "ani", "queue_name", "requested_at",
+                 "due_at", "origin", "state", "agent_id", "notes"],
+        search=["customer_name", "ani"],
+        perm=None,
+    ),
+    "voicemails": dict(
+        table="voicemails",
+        order="left_at DESC",
+        fields=["tenant_id", "from_name", "ani", "queue_name", "left_at",
+                 "duration_s", "transcript", "state"],
+        search=["from_name"],
+        perm=None,
+    ),
     "trunks": dict(
         table="trunks",
         order="priority, name",

@@ -705,3 +705,37 @@ CREATE INDEX IF NOT EXISTS idx_apps_tenant_installed ON apps(tenant_id, installe
 DROP TRIGGER IF EXISTS trg_apps_touch ON apps;
 CREATE TRIGGER trg_apps_touch BEFORE UPDATE ON apps
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Callbacks & queue voicemail (Performance › Callbacks tab) — plain
+-- CRUD entities, registered in resources.py's generic registry rather
+-- than a hand-written blueprint (see resources.py's own comment on why
+-- interactions.py is the exception, not the rule).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS callbacks (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_name TEXT NOT NULL,
+  ani TEXT NOT NULL,
+  queue_name TEXT,
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  due_at TIMESTAMPTZ,                  -- NULL = as soon as an agent is free
+  origin TEXT NOT NULL DEFAULT 'Agent scheduled',
+  state TEXT NOT NULL DEFAULT 'Waiting',   -- Waiting | In progress | Completed | Cancelled
+  agent_id INTEGER REFERENCES users(id),
+  notes TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_callbacks_tenant_state ON callbacks(tenant_id, state);
+
+CREATE TABLE IF NOT EXISTS voicemails (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  from_name TEXT NOT NULL,
+  ani TEXT,
+  queue_name TEXT,
+  left_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  duration_s INTEGER NOT NULL DEFAULT 0,
+  transcript TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'New'     -- New | Played
+);
+CREATE INDEX IF NOT EXISTS idx_voicemails_tenant_state ON voicemails(tenant_id, state);
