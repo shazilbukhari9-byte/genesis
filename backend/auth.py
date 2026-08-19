@@ -12,6 +12,7 @@ for a bearer-token guard, which is what actually matters here.
 import secrets
 from datetime import datetime, timedelta, timezone
 from flask import Blueprint, jsonify, request, g
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from db import get_db
 import config
@@ -67,20 +68,26 @@ def register_auth_guard(app):
 
 @auth_bp.route('/api/auth/login', methods=['POST'])
 def login():
-    """Prototype — any credentials work, matching the rest of this app's own
-    stated login behavior. Looks the user up by name; doesn't check a password."""
+    """Real auth: looks the user up by email and verifies their password
+    hash. Previously accepted any credentials and matched by name, which
+    silently logged people into the wrong account whenever the name they
+    typed matched someone else — email is unique so that can't happen now."""
     data = request.get_json(force=True) or {}
-    name = data.get('name')
-    if not name:
-        return jsonify({'ok': False, 'error': 'name required'}), 400
+    email = data.get('email')
+    password = data.get('password')
+    if not email or not password:
+        return jsonify({'ok': False, 'error': 'email and password required'}), 400
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('SELECT id, name, presence, tenant_id FROM users WHERE name = %s', (name,))
+    cur.execute('SELECT id, name, email, presence, tenant_id, password_hash FROM users WHERE email = %s', (email,))
     user = cur.fetchone()
     if user is None:
         conn.close()
-        return jsonify({'ok': False, 'error': 'unknown user'}), 401
+        return jsonify({'ok': False, 'error': 'no account with that email'}), 401
+    if not user['password_hash'] or not check_password_hash(user['password_hash'], password):
+        conn.close()
+        return jsonify({'ok': False, 'error': 'incorrect password'}), 401
 
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(hours=TOKEN_TTL_HOURS)
@@ -95,34 +102,36 @@ def login():
         'ok': True,
         'token': token,
         'expires_at': expires_at.isoformat(),
-        'user': {'id': user['id'], 'name': user['name'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
+        'user': {'id': user['id'], 'name': user['name'], 'email': user['email'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
     })
 
 
 @auth_bp.route('/api/auth/signup', methods=['POST'])
 def signup():
-    """Prototype signup — creates a real user row (no password stored, matching
-    login's own 'any credentials work' behavior) and logs them straight in,
-    scoped to the single tenant this app currently supports (config.DEFAULT_TENANT)."""
+    """Real signup — requires a password (hashed, never stored plain), and
+    rejects an email that's already registered instead of silently letting
+    a second account collide with an existing one under a different name.
+    Scoped to the single tenant this app currently supports (config.DEFAULT_TENANT)."""
     data = request.get_json(force=True) or {}
     name = data.get('name')
     email = data.get('email')
-    if not name:
-        return jsonify({'ok': False, 'error': 'name required'}), 400
+    password = data.get('password')
+    if not name or not email or not password:
+        return jsonify({'ok': False, 'error': 'name, email and password are required'}), 400
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('SELECT id FROM users WHERE name = %s', (name,))
+    cur.execute('SELECT id FROM users WHERE email = %s', (email,))
     if cur.fetchone() is not None:
         conn.close()
-        return jsonify({'ok': False, 'error': 'a user with that name already exists'}), 409
+        return jsonify({'ok': False, 'error': 'an account with that email already exists'}), 409
 
     cur.execute('SELECT id FROM tenants WHERE name = %s', (config.DEFAULT_TENANT,))
     tenant = cur.fetchone()
 
     cur.execute(
-        'INSERT INTO users (tenant_id, name, email, state) VALUES (%s, %s, %s, %s) RETURNING id, name, presence, tenant_id',
-        (tenant['id'], name, email, 'Active'),
+        'INSERT INTO users (tenant_id, name, email, password_hash, state) VALUES (%s, %s, %s, %s, %s) RETURNING id, name, email, presence, tenant_id',
+        (tenant['id'], name, email, generate_password_hash(password), 'Active'),
     )
     user = cur.fetchone()
 
@@ -139,7 +148,7 @@ def signup():
         'ok': True,
         'token': token,
         'expires_at': expires_at.isoformat(),
-        'user': {'id': user['id'], 'name': user['name'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
+        'user': {'id': user['id'], 'name': user['name'], 'email': user['email'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
     }), 201
 
 

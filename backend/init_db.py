@@ -7,9 +7,15 @@ inserts when `users` is empty, so this is safe to run on every boot.
 """
 
 import os
+from werkzeug.security import generate_password_hash
 from db import get_db
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), '..', 'database', 'schema.sql')
+
+# All seeded demo accounts share this password so they stay loggable now
+# that /api/auth/login actually checks one — fine for a demo tenant, not a
+# pattern to keep once real users outnumber seed data.
+DEMO_PASSWORD_HASH = generate_password_hash('demo1234')
 
 LICENSES = [
     ('CX 1', 'CX 1 — Voice', 40, 75),
@@ -20,21 +26,23 @@ LICENSES = [
 ]
 
 # division matches the frontend's fixed 5-division set (d_home/d_ret/d_dig/d_col/d_man)
+# email follows the same first-initial+surname@mcmgroup.com pattern the
+# frontend's own demo seed (mkU calls in scripts.ts) already uses.
 USERS = [
-    ('Faisal Khan', 'CX 3', 'Active', 'd_home'),
-    ('Adnan Shaikh', 'CX 3', 'Active', 'd_home'),
-    ('Sofia Petrova', 'CX 2', 'Active', 'd_ret'),
-    ('James Okafor', 'CX 2', 'Active', 'd_ret'),
-    ('Priya Nair', 'CX 2', 'Active', 'd_ret'),
-    ('Marco Rossi', 'CX 1', 'Active', 'd_dig'),
-    ('Aisha Rahman', 'CX 1', 'Active', 'd_dig'),
-    ('Carlos Mendez', 'CX 2', 'Active', 'd_col'),
-    ('Grace Adeyemi', 'CX 3', 'Active', 'd_col'),
-    ('Rajan Patel', 'CX 2', 'Inactive', 'd_col'),
-    ('Elena Volkov', 'CX 4', 'Active', 'd_man'),
-    ('Tariq Malik', 'CX 4', 'Active', 'd_man'),
-    ('Ngozi Eze', 'Communicate', 'Active', 'd_home'),
-    ('Haruto Sato', 'Communicate', 'Active', 'd_ret'),
+    ('Faisal Khan', 'fkhan@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
+    ('Adnan Shaikh', 'ashaikh@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
+    ('Sofia Petrova', 'spetrova@mcmgroup.com', 'CX 2', 'Active', 'd_ret'),
+    ('James Okafor', 'jokafor@mcmgroup.com', 'CX 2', 'Active', 'd_ret'),
+    ('Priya Nair', 'pnair@mcmgroup.com', 'CX 2', 'Active', 'd_ret'),
+    ('Marco Rossi', 'mrossi@mcmgroup.com', 'CX 1', 'Active', 'd_dig'),
+    ('Aisha Rahman', 'arahman@mcmgroup.com', 'CX 1', 'Active', 'd_dig'),
+    ('Carlos Mendez', 'cmendez@mcmgroup.com', 'CX 2', 'Active', 'd_col'),
+    ('Grace Adeyemi', 'gadeyemi@mcmgroup.com', 'CX 3', 'Active', 'd_col'),
+    ('Rajan Patel', 'rpatel@mcmgroup.com', 'CX 2', 'Inactive', 'd_col'),
+    ('Elena Volkov', 'evolkov@mcmgroup.com', 'CX 4', 'Active', 'd_man'),
+    ('Tariq Malik', 'tmalik@mcmgroup.com', 'CX 4', 'Active', 'd_man'),
+    ('Ngozi Eze', 'neze@mcmgroup.com', 'Communicate', 'Active', 'd_home'),
+    ('Haruto Sato', 'hsato@mcmgroup.com', 'Communicate', 'Active', 'd_ret'),
 ]
 
 
@@ -62,17 +70,25 @@ def run():
 
     cur.execute('SELECT COUNT(*) AS n FROM users')
     if cur.fetchone()['n'] == 0:
-        for name, license_code, state, division in USERS:
+        for name, email, license_code, state, division in USERS:
             cur.execute(
-                'INSERT INTO users (tenant_id, name, license_code, state, division) VALUES (%s,%s,%s,%s,%s)',
-                (tenant_id, name, license_code, state, division),
+                'INSERT INTO users (tenant_id, name, email, license_code, state, division, password_hash) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                (tenant_id, name, email, license_code, state, division, DEMO_PASSWORD_HASH),
             )
     else:
-        # backfill division on users seeded before this column existed
-        for name, license_code, state, division in USERS:
+        # backfill columns added after these rows were first seeded
+        for name, email, license_code, state, division in USERS:
             cur.execute(
                 'UPDATE users SET division = %s WHERE name = %s AND division IS NULL',
                 (division, name),
+            )
+            cur.execute(
+                'UPDATE users SET email = %s WHERE name = %s AND email IS NULL',
+                (email, name),
+            )
+            cur.execute(
+                'UPDATE users SET password_hash = %s WHERE name = %s AND password_hash IS NULL',
+                (DEMO_PASSWORD_HASH, name),
             )
 
     conn.commit()

@@ -25,6 +25,13 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS dept TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS station TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS ext TEXT;
 
+-- Real auth (fixes login/signup silently accepting any credentials and
+-- matching the wrong user). email must be unique so login can look a user
+-- up by it unambiguously; NULL is still allowed (Postgres treats each NULL
+-- as distinct, so legacy seeded rows without an email don't collide).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email) WHERE email IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS usage_log (
   id SERIAL PRIMARY KEY,
   metric TEXT NOT NULL,       -- 'voice_min' | 'sms' | 'storage_gb' | 'ai_tokens'
