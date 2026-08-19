@@ -73,8 +73,8 @@ export const DIRECTORY_SCRIPT: string = `
        GET/POST      \\/api/directory/threads/:id/messages
        POST          \\/api/directory/calls · \\/emails
      ══════════════════════════════════════════════════════════ */
-  var API_BASE = window.MCM_DIRECTORY_API || '/api/directory';
-  var USE_API = window.MCM_DIRECTORY_USE_API === true;   // flip to true when the API is live
+  var API_BASE = window.MCM_DIRECTORY_API || 'https://genesis-yysv.onrender.com/api/directory';
+  var USE_API = true;   // API is live — data stored in PostgreSQL
   var KEY = 'mcm_directory_v5';
 
   function uid(p) { return p + Math.random().toString(36).slice(2, 9); }
@@ -89,7 +89,7 @@ export const DIRECTORY_SCRIPT: string = `
   }
 
   function request(path, init) {
-    var token = (window.APP && window.APP.token) || localStorage.getItem('mcm_token');
+    var token = (window.APP && window.APP.token) || window.__authToken || localStorage.getItem('mcm_token');
     var h = { 'Content-Type': 'application/json' };
     if (token) h.Authorization = 'Bearer ' + token;
     return fetch(API_BASE + path, Object.assign({ headers: h }, init || {})).then(function (r) {
