@@ -222,4 +222,25 @@ REGISTRY = {
         search=["name"],
         perm=None,
     ),
+    "planning-groups": dict(
+        table="planning_groups",
+        order="name",
+        fields=["tenant_id", "name", "queues", "skills", "langs"],
+        search=["name"],
+        perm=None,
+    ),
+    "service-goals": dict(
+        table="service_goals",
+        order="name",
+        fields=["tenant_id", "name", "sl", "sls", "asa", "abn", "pgs"],
+        search=["name"],
+        perm=None,
+    ),
+    "forecasts": dict(
+        table="forecasts",
+        order="week DESC",
+        fields=["tenant_id", "week", "status", "data"],
+        search=["week"],
+        perm=None,
+    ),
 }

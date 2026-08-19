@@ -12,6 +12,7 @@ import { DIRECTORY_SCRIPT } from "../mcm/directory-redesign";
 import { APPS_SCRIPT } from "../mcm/apps-redesign";
 import { BACKEND_SYNC_SCRIPT } from "../mcm/backend-sync";
 import { CANNED_SCRIPT } from "../mcm/canned-redesign";
+import { CERTS_SCRIPT } from "../mcm/certs-redesign";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
@@ -203,6 +204,14 @@ function McmCloudCx() {
     syncScript.type = "text/javascript";
     syncScript.textContent = BACKEND_SYNC_SCRIPT;
     document.body.appendChild(syncScript);
+
+    // Patches window.SNAP.certs (Digital Certificates) with real,
+    // backend-connected data — same visual page, dead Search/Filter/
+    // Upload/Delete actions made real. See mcm/certs-redesign.ts.
+    const certsScript = document.createElement("script");
+    certsScript.type = "text/javascript";
+    certsScript.textContent = CERTS_SCRIPT;
+    document.body.appendChild(certsScript);
 
     // Re-assert the toast bridge (see lib/global-toast.tsx) now that
     // MCM_SCRIPT has run and defined its own window.toast — this call is

@@ -24,6 +24,7 @@ from apps import apps_bp
 from authorg import authorg_bp
 from adherence import adherence_bp
 from canned import canned_bp
+from certs import certs_bp
 import config
 import init_db
 
@@ -51,6 +52,7 @@ app.register_blueprint(apps_bp)
 app.register_blueprint(authorg_bp)
 app.register_blueprint(adherence_bp)
 app.register_blueprint(canned_bp)
+app.register_blueprint(certs_bp)
 register_auth_guard(app)
 
 
@@ -180,6 +182,12 @@ def index():
             'POST   /api/canned',
             'PUT    /api/canned/<id>',
             'DELETE /api/canned/<id>',
+        ],
+        'certs': [
+            'GET    /api/certs  (optional ?division=, ?status=, ?q=)',
+            'POST   /api/certs',
+            'PUT    /api/certs/<id>',
+            'DELETE /api/certs/<id>',
         ],
     })
 
