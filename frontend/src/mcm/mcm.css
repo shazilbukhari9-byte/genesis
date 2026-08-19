@@ -95,11 +95,6 @@ button{font-family:inherit}
 .phd{background:#fff;border-bottom:1px solid #dde3ec;padding:14px 24px 0}
 .phd .bc{font-size:11.5px;color:#93a0b3;margin-bottom:5px}
 .phd .bc a{color:#c9401a;cursor:pointer;text-decoration:none}
-<<<<<<< HEAD
-.phd .tt{display:flex;align-items:center;gap:12px}
-.phd h1{font-size:19px;font-weight:600;color:#152550}
-.phd .rt{margin-left:auto;display:flex;gap:8px}
-=======
 .phd .tt{display:flex;align-items:center;gap:12px;flex-wrap:wrap;row-gap:10px}
 .phd h1{font-size:19px;font-weight:600;color:#152550}
 .phd .rt{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;row-gap:8px;align-items:center}
@@ -112,7 +107,6 @@ button{font-family:inherit}
 .ws-sec-hdr .tag{font-weight:500}
 .ws-sec-hdr .lnk{font-weight:500!important;margin-left:auto}
 .ws-list-box{box-shadow:0 1px 4px rgba(21,37,80,.07);border-radius:10px!important;padding:10px 16px!important}
->>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
 .tabs{display:flex;gap:2px;margin-top:12px}
 .tabs .tb{padding:8px 14px;font-size:12.5px;color:#5b6a7d;cursor:pointer;border-bottom:3px solid transparent}
 .tabs .tb:hover{color:#152550}
@@ -559,8 +553,6 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .subs-modal .sm-b textarea { min-height: 70px; }
 .subs-modal .sm-f { padding: 11px 16px; border-top: 1px solid #e4e9f0; display: flex; gap: 8px; justify-content: flex-end; background: #fbfcfe; }
 .subs-modal .sm-ok { font-size: 13px; color: #1a7a4a; line-height: 1.5; display: flex; align-items: flex-start; gap: 8px; }
-<<<<<<< HEAD
-=======
 
 /* ============ AUTHORIZED ORGANIZATIONS (AuthOrg) REDESIGN ============ */
 
@@ -760,4 +752,3 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 #pf_body table.dt th{padding:11px 17px}
 #pf_body table.dt td{padding:12px 17px}
 #pf_body table.dt tbody tr:hover td{background:#f7f9fd}
->>>>>>> 2ca736438226df3e9d34ce710779ce4eb6064e7e
