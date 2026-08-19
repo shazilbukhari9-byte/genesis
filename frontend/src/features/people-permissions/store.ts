@@ -423,9 +423,6 @@ export async function assignLicence(personId: string, license: string): Promise<
   return fetchDirectory();
 }
 
-// CSV columns: name,email,title,department,division,license,skills
-// Skills use Skill:proficiency separated by ';', e.g. "Billing:5;Sales:3".
-// Name and email are mandatory. Unknown divisions fall back to Home.
 // CSV columns: name,email,title,department,division,license
 // Skills aren't backend-persisted yet, so the skills column (if present) is
 // parsed but discarded — a follow-up once ACD Skills has its own backend.
