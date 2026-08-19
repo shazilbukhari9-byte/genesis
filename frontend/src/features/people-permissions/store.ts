@@ -1,4 +1,56 @@
 import type { DirectoryData, Division, Group, Person, Role, SimpleEntity } from "./types";
+import { apiFetch } from "../shared/backend";
+
+// People (this file's `people` list only — Roles/Divisions/Groups/Skills/
+// Languages below are still localStorage-backed, a separate follow-up) are
+// backed by the real `users` table via the generic /api/people resource
+// registered in backend/resources.py. roles/skills/langs aren't columns on
+// that table yet, so they come back empty from the backend for now.
+interface BackendPerson {
+  id: number;
+  name: string;
+  email: string | null;
+  license_code: string | null;
+  state: string;
+  division: string | null;
+  title: string | null;
+  dept: string | null;
+  station: string | null;
+  ext: string | null;
+}
+
+function fromBackendPerson(u: BackendPerson): Person {
+  return {
+    id: String(u.id),
+    name: u.name,
+    email: u.email ?? "",
+    title: u.title ?? "",
+    dept: u.dept ?? "",
+    division: u.division ?? "",
+    roles: [],
+    license: u.license_code ?? "",
+    skills: {},
+    langs: [],
+    station: u.station ?? "",
+    state: (u.state as Person["state"]) || "Active",
+    created: "",
+    ext: u.ext ?? "",
+  };
+}
+
+function toBackendPerson(person: Partial<Person>): Record<string, unknown> {
+  return {
+    name: person.name,
+    email: person.email,
+    license_code: person.license,
+    state: person.state,
+    division: person.division,
+    title: person.title,
+    dept: person.dept,
+    station: person.station,
+    ext: person.ext,
+  };
+}
 
 // -----------------------------------------------------------------------------
 // Shared data layer for every People & Permissions page (People, Roles,
@@ -164,49 +216,45 @@ function writeStore(data: DirectoryData): void {
 }
 
 export async function fetchDirectory(): Promise<DirectoryData> {
-  return delay(readStore());
+  const data = readStore();
+  try {
+    const users = await apiFetch<BackendPerson[]>("/api/people?limit=500");
+    data.people = users.map(fromBackendPerson);
+  } catch {
+    // offline / not logged in yet — fall back to whatever was last cached locally
+  }
+  return data;
 }
 
 export async function upsertPerson(person: Omit<Person, "id" | "created"> & { id?: string }): Promise<DirectoryData> {
-  const data = readStore();
+  const payload = toBackendPerson(person);
   if (person.id) {
-    const idx = data.people.findIndex((p) => p.id === person.id);
-    if (idx >= 0) {
-      const existing = data.people[idx];
-      if (existing) {
-        data.people[idx] = { ...existing, ...person, id: person.id, created: existing.created };
-        logAudit("Edit person", person.name);
-      }
-    }
+    await apiFetch(`/api/people/${person.id}`, { method: "PUT", body: JSON.stringify(payload) });
+    logAudit("Edit person", person.name);
   } else {
-    const created = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-    data.people.push({ ...person, id: uid(), created });
+    await apiFetch("/api/people", { method: "POST", body: JSON.stringify({ ...payload, state: person.state || "Active" }) });
     logAudit("Create person", person.name);
   }
-  writeStore(data);
-  return delay(data);
+  return fetchDirectory();
 }
 
 export async function deletePerson(id: string): Promise<DirectoryData> {
-  const data = readStore();
-  const person = data.people.find((p) => p.id === id);
-  data.people = data.people.filter((p) => p.id !== id);
-  if (person) logAudit("Delete person", person.name);
-  writeStore(data);
-  return delay(data);
+  await apiFetch(`/api/people/${id}`, { method: "DELETE" });
+  logAudit("Delete person", `person #${id}`);
+  return fetchDirectory();
 }
 
 export async function bulkUpdatePeople(ids: string[], action: "activate" | "deactivate" | "delete"): Promise<DirectoryData> {
-  const data = readStore();
   if (action === "delete") {
-    data.people = data.people.filter((p) => !ids.includes(p.id));
+    await Promise.all(ids.map((id) => apiFetch(`/api/people/${id}`, { method: "DELETE" }).catch(() => undefined)));
   } else {
     const state = action === "activate" ? "Active" : "Inactive";
-    data.people = data.people.map((p) => (ids.includes(p.id) ? { ...p, state } : p));
+    await Promise.all(
+      ids.map((id) => apiFetch(`/api/people/${id}`, { method: "PUT", body: JSON.stringify({ state }) }).catch(() => undefined)),
+    );
   }
   logAudit("Bulk " + action, ids.length + " people");
-  writeStore(data);
-  return delay(data);
+  return fetchDirectory();
 }
 
 export async function upsertRole(role: Omit<Role, "id" | "base"> & { id?: string }): Promise<DirectoryData> {
@@ -348,68 +396,44 @@ export async function deleteSimpleEntity(kind: SimpleEntityKind, id: string): Pr
 }
 
 export async function assignLicence(personId: string, license: string): Promise<DirectoryData> {
-  const data = readStore();
-  const person = data.people.find((p) => p.id === personId);
-  if (person) {
-    const old = person.license;
-    person.license = license;
-    logAudit("Change licence", `${person.name}: ${old} → ${license}`);
-  }
-  writeStore(data);
-  return delay(data);
+  await apiFetch(`/api/people/${personId}`, { method: "PUT", body: JSON.stringify({ license_code: license }) });
+  logAudit("Change licence", `person #${personId} → ${license}`);
+  return fetchDirectory();
 }
 
 // CSV columns: name,email,title,department,division,license,skills
 // Skills use Skill:proficiency separated by ';', e.g. "Billing:5;Sales:3".
 // Name and email are mandatory. Unknown divisions fall back to Home.
+// CSV columns: name,email,title,department,division,license
+// Skills aren't backend-persisted yet, so the skills column (if present) is
+// parsed but discarded — a follow-up once ACD Skills has its own backend.
 export async function bulkImportPeopleCsv(csvText: string): Promise<{ data: DirectoryData; imported: number; errors: string[] }> {
-  const data = readStore();
   const errors: string[] = [];
   let imported = 0;
   const lines = csvText.split("\n").map((l) => l.trim()).filter(Boolean);
   const startIdx = lines[0]?.toLowerCase().startsWith("name,") ? 1 : 0;
-  const homeId = data.divisions.find((d) => d.home)?.id ?? "d_home";
-  const created = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
   for (let i = startIdx; i < lines.length; i++) {
     const cols = (lines[i] ?? "").split(",").map((c) => c.trim());
-    const [name, email, title = "", dept = "", divisionName = "", license = "CX 1", skillsStr = ""] = cols;
+    const [name, email, title = "", dept = "", divisionName = "", license = "CX 1"] = cols;
     if (!name || !email) {
       errors.push(`Row ${i + 1}: name and email are required`);
       continue;
     }
-    const division = data.divisions.find((d) => d.name.toLowerCase() === divisionName.toLowerCase())?.id ?? homeId;
-    const skills: Record<string, number> = {};
-    skillsStr
-      .split(";")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .forEach((pair) => {
-        const [skillName, level] = pair.split(":");
-        if (skillName) skills[skillName.trim()] = Number(level) || 1;
+    try {
+      await apiFetch("/api/people", {
+        method: "POST",
+        body: JSON.stringify({ name, email, title, dept, division: divisionName, license_code: license, state: "Active" }),
       });
-    data.people.push({
-      id: uid(),
-      name,
-      email,
-      title,
-      dept,
-      division,
-      roles: [],
-      license,
-      skills,
-      langs: [],
-      station: "WebRTC softphone",
-      state: "Pending invite",
-      created,
-      ext: "",
-    });
-    imported++;
+      imported++;
+    } catch (e) {
+      errors.push(`Row ${i + 1}: ${e instanceof Error ? e.message : "import failed"}`);
+    }
   }
 
   if (imported > 0) logAudit("CSV import", `${imported} people`);
-  writeStore(data);
-  return delay({ data, imported, errors });
+  const data = await fetchDirectory();
+  return { data, imported, errors };
 }
 
 export async function exportAllDirectoryData(): Promise<DirectoryData> {

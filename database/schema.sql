@@ -18,6 +18,12 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
 -- set: d_home/d_ret/d_dig/d_col/d_man) rather than a normalised divisions
 -- table + FK — there's no other real usage of divisions as entities yet.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS division TEXT;
+-- People page (frontend/src/features/people-permissions) fields — plain
+-- text, same reasoning as division above.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS dept TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS station TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ext TEXT;
 
 CREATE TABLE IF NOT EXISTS usage_log (
   id SERIAL PRIMARY KEY,

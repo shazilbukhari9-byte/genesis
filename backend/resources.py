@@ -19,6 +19,15 @@ back onto real data.
 """
 
 REGISTRY = {
+    # People & Permissions' People page (frontend/src/features/people-permissions) —
+    # reuses the real `users` table rather than a separate one.
+    "people": dict(
+        table="users",
+        order="name",
+        fields=["tenant_id", "name", "email", "license_code", "state", "division", "title", "dept", "station", "ext"],
+        search=["name", "email"],
+        perm=None,
+    ),
     "purchases": dict(
         table="purchases",
         order="purchased_at DESC, id DESC",
