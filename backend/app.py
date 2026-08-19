@@ -26,6 +26,7 @@ from adherence import adherence_bp
 from canned import canned_bp
 from certs import certs_bp
 from contactlists import contactlists_bp
+from dataact import dataact_bp
 import config
 import init_db
 
@@ -55,6 +56,7 @@ app.register_blueprint(adherence_bp)
 app.register_blueprint(canned_bp)
 app.register_blueprint(certs_bp)
 app.register_blueprint(contactlists_bp)
+app.register_blueprint(dataact_bp)
 register_auth_guard(app)
 
 
@@ -225,6 +227,13 @@ def index():
             'POST   /api/contactlists/<id>/contacts/import',
             'DELETE /api/contactlists/<id>/contacts/<contact_id>',
             'PATCH  /api/contactlists/<id>/contacts/<contact_id>/dnc',
+        ],
+        'dataact': [
+            'GET    /api/dataact  (optional ?integration=, ?division=, ?status=, ?q=)',
+            'POST   /api/dataact',
+            'PUT    /api/dataact/<id>',
+            'DELETE /api/dataact/<id>',
+            'POST   /api/dataact/<id>/test',
         ],
     })
 

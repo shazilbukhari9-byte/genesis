@@ -187,6 +187,34 @@ CONTACT_LISTS = [
     ),
 ]
 
+# Matches frontend/src/mcm/dataact-redesign.ts's DATA_ACTIONS_FALLBACK exactly
+# — the same 9 data actions the page's static prototype HTML used to hardcode
+# (id, name, integration, method, endpoint, contract, division, avg_latency_ms,
+# status, last_error). Legacy_Balance_Lookup keeps its seeded 'Failing' state
+# until someone runs Test Action on it (which recomputes deterministically —
+# see backend/dataact.py's _simulate_test — and would keep it Failing anyway
+# since its endpoint contains 'legacy').
+DATA_ACTIONS = [
+    ('da-crm-lookup-customer', 'CRM_Lookup_Customer', 'Salesforce', 'GET', '/services/data/v60.0/query',
+     'ani → tier, name, accountId', 'd_home', 410, 'Published', ''),
+    ('da-crm-create-case', 'CRM_Create_Case', 'Salesforce', 'POST', '/services/data/v60.0/sobjects/Case',
+     'subject, desc → caseId', 'd_home', 620, 'Published', ''),
+    ('da-verify-account-pin', 'Verify_Account_PIN', 'Web Services', 'POST', 'https://api.mcmgroup.example/verify',
+     'accountId, pin → valid', 'd_col', 180, 'Published', ''),
+    ('da-get-invoice-balance', 'Get_Invoice_Balance', 'Web Services', 'GET', 'https://api.mcmgroup.example/billing/{id}',
+     'accountId → balance, dueDate', 'd_col', 240, 'Published', ''),
+    ('da-snow-open-incident', 'SNOW_Open_Incident', 'ServiceNow', 'POST', '/api/now/table/incident',
+     'short_desc → number', 'd_dig', 780, 'Published', ''),
+    ('da-snow-get-incident', 'SNOW_Get_Incident', 'ServiceNow', 'GET', '/api/now/table/incident',
+     'number → state, assignee', 'd_dig', 350, 'Published', ''),
+    ('da-post-callback-request', 'Post_Callback_Request', 'Web Services', 'POST', 'https://api.mcmgroup.example/callback',
+     'number, window → ref', 'd_ret', 200, 'Published', ''),
+    ('da-get-delivery-status', 'Get_Delivery_Status', 'Web Services', 'GET', 'https://api.mcmgroup.example/track',
+     'orderId → status, eta', 'd_ret', 1240, 'Slow', ''),
+    ('da-legacy-balance-lookup', 'Legacy_Balance_Lookup', 'Web Services', 'GET', 'https://legacy.mcm.local/bal',
+     'accountId → balance', 'd_man', None, 'Failing', 'Connection refused (503)'),
+]
+
 USERS = [
     ('Faisal Khan', 'fkhan@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
     ('Adnan Shaikh', 'ashaikh@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
@@ -288,6 +316,17 @@ def run():
                 'INSERT INTO contacts (id, tenant_id, list_id, data) VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
                 (contact_id, tenant_id, list_id, contact),
             )
+
+    for da_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error in DATA_ACTIONS:
+        cur.execute(
+            """
+            INSERT INTO data_actions (id, tenant_id, name, integration, method, endpoint, contract, division,
+                                       avg_latency_ms, status, last_error)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (da_id, tenant_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error),
+        )
 
     cur.execute('SELECT COUNT(*) AS n FROM users')
     if cur.fetchone()['n'] == 0:

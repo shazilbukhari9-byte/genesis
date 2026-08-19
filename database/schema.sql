@@ -1331,3 +1331,33 @@ CREATE INDEX IF NOT EXISTS idx_contacts_tenant ON contacts(tenant_id);
 DROP TRIGGER IF EXISTS trg_contacts_touch ON contacts;
 CREATE TRIGGER trg_contacts_touch BEFORE UPDATE ON contacts
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Data Actions Module — backs frontend/src/mcm/dataact-redesign.ts's
+-- Integrations > Data Actions page (see backend/dataact.py for the
+-- /api/dataact endpoints). avg_latency_ms/status/last_error are written by
+-- the Test Action endpoint (a deterministic simulated call — this prototype
+-- has no real Salesforce/ServiceNow/web-service backends to reach, and a
+-- backend that made outbound requests to a user-editable endpoint field
+-- would be an SSRF risk), not hand-edited through the drawer.
+CREATE TABLE IF NOT EXISTS data_actions (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  integration TEXT NOT NULL DEFAULT 'Web Services',   -- Salesforce | ServiceNow | Web Services
+  method TEXT NOT NULL DEFAULT 'GET',
+  endpoint TEXT NOT NULL DEFAULT '',
+  contract TEXT NOT NULL DEFAULT '',                  -- short request → response summary, e.g. 'ani → tier, name'
+  division TEXT NOT NULL DEFAULT '',                  -- '' = not division-scoped, else d_home/d_ret/d_dig/d_col/d_man
+  avg_latency_ms INTEGER,
+  status TEXT NOT NULL DEFAULT 'Draft',               -- Draft | Published | Slow | Failing
+  last_error TEXT NOT NULL DEFAULT '',
+  last_tested_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_data_actions_tenant ON data_actions(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_data_actions_touch ON data_actions;
+CREATE TRIGGER trg_data_actions_touch BEFORE UPDATE ON data_actions
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();

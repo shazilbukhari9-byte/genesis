@@ -14,6 +14,7 @@ import { BACKEND_SYNC_SCRIPT } from "../mcm/backend-sync";
 import { CANNED_SCRIPT } from "../mcm/canned-redesign";
 import { CERTS_SCRIPT } from "../mcm/certs-redesign";
 import { CONTACTLISTS_SCRIPT } from "../mcm/contactlists-redesign";
+import { DATAACT_SCRIPT } from "../mcm/dataact-redesign";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
@@ -222,6 +223,14 @@ function McmCloudCx() {
     contactListsScript.type = "text/javascript";
     contactListsScript.textContent = CONTACTLISTS_SCRIPT;
     document.body.appendChild(contactListsScript);
+
+    // Patches window.SNAP.dataact (Data Actions) with real, backend-
+    // connected data — same visual page, dead Search/Filter/Create/Test/
+    // Delete actions made real. See mcm/dataact-redesign.ts.
+    const dataactScript = document.createElement("script");
+    dataactScript.type = "text/javascript";
+    dataactScript.textContent = DATAACT_SCRIPT;
+    document.body.appendChild(dataactScript);
 
     // Re-assert the toast bridge (see lib/global-toast.tsx) now that
     // MCM_SCRIPT has run and defined its own window.toast — this call is
