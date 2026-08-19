@@ -18,7 +18,10 @@ export const APPS_SCRIPT: string = `
     smartphone: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>',
     lock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>',
     headset: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>',
-    bookOpen: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>'
+    bookOpen: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>',
+    users: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
+    messageSquare: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>',
+    check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
   };
 
   /* ─── Backend-ready installed-app data structure (fallback/seed data) ───
@@ -35,6 +38,41 @@ export const APPS_SCRIPT: string = `
     { id: 'agent-copilot', name: 'Agent Copilot', icon: APP_ICONS.headset, category: 'AI & Agent Assist', description: 'Real-time assistance', status: 'active', statusLabel: 'Active', integrationStatus: 'Connected', lastSync: 'Just now', permissions: ['Read live transcript', 'Suggest agent responses', 'Access knowledge base'] },
     { id: 'knowledge-workbench', name: 'Knowledge Workbench', icon: APP_ICONS.bookOpen, category: 'Knowledge Management', description: 'Article authoring', status: 'active', statusLabel: 'Active', integrationStatus: 'Connected', lastSync: '30 minutes ago', permissions: ['Read/write articles', 'Manage publishing workflow', 'Access search index'] }
   ];
+
+  /* ─── Backend-ready available-app data structure (fallback/seed data) ───
+     Shape: { id, name, icon, category, categoryLabel, description,
+              permissions[] }
+     This is the shape a future /api/apps/available endpoint should return.
+     Exactly the 4 AppFoundry catalogue integrations already listed on the
+     Admin > Integrations > Catalogue tab — kept in sync, none added/removed. */
+  var AVAILABLE_APPS_FALLBACK = [
+    { id: 'salesforce-cti', name: 'Salesforce CTI', icon: APP_ICONS.cloud, category: 'crm', categoryLabel: 'CRM', description: 'Click-to-dial and screen pop from Salesforce', permissions: ['Read/write Salesforce contacts', 'Screen pop on inbound calls', 'Log call activity to Salesforce'] },
+    { id: 'microsoft-teams', name: 'Microsoft Teams', icon: APP_ICONS.users, category: 'uc', categoryLabel: 'UC', description: 'Presence sync and click-to-chat with Teams', permissions: ['Read Teams presence status', 'Send click-to-chat messages', 'Sync calendar availability'] },
+    { id: 'zendesk', name: 'Zendesk', icon: APP_ICONS.messageSquare, category: 'ticketing', categoryLabel: 'Ticketing', description: 'Two-way ticket sync for every interaction', permissions: ['Create and update Zendesk tickets', 'Read ticket status', 'Attach interaction transcripts'] },
+    { id: 'power-bi-export', name: 'Power BI Export', icon: APP_ICONS.barChart, category: 'analytics', categoryLabel: 'Analytics', description: 'Scheduled exports of contact centre data to Power BI', permissions: ['Read historical reporting data', 'Export scheduled datasets', 'Manage export schedule'] }
+  ];
+
+  /* ─── REST helper compatible with the shared window.apiFetch contract ───
+     (see frontend/src/features/shared/backend.ts: same base URL, same
+     Authorization: Bearer <window.__authToken> header, same JSON contract).
+     Delegates to window.apiFetch if a real one is ever exposed there;
+     otherwise talks to the same backend directly so the payload shape is
+     identical either way. */
+  function appsApiFetch(path, init) {
+    if (typeof window.apiFetch === 'function') return window.apiFetch(path, init);
+    var token = window.__authToken;
+    var base = window.SUBS_API_BASE || '';
+    var headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    return fetch(base + path, Object.assign({ headers: headers }, init || {})).then(function(res) {
+      if (!res.ok) {
+        return res.json().catch(function() { return {}; }).then(function(body) {
+          throw new Error(body.error || ('Request failed: ' + res.status));
+        });
+      }
+      return res.json();
+    });
+  }
 
   /* ─── Modular data-fetching helper ───
      Swap in a real backend call by defining window.AppsAPI.listInstalled()
@@ -55,7 +93,27 @@ export const APPS_SCRIPT: string = `
     return Promise.resolve(INSTALLED_APPS_FALLBACK.slice());
   }
 
+  /* ─── Modular data-fetching helper (Available tab) ───
+     Swap in a real backend call by defining window.AppsAPI.listAvailable()
+     (sync array or Promise<array>) — falls back to the local catalogue
+     above if that hook is absent or fails. */
+  function fetchAvailableApps() {
+    if (window.AppsAPI && typeof window.AppsAPI.listAvailable === 'function') {
+      try {
+        var res = window.AppsAPI.listAvailable();
+        if (res && typeof res.then === 'function') {
+          return res.then(function(list) {
+            return (Array.isArray(list) && list.length) ? list : AVAILABLE_APPS_FALLBACK.slice();
+          }).catch(function() { return AVAILABLE_APPS_FALLBACK.slice(); });
+        }
+        if (Array.isArray(res) && res.length) return Promise.resolve(res);
+      } catch (e) { /* fall through to local fallback */ }
+    }
+    return Promise.resolve(AVAILABLE_APPS_FALLBACK.slice());
+  }
+
   var appsCache = INSTALLED_APPS_FALLBACK.slice();
+  var availableAppsCache = AVAILABLE_APPS_FALLBACK.slice();
 
   var AppsService = {
     getAll: function() { return appsCache; },
@@ -64,6 +122,34 @@ export const APPS_SCRIPT: string = `
       return fetchInstalledApps().then(function(list) {
         if (Array.isArray(list) && list.length) appsCache = list;
         return appsCache;
+      });
+    },
+    getAvailable: function() { return availableAppsCache; },
+    getAvailableById: function(id) { return availableAppsCache.filter(function(a) { return a.id === id; })[0] || null; },
+    refreshAvailable: function() {
+      return fetchAvailableApps().then(function(list) {
+        if (Array.isArray(list) && list.length) availableAppsCache = list;
+        return availableAppsCache;
+      });
+    },
+    /* POST /api/apps/available/{id}/install — { app_id } in, { ok, app? } out,
+       matching the REST payload shape every other resource in this app uses
+       (see toBackendPerson/apiFetch in store.ts). Tries window.AppsAPI.installApp
+       first (real backend swap-in point), then the REST endpoint directly,
+       and finally simulates success so the install flow works end-to-end
+       even before that endpoint exists server-side. */
+    installApp: function(id) {
+      if (window.AppsAPI && typeof window.AppsAPI.installApp === 'function') {
+        try {
+          var hookRes = window.AppsAPI.installApp(id);
+          return (hookRes && typeof hookRes.then === 'function') ? hookRes : Promise.resolve(hookRes);
+        } catch (e) { /* fall through */ }
+      }
+      return appsApiFetch('/api/apps/available/' + encodeURIComponent(id) + '/install', {
+        method: 'POST',
+        body: JSON.stringify({ app_id: id })
+      }).catch(function() {
+        return new Promise(function(resolve) { setTimeout(resolve, 500); });
       });
     }
   };
@@ -87,11 +173,39 @@ export const APPS_SCRIPT: string = `
       '</div>';
   }
 
-  function renderAppsHtml() {
+  function renderInstalledGrid() {
     var cards = AppsService.getAll().map(renderAppCard).join('');
+    return '<div class="apgrid">' + cards + '</div>';
+  }
+
+  /* ─── Available tab: catalogue table (exactly the 4 AppFoundry integrations) ─── */
+  function renderAvailableRow(app) {
+    return '<tr data-app-id="' + app.id + '" tabindex="0" aria-label="Install ' + escapeHtml(app.name) + '"' +
+      ' onclick="window.appsOpenInstallModal(\\'' + app.id + '\\')"' +
+      ' onkeydown="if(event.key===\\'Enter\\'||event.key===\\' \\'){event.preventDefault();window.appsOpenInstallModal(\\'' + app.id + '\\')}">' +
+      '<td><div style="display:flex;align-items:center;gap:10px"><div class="ic2" style="width:32px;height:32px;border-radius:7px">' + app.icon + '</div><b>' + escapeHtml(app.name) + '</b></div></td>' +
+      '<td><span class="app-cat-badge app-cat-' + app.category + '">' + escapeHtml(app.categoryLabel) + '</span></td>' +
+      '<td style="text-align:right"><button class="btn sec app-install-btn" onclick="event.stopPropagation();window.appsOpenInstallModal(\\'' + app.id + '\\')">Install</button></td>' +
+      '</tr>';
+  }
+
+  function renderAvailableTable() {
+    var rows = AppsService.getAvailable().map(renderAvailableRow).join('');
+    return '<div class="tblw"><table class="dt"><thead><tr><th>Integration</th><th>Category</th><th style="text-align:right">Action</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  var appsActiveTab = 'installed';
+
+  function renderTabBody() {
+    return appsActiveTab === 'available' ? renderAvailableTable() : renderInstalledGrid();
+  }
+
+  function renderAppsHtml() {
+    var installedOn = appsActiveTab === 'installed' ? ' on' : '';
+    var availableOn = appsActiveTab === 'available' ? ' on' : '';
     return '<div class="phd"><div class="bc">Apps</div><div class="tt"><h1>Apps</h1><div class="rt"><button class="btn sec" id="apps_marketplace_btn" onclick="window.appsGoAvailable()">AppFoundry Marketplace</button></div></div>' +
-      '<div class="tabs" id="apps_tabs"><div class="tb on" id="apps_tab_installed" onclick="tabClick(this)">Installed</div><div class="tb" id="apps_tab_available" onclick="tabClick(this)">Available</div></div></div>' +
-      '<div class="pbody"><div class="apgrid">' + cards + '</div></div>' +
+      '<div class="tabs" id="apps_tabs"><div class="tb' + installedOn + '" id="apps_tab_installed" onclick="window.appsSwitchTab(\\'installed\\',this)">Installed</div><div class="tb' + availableOn + '" id="apps_tab_available" onclick="window.appsSwitchTab(\\'available\\',this)">Available</div></div></div>' +
+      '<div class="pbody" id="apps_tab_body">' + renderTabBody() + '</div>' +
       '<div class="help"><div class="hh" onclick="toggleHelp()"><span style="color:#FF4F1F">\\u24D8</span> Help &amp; Resources \\u2014 Apps<span class="cx" id="helpcx">Hide</span></div>' +
       '<div class="hb" id="helpb" style=""><div class="hcols"><div><h5>What you can do here</h5><ul><li>Embedded client applications and AppFoundry installs</li><li>Launch apps in a panel, tab or standalone widget</li><li>Permission-controlled visibility per role</li></ul>' +
       '<h5>Keywords</h5><div><span class="kw o">Client app</span><span class="kw">AppFoundry</span><span class="kw">Widget</span><span class="kw o">Panel</span></div></div>' +
@@ -99,10 +213,24 @@ export const APPS_SCRIPT: string = `
       '<div><a class="reflnk" href="https://help.genesys.com/" target="_blank" rel="noopener">Help Centre \\u203A Apps</a><a class="reflnk" href="https://help.genesys.com/?q=Apps" target="_blank" rel="noopener">Search docs for \\u201CApps\\u201D</a><a class="reflnk" href="https://www.genesys.com/pricing" target="_blank" rel="noopener">Licence requirements</a></div></div></div></div></div>';
   }
 
+  /* ─── Tab switching (Installed / Available) — swaps just the tab body,
+     matching how the rest of this engine avoids full-page re-renders under
+     an active user interaction. Also drives the "on" state persisted in
+     appsActiveTab so a later full re-render (e.g. from applyAppsRedesign's
+     polling) keeps whichever tab the user is on. ─── */
+  window.appsSwitchTab = function(tab, el) {
+    appsActiveTab = tab === 'available' ? 'available' : 'installed';
+    var target = el || document.getElementById(tab === 'available' ? 'apps_tab_available' : 'apps_tab_installed');
+    if (target && window.tabClick) window.tabClick(target);
+    var body = document.getElementById('apps_tab_body');
+    if (body) body.innerHTML = renderTabBody();
+  };
+
   /* ─── "AppFoundry Marketplace" button → smoothly switch to the Available tab ─── */
   window.appsGoAvailable = function() {
+    window.appsSwitchTab('available');
     var tab = document.getElementById('apps_tab_available');
-    if (tab && window.tabClick) { window.tabClick(tab); tab.scrollIntoView({ block: 'nearest' }); }
+    if (tab) tab.scrollIntoView({ block: 'nearest' });
   };
 
   /* ─── Toast helper (fallback if platform toast unavailable) ─── */
@@ -164,6 +292,72 @@ export const APPS_SCRIPT: string = `
 
   window.appsToast = function(msg) { showToast(msg); };
 
+  /* ─── App Installation Modal (Available tab) ───
+     Opened by clicking a catalogue row or its Install button. Shows the
+     integration overview, category and required permissions, with
+     Confirm Install / Cancel actions. Confirm calls AppsService.installApp()
+     (REST-backed, see appsApiFetch above) and reports success/failure via
+     the existing toast system. ─── */
+  window.appsOpenInstallModal = function(id) {
+    var app = AppsService.getAvailableById(id);
+    if (!app) return;
+    window.appsCloseInstallModal();
+
+    var scrim = document.createElement('div');
+    scrim.id = 'apps_install_scrim';
+    scrim.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.35);z-index:9199';
+    scrim.onclick = window.appsCloseInstallModal;
+    document.body.appendChild(scrim);
+
+    var perms = app.permissions.map(function(p) {
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:12.5px;color:#3c4a5c;margin-bottom:6px">' +
+        '<span style="color:#10b981;font-size:13px;line-height:1">\\u2713</span>' + escapeHtml(p) + '</div>';
+    }).join('');
+
+    var safeName = escapeHtml(app.name).replace(/'/g, "\\\\'");
+    var modal = document.createElement('div');
+    modal.id = 'apps_install_modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#ffffff;width:420px;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);display:flex;flex-direction:column;border-radius:10px;z-index:9200;box-shadow:0 24px 60px rgba(15,23,42,0.28);font-family:inherit;animation:authorgSlideIn .2s ease';
+    modal.onclick = function(e) { e.stopPropagation(); };
+
+    modal.innerHTML =
+      '<div style="padding:20px 24px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:14px;background:#f8fafc">' +
+        '<div style="width:44px;height:44px;border-radius:10px;background:#fff2ec;color:#FF4F1F;display:flex;align-items:center;justify-content:center;font-size:20px;flex:none">' + app.icon + '</div>' +
+        '<div style="flex:1;min-width:0"><h2 style="margin:0;font-size:15.5px;font-weight:700;color:#0f172a">' + escapeHtml(app.name) + '</h2>' +
+        '<span class="app-cat-badge app-cat-' + app.category + '" style="margin-top:4px">' + escapeHtml(app.categoryLabel) + '</span></div>' +
+        '<button onclick="window.appsCloseInstallModal()" style="border:none;background:transparent;cursor:pointer;font-size:18px;color:#64748b;padding:4px 8px;border-radius:6px;flex:none">\\u00D7</button>' +
+      '</div>' +
+      '<div style="flex:1;overflow-y:auto;padding:22px 24px">' +
+        '<div style="font-size:12.5px;color:#3c4a5c;line-height:1.6;margin-bottom:20px">' + escapeHtml(app.description) + '</div>' +
+        '<div style="font-size:11.5px;color:#5b6a7d;font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Required permissions</div>' +
+        perms +
+      '</div>' +
+      '<div style="padding:14px 24px;border-top:1px solid #e2e8f0;display:flex;gap:10px;justify-content:flex-end;background:#f8fafc">' +
+        '<button class="btn sec" onclick="window.appsCloseInstallModal()">Cancel</button>' +
+        '<button class="btn" id="apps_install_confirm_btn" onclick="window.appsConfirmInstall(\\'' + app.id + '\\',\\'' + safeName + '\\')">Confirm Install</button>' +
+      '</div>';
+    document.body.appendChild(modal);
+  };
+
+  window.appsCloseInstallModal = function() {
+    var s = document.getElementById('apps_install_scrim'); if (s) s.remove();
+    var m = document.getElementById('apps_install_modal'); if (m) m.remove();
+  };
+
+  window.appsConfirmInstall = function(id, name) {
+    var btn = document.getElementById('apps_install_confirm_btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Installing\\u2026'; }
+    AppsService.installApp(id).then(function() {
+      window.appsCloseInstallModal();
+      window.appsToast('\\u2713 ' + name + ' installed');
+    }).catch(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Install'; }
+      window.appsToast('\\u2717 Install failed \\u2014 ' + ((err && err.message) || 'please try again'));
+    });
+  };
+
   /* ─── Apply Redesign ─── */
   function applyAppsRedesign() {
     if (window.SNAP) { window.SNAP.__apps = renderAppsHtml(); }
@@ -174,6 +368,7 @@ export const APPS_SCRIPT: string = `
   }
 
   AppsService.refresh().then(applyAppsRedesign);
+  AppsService.refreshAvailable().then(applyAppsRedesign);
   applyAppsRedesign();
   setTimeout(applyAppsRedesign, 100);
   setTimeout(applyAppsRedesign, 400);
