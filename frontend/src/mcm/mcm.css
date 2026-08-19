@@ -349,26 +349,23 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 
 /* ============ SUBSCRIPTION PAGE REDESIGN ============ */
 
-/* ── Billing countdown banner ── */
-.subs-banner{background:linear-gradient(90deg,#152550 0%,#1d3169 100%);border-radius:8px;padding:13px 20px;display:flex;align-items:center;gap:18px;margin-bottom:18px;flex-wrap:wrap}
-.subs-banner .sb-item{display:flex;flex-direction:column;gap:2px}
-.subs-banner .sb-item span{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:700}
-.subs-banner .sb-item b{font-size:13.5px;color:#fff;font-weight:600}
-.subs-banner .sb-sep{width:1px;height:32px;background:rgba(255,255,255,.15)}
-.subs-banner .sb-sp{flex:1}
-.subs-banner .sb-cta{background:#FF4F1F;color:#fff;border:none;border-radius:5px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
-.subs-banner .sb-cta:hover{background:#e8451a}
-.subs-banner .sb-cycle{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;padding:4px 10px;font-size:11.5px;color:rgba(255,255,255,.75)}
+/* ── Billing summary card — light slate card, matches the rest of the
+   Admin console (authorg/apps use the same #dde3ec border + #fff card
+   convention) instead of a heavy dark navy strip. No CTA button here —
+   the page header's "+ Manage Plan" button is the single primary action,
+   so duplicating it inside the card was removed rather than restyled. ── */
+.subs-banner{background:#f8fafc;border:1px solid #d5dce7;border-radius:8px;padding:16px 22px;display:flex;align-items:center;gap:22px;margin-bottom:22px;flex-wrap:wrap;box-shadow:0 1px 3px rgba(20,35,70,.04)}
+.subs-banner .sb-item{display:flex;flex-direction:column;gap:5px}
+.subs-banner .sb-item span{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#93a0b3;font-weight:700}
+.subs-banner .sb-item b{font-size:14px;color:#152550;font-weight:600}
+.subs-banner .sb-sep{width:1px;height:32px;background:#e4e9f0}
 
-/* ── KPI summary cards (subscription variant) ── */
-.subs-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
-.subs-kpi{background:#fff;border:1px solid #dde3ec;border-radius:8px;padding:16px 18px;position:relative;overflow:hidden}
-.subs-kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
-.subs-kpi.c-navy::before{background:#152550}
-.subs-kpi.c-green::before{background:#2eab6b}
-.subs-kpi.c-amber::before{background:#e8a33d}
-.subs-kpi.c-red::before{background:#d9534f}
-.subs-kpi.c-brand::before{background:#FF4F1F}
+/* ── KPI summary cards (subscription variant) — clean 1px border + soft
+   shadow, no colored top bar; status is carried entirely by the sk-badge
+   pill (e.g. "1% used", "All healthy") like every other status pill in
+   this design system (authorg-status, sc-tier, st). ── */
+.subs-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.subs-kpi{background:#fff;border:1px solid #dde3ec;border-radius:8px;padding:17px 18px;position:relative;box-shadow:0 1px 3px rgba(20,35,70,.05)}
 .subs-kpi .sk-label{font-size:10.5px;letter-spacing:.9px;text-transform:uppercase;color:#93a0b3;font-weight:700;margin-bottom:8px;display:block}
 .subs-kpi .sk-val{font-size:24px;font-weight:700;color:#152550;line-height:1;margin-bottom:5px;display:block}
 .subs-kpi .sk-sub{font-size:11.5px;color:#5b6a7d;display:block}
@@ -380,7 +377,7 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 /* ── Alert / At-risk strip ── */
 .subs-alert{background:#fff8f0;border:1px solid #ffd3b0;border-left:4px solid #FF4F1F;border-radius:6px;padding:12px 16px;margin-bottom:18px}
 .subs-alert .sa-head{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:#8a3a00;margin-bottom:8px}
-.subs-alert .sa-head .sa-icon{font-size:15px}
+.subs-alert .sa-head .sa-icon{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:5px;background:#fff3cd;color:#8a5c00;flex:none}
 .subs-alert .sa-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #ffe4c8;font-size:12px}
 .subs-alert .sa-row:last-child{border-bottom:none;padding-bottom:0}
 .subs-alert .sa-dot{width:7px;height:7px;border-radius:50%;background:#d9534f;flex:none}
@@ -391,8 +388,8 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 
 /* ── Licence product cards grid ── */
 .subs-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:20px}
-.subs-card{background:#fff;border:1px solid #dde3ec;border-radius:8px;overflow:hidden;transition:box-shadow .15s}
-.subs-card:hover{box-shadow:0 4px 18px rgba(20,35,70,.12)}
+.subs-card{background:#fff;border:1px solid #dde3ec;border-radius:8px;overflow:hidden;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease}
+.subs-card:hover{border-color:#FF4F1F;box-shadow:0 8px 20px rgba(15,23,42,.09);transform:translateY(-2px)}
 .subs-card .sc-head{padding:13px 16px 11px;border-bottom:1px solid #eef1f6;display:flex;align-items:flex-start;gap:10px}
 .subs-card .sc-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none}
 .sc-icon.cx1{background:#e3f2fd;color:#1565c0}
@@ -434,7 +431,7 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .subs-card .sc-add:hover{background:#FF4F1F;color:#fff}
 
 /* ── AI Token gauge ── */
-.subs-token-wrap{background:#fff;border:1px solid #dde3ec;border-radius:8px;padding:16px 18px;margin-bottom:20px}
+.subs-token-wrap{background:#fff;border:1px solid #dde3ec;border-radius:8px;padding:16px 18px;margin-bottom:20px;box-shadow:0 1px 3px rgba(20,35,70,.05)}
 .subs-token-wrap h4{font-size:12.5px;font-weight:700;color:#152550;margin-bottom:12px;display:flex;align-items:center;gap:8px}
 .subs-token-wrap h4 .tk-badge{background:#fff2ec;color:#c9401a;font-size:10.5px;padding:2px 8px;border-radius:9px;font-weight:700}
 .tk-bar-track{height:14px;background:#eef1f6;border-radius:7px;overflow:hidden;margin-bottom:8px;position:relative}
@@ -443,7 +440,7 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .tk-stats{display:flex;justify-content:space-between;font-size:11.5px;color:#5b6a7d}
 .tk-stats b{color:#152550}
 .tk-warn{background:#fff8e1;border:1px solid #ffe082;border-radius:5px;padding:7px 11px;font-size:12px;color:#8a5c00;margin-top:10px;display:flex;align-items:center;gap:7px}
-.tk-warn .tw-icon{font-size:13px}
+.tk-warn .tw-icon{display:inline-flex;align-items:center;flex:none}
 
 /* ── Enhanced table with utilisation bars ── */
 .subs-table .util-bar{width:120px}
@@ -510,44 +507,8 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .inv-card-row { transition: box-shadow .15s; }
 .inv-card-row:hover { box-shadow: 0 3px 14px rgba(20,35,70,.1); }
 
-/* ============ SUBSCRIPTION SPACING OVERRIDES ============ */
+/* ============ SUBSCRIPTION PAGE — MISC ============ */
 
-/* Tighten section divider */
-.subs-sec { margin: 14px 0 8px; font-size: 10.5px; }
-
-/* Tighten KPI cards */
-.subs-kpis { gap: 10px; margin-bottom: 12px; }
-.subs-kpi  { padding: 12px 14px; }
-.subs-kpi .sk-val { font-size: 20px; margin-top: 4px; margin-bottom: 3px; }
-.subs-kpi .sk-label { font-size: 10px; }
-.subs-kpi .sk-sub { font-size: 11px; }
-
-/* Tighten billing banner */
-.subs-banner { padding: 9px 16px; gap: 14px; margin-bottom: 12px; border-radius: 6px; }
-.subs-banner .sb-item span { font-size: 9.5px; }
-.subs-banner .sb-item b { font-size: 12.5px; }
-.subs-banner .sb-sep { height: 24px; }
-
-/* Tighten alert */
-.subs-alert { padding: 9px 14px; margin-bottom: 12px; }
-.subs-alert .sa-head { font-size: 12px; margin-bottom: 6px; }
-.subs-alert .sa-row { padding: 5px 0; font-size: 11.5px; }
-
-/* Tighten token wrap */
-.subs-token-wrap { padding: 12px 14px; margin-bottom: 12px; }
-.subs-token-wrap h4 { font-size: 12px; margin-bottom: 9px; }
-
-/* Tighten usage chart rows */
-.usage-chart { padding: 10px 14px; }
-.uc-row { margin-bottom: 8px; }
-.uc-label { font-size: 11.5px; }
-.uc-fill { font-size: 10.5px; }
-.uc-val { font-size: 11.5px; }
-
-/* Tighten inv-card */
-.inv-card { padding: 9px 14px; gap: 11px; }
-.inv-card .ic-amount { font-size: 13.5px; }
-.inv-card .ic-amount small { font-size: 10px; }
 /* Working tabs on the Subscription page */
 .subs-tabpane { display: none; }
 .subs-tabpane.on { display: block; }
@@ -557,7 +518,7 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .subs-hdr-badge.err { background: #fdecea; color: #b3261e; }
 
 /* Utilisation legend under the KPI row */
-.subs-legend { display: flex; align-items: center; gap: 16px; font-size: 11.5px; color: #5b6a7d; margin: -6px 0 16px; padding: 0 2px; flex-wrap: wrap; }
+.subs-legend { display: flex; align-items: center; gap: 16px; font-size: 11.5px; color: #5b6a7d; margin: 0 0 20px; padding: 0 2px; flex-wrap: wrap; }
 .subs-legend > span:first-child { font-weight: 700; color: #93a0b3; text-transform: uppercase; letter-spacing: .6px; font-size: 10.5px; }
 .subs-legend .lg-item { display: flex; align-items: center; gap: 5px; }
 .subs-legend .lg-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
