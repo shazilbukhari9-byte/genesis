@@ -41,6 +41,22 @@ REGISTRY = {
         search=["name"],
         perm=None,
     ),
+    # Roles and Groups (People & Permissions) — both have an integer id,
+    # so unlike divisions they fit the generic <int:row_id> routes directly.
+    "roles": dict(
+        table="roles",
+        order="name",
+        fields=["tenant_id", "name", "description", "base", "perms"],
+        search=["name"],
+        perm=None,
+    ),
+    "groups": dict(
+        table="people_groups",
+        order="name",
+        fields=["tenant_id", "name", "type", "ext", "ring", "members", "vm"],
+        search=["name"],
+        perm=None,
+    ),
     "purchases": dict(
         table="purchases",
         order="purchased_at DESC, id DESC",

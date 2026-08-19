@@ -59,12 +59,46 @@ interface BackendLicense {
   unit_price: number;
 }
 
+interface BackendRole {
+  id: number;
+  name: string;
+  description: string | null;
+  base: boolean;
+  perms: string[] | null;
+}
+
+interface BackendGroup {
+  id: number;
+  name: string;
+  type: string;
+  ext: string | null;
+  ring: string;
+  members: string[] | null;
+  vm: boolean;
+}
+
 function fromBackendDivision(d: BackendDivision): Division {
   return { id: d.code, name: d.name, desc: d.description ?? "", home: d.is_home };
 }
 
 function fromBackendSimpleEntity(e: BackendSimpleEntity): SimpleEntity {
   return { id: String(e.id), name: e.name, desc: e.description ?? "" };
+}
+
+function fromBackendRole(r: BackendRole): Role {
+  return { id: String(r.id), name: r.name, desc: r.description ?? "", base: r.base, perms: r.perms ?? [] };
+}
+
+function fromBackendGroup(g: BackendGroup): Group {
+  return {
+    id: String(g.id),
+    name: g.name,
+    type: (g.type as Group["type"]) || "Official",
+    ext: g.ext ?? "",
+    ring: (g.ring as Group["ring"]) || "Sequential",
+    members: g.members ?? [],
+    vm: g.vm,
+  };
 }
 
 function toBackendPerson(person: Partial<Person>): Record<string, unknown> {
@@ -96,10 +130,6 @@ const SIMULATED_LATENCY_MS = 200;
 
 function delay<T>(value: T): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), SIMULATED_LATENCY_MS));
-}
-
-function uid(): string {
-  return "id" + Math.random().toString(36).slice(2, 10);
 }
 
 function logAudit(action: string, detail: string): void {
@@ -274,6 +304,18 @@ export async function fetchDirectory(): Promise<DirectoryData> {
   } catch {
     // keep local skills/langs
   }
+  try {
+    const roles = await apiFetch<BackendRole[]>("/api/roles?limit=500");
+    data.roles = roles.map(fromBackendRole);
+  } catch {
+    // keep local roles
+  }
+  try {
+    const groups = await apiFetch<BackendGroup[]>("/api/groups?limit=500");
+    data.groups = groups.map(fromBackendGroup);
+  } catch {
+    // keep local groups
+  }
   return data;
 }
 
@@ -309,32 +351,21 @@ export async function bulkUpdatePeople(ids: string[], action: "activate" | "deac
 }
 
 export async function upsertRole(role: Omit<Role, "id" | "base"> & { id?: string }): Promise<DirectoryData> {
-  const data = readStore();
+  const payload = { name: role.name, description: role.desc, perms: role.perms };
   if (role.id) {
-    const idx = data.roles.findIndex((r) => r.id === role.id);
-    if (idx >= 0) {
-      const existing = data.roles[idx];
-      if (existing) {
-        data.roles[idx] = { ...existing, ...role, id: role.id, base: existing.base };
-        logAudit("Edit role", role.name);
-      }
-    }
+    await apiFetch(`/api/roles/${role.id}`, { method: "PUT", body: JSON.stringify(payload) });
+    logAudit("Edit role", role.name);
   } else {
-    data.roles.push({ ...role, id: uid(), base: false });
+    await apiFetch("/api/roles", { method: "POST", body: JSON.stringify({ ...payload, base: false }) });
     logAudit("Create role", role.name);
   }
-  writeStore(data);
-  return delay(data);
+  return fetchDirectory();
 }
 
 export async function deleteRole(id: string): Promise<DirectoryData> {
-  const data = readStore();
-  const role = data.roles.find((r) => r.id === id);
-  data.roles = data.roles.filter((r) => r.id !== id);
-  data.people = data.people.map((p) => ({ ...p, roles: p.roles.filter((r) => r !== id) }));
-  if (role) logAudit("Delete role", role.name);
-  writeStore(data);
-  return delay(data);
+  await apiFetch(`/api/roles/${id}`, { method: "DELETE" });
+  logAudit("Delete role", `role #${id}`);
+  return fetchDirectory();
 }
 
 export async function upsertDivision(division: Omit<Division, "id" | "home"> & { id?: string }): Promise<DirectoryData> {
@@ -361,28 +392,21 @@ export async function deleteDivision(id: string): Promise<DirectoryData> {
 }
 
 export async function upsertGroup(group: Omit<Group, "id"> & { id?: string }): Promise<DirectoryData> {
-  const data = readStore();
+  const payload = { name: group.name, type: group.type, ext: group.ext, ring: group.ring, members: group.members, vm: group.vm };
   if (group.id) {
-    const idx = data.groups.findIndex((g) => g.id === group.id);
-    if (idx >= 0) {
-      data.groups[idx] = { ...data.groups[idx], ...group, id: group.id };
-      logAudit("Edit group", group.name);
-    }
+    await apiFetch(`/api/groups/${group.id}`, { method: "PUT", body: JSON.stringify(payload) });
+    logAudit("Edit group", group.name);
   } else {
-    data.groups.push({ ...group, id: uid() });
+    await apiFetch("/api/groups", { method: "POST", body: JSON.stringify(payload) });
     logAudit("Create group", group.name);
   }
-  writeStore(data);
-  return delay(data);
+  return fetchDirectory();
 }
 
 export async function deleteGroup(id: string): Promise<DirectoryData> {
-  const data = readStore();
-  const group = data.groups.find((g) => g.id === id);
-  data.groups = data.groups.filter((g) => g.id !== id);
-  if (group) logAudit("Delete group", group.name);
-  writeStore(data);
-  return delay(data);
+  await apiFetch(`/api/groups/${id}`, { method: "DELETE" });
+  logAudit("Delete group", `group #${id}`);
+  return fetchDirectory();
 }
 
 export type SimpleEntityKind = "skills" | "langs";
