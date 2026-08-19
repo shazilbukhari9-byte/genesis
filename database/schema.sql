@@ -362,3 +362,35 @@ CREATE TABLE IF NOT EXISTS platform_config (
   value TEXT,
   PRIMARY KEY (tenant_id, key)
 );
+
+-- ============================================================
+-- People & Permissions — Divisions, ACD Skills, ACD Languages
+-- (frontend/src/features/people-permissions). These were purely
+-- localStorage-backed on the frontend; this is real backing for them.
+-- Roles/Groups/SSO/OAuth Clients in that same feature area need their
+-- own join tables and aren't covered here — a separate follow-up.
+-- ============================================================
+
+-- code (not a serial id) is the primary key, and it's the SAME slug already
+-- stored in users.division (d_home/d_ret/d_dig/d_col/d_man, from the
+-- Performance-page work) — so a person's division tag resolves to a real
+-- name here with no separate join/id-mapping layer.
+CREATE TABLE IF NOT EXISTS divisions (
+  code TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  is_home BOOLEAN NOT NULL DEFAULT false
+);
+
+-- ACD Skills and ACD Languages are both just a flat named-list entity —
+-- one table with a `kind` discriminator rather than two near-identical ones.
+CREATE TABLE IF NOT EXISTS simple_entities (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,   -- 'skill' | 'lang'
+  name TEXT NOT NULL,
+  description TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_simple_entities_tenant_kind ON simple_entities(tenant_id, kind);

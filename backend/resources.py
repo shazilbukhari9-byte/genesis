@@ -28,6 +28,19 @@ REGISTRY = {
         search=["name", "email"],
         perm=None,
     ),
+    # divisions is NOT here — its primary key is a text `code`, not an
+    # integer id, so it can't use these <int:row_id> routes. See app.py's
+    # dedicated /api/divisions routes instead.
+    # ACD Skills and ACD Languages are the same table (simple_entities),
+    # filtered by ?kind=skill or ?kind=lang — kind is in `fields` so the
+    # generic list handler already supports that query param filter.
+    "simple-entities": dict(
+        table="simple_entities",
+        order="name",
+        fields=["tenant_id", "kind", "name", "description"],
+        search=["name"],
+        perm=None,
+    ),
     "purchases": dict(
         table="purchases",
         order="purchased_at DESC, id DESC",

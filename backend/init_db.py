@@ -17,6 +17,14 @@ SCHEMA_PATH = os.path.join(os.path.dirname(__file__), '..', 'database', 'schema.
 # pattern to keep once real users outnumber seed data.
 DEMO_PASSWORD_HASH = generate_password_hash('demo1234')
 
+DIVISIONS = [
+    ('d_home', 'Home', 'Default division — cannot be deleted', True),
+    ('d_ret', 'UK Retail', 'Retail contact centre', False),
+    ('d_dig', 'UK Digital', 'Digital / messaging teams', False),
+    ('d_col', 'UK Collections', 'Collections & recoveries', False),
+    ('d_man', 'Partner — Manila', 'BPO partner site', False),
+]
+
 LICENSES = [
     ('CX 1', 'CX 1 — Voice', 40, 75),
     ('CX 2', 'CX 2 — Digital', 60, 115),
@@ -61,6 +69,12 @@ def run():
         cur.execute('INSERT INTO tenants (name) VALUES (%s) RETURNING id', (os.environ.get('OG_DEFAULT_TENANT', 'MCM Group'),))
         tenant = cur.fetchone()
     tenant_id = tenant['id']
+
+    for div_code, name, description, is_home in DIVISIONS:
+        cur.execute(
+            'INSERT INTO divisions (code, tenant_id, name, description, is_home) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (code) DO NOTHING',
+            (div_code, tenant_id, name, description, is_home),
+        )
 
     for code, label, purchased, unit_price in LICENSES:
         cur.execute(

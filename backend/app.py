@@ -103,6 +103,91 @@ def index():
     })
 
 
+def _slugify_division_name(name):
+    slug = re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+    return slug or 'division'
+
+
+@app.route('/api/divisions', methods=['GET', 'POST'])
+def divisions_collection():
+    """Dedicated (not generic-registry) routes — divisions.code is a text
+    primary key, not the int id the registry's routes assume."""
+    conn = get_db()
+    cur = conn.cursor()
+
+    if request.method == 'POST':
+        data = request.get_json(force=True) or {}
+        name = data.get('name')
+        if not name:
+            conn.close()
+            return jsonify({'ok': False, 'error': 'name required'}), 400
+        base = _slugify_division_name(name)
+        code = base
+        suffix = 1
+        while True:
+            cur.execute('SELECT 1 FROM divisions WHERE code = %s', (code,))
+            if cur.fetchone() is None:
+                break
+            suffix += 1
+            code = f'{base}_{suffix}'
+        cur.execute(
+            'INSERT INTO divisions (code, tenant_id, name, description, is_home) VALUES (%s,%s,%s,%s,%s) RETURNING *',
+            (code, g.tenant_id, name, data.get('description', ''), bool(data.get('is_home', False))),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        conn.close()
+        return jsonify(dict(row)), 201
+
+    cur.execute('SELECT * FROM divisions WHERE tenant_id = %s ORDER BY name', (g.tenant_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/divisions/<code>', methods=['PUT', 'PATCH', 'DELETE'])
+def divisions_item(code):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM divisions WHERE code = %s AND tenant_id = %s', (code, g.tenant_id))
+    existing = cur.fetchone()
+    if existing is None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'not found'}), 404
+
+    if request.method == 'DELETE':
+        if existing['is_home']:
+            conn.close()
+            return jsonify({'ok': False, 'error': 'the default division cannot be deleted'}), 409
+        cur.execute('DELETE FROM divisions WHERE code = %s', (code,))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+
+    data = request.get_json(force=True) or {}
+    cur.execute(
+        'UPDATE divisions SET name = COALESCE(%s, name), description = COALESCE(%s, description), is_home = COALESCE(%s, is_home) WHERE code = %s RETURNING *',
+        (data.get('name'), data.get('description'), data.get('is_home'), code),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return jsonify(dict(row))
+
+
+@app.route('/api/licenses')
+def list_licenses():
+    """Plain list of the licenses table — kept outside the generic resource
+    registry since that table's primary key is `code` (text), not an
+    integer id, so the registry's <int:row_id> routes don't fit it."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT code, label, purchased, unit_price FROM licenses ORDER BY code')
+    rows = cur.fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
 @app.route('/api/subscription/overview')
 def overview():
     conn = get_db()

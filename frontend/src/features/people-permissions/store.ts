@@ -38,6 +38,35 @@ function fromBackendPerson(u: BackendPerson): Person {
   };
 }
 
+interface BackendDivision {
+  code: string;
+  name: string;
+  description: string | null;
+  is_home: boolean;
+}
+
+interface BackendSimpleEntity {
+  id: number;
+  kind: string;
+  name: string;
+  description: string | null;
+}
+
+interface BackendLicense {
+  code: string;
+  label: string;
+  purchased: number;
+  unit_price: number;
+}
+
+function fromBackendDivision(d: BackendDivision): Division {
+  return { id: d.code, name: d.name, desc: d.description ?? "", home: d.is_home };
+}
+
+function fromBackendSimpleEntity(e: BackendSimpleEntity): SimpleEntity {
+  return { id: String(e.id), name: e.name, desc: e.description ?? "" };
+}
+
 function toBackendPerson(person: Partial<Person>): Record<string, unknown> {
   return {
     name: person.name,
@@ -223,6 +252,28 @@ export async function fetchDirectory(): Promise<DirectoryData> {
   } catch {
     // offline / not logged in yet — fall back to whatever was last cached locally
   }
+  try {
+    const divisions = await apiFetch<BackendDivision[]>("/api/divisions");
+    data.divisions = divisions.map(fromBackendDivision);
+  } catch {
+    // keep local divisions
+  }
+  try {
+    const licenses = await apiFetch<BackendLicense[]>("/api/licenses");
+    data.licenses = Object.fromEntries(licenses.map((l) => [l.code, l.purchased]));
+  } catch {
+    // keep local licenses
+  }
+  try {
+    const [skills, langs] = await Promise.all([
+      apiFetch<BackendSimpleEntity[]>("/api/simple-entities?kind=skill"),
+      apiFetch<BackendSimpleEntity[]>("/api/simple-entities?kind=lang"),
+    ]);
+    data.skills = skills.map(fromBackendSimpleEntity);
+    data.langs = langs.map(fromBackendSimpleEntity);
+  } catch {
+    // keep local skills/langs
+  }
   return data;
 }
 
@@ -287,30 +338,26 @@ export async function deleteRole(id: string): Promise<DirectoryData> {
 }
 
 export async function upsertDivision(division: Omit<Division, "id" | "home"> & { id?: string }): Promise<DirectoryData> {
-  const data = readStore();
   if (division.id) {
-    const idx = data.divisions.findIndex((d) => d.id === division.id);
-    if (idx >= 0) {
-      data.divisions[idx] = { ...data.divisions[idx], ...division, id: division.id };
-      logAudit("Edit division", division.name);
-    }
+    await apiFetch(`/api/divisions/${division.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name: division.name, description: division.desc }),
+    });
+    logAudit("Edit division", division.name);
   } else {
-    data.divisions.push({ ...division, id: uid() });
+    await apiFetch("/api/divisions", {
+      method: "POST",
+      body: JSON.stringify({ name: division.name, description: division.desc }),
+    });
     logAudit("Create division", division.name);
   }
-  writeStore(data);
-  return delay(data);
+  return fetchDirectory();
 }
 
 export async function deleteDivision(id: string): Promise<DirectoryData> {
-  const data = readStore();
-  const division = data.divisions.find((d) => d.id === id);
-  const home = data.divisions.find((d) => d.home)?.id ?? "d_home";
-  data.divisions = data.divisions.filter((d) => d.id !== id);
-  data.people = data.people.map((p) => (p.division === id ? { ...p, division: home } : p));
-  if (division) logAudit("Delete division", division.name);
-  writeStore(data);
-  return delay(data);
+  await apiFetch(`/api/divisions/${id}`, { method: "DELETE" });
+  logAudit("Delete division", `division ${id}`);
+  return fetchDirectory();
 }
 
 export async function upsertGroup(group: Omit<Group, "id"> & { id?: string }): Promise<DirectoryData> {
@@ -340,59 +387,34 @@ export async function deleteGroup(id: string): Promise<DirectoryData> {
 
 export type SimpleEntityKind = "skills" | "langs";
 
+// roles/skills/langs aren't columns on `users` yet (see the People-page
+// connection notes above), so unlike the old localStorage version this no
+// longer tries to rename references to a skill/language on people — there's
+// nothing real to rename until those get their own backing.
 export async function upsertSimpleEntity(kind: SimpleEntityKind, entity: Omit<SimpleEntity, "id"> & { id?: string }): Promise<DirectoryData> {
-  const data = readStore();
-  const list = data[kind];
+  const backendKind = kind === "skills" ? "skill" : "lang";
+  const label = kind === "skills" ? "skill" : "language";
   if (entity.id) {
-    const idx = list.findIndex((e) => e.id === entity.id);
-    const existing = idx >= 0 ? list[idx] : undefined;
-    if (idx >= 0 && existing) {
-      const oldName = existing.name;
-      list[idx] = { ...existing, ...entity, id: entity.id };
-      if (kind === "skills" && oldName !== entity.name) {
-        data.people = data.people.map((p) => {
-          const level = p.skills[oldName];
-          if (level === undefined) return p;
-          const skills = { ...p.skills };
-          skills[entity.name] = level;
-          delete skills[oldName];
-          return { ...p, skills };
-        });
-      }
-      if (kind === "langs" && oldName !== entity.name) {
-        data.people = data.people.map((p) =>
-          p.langs.includes(oldName) ? { ...p, langs: p.langs.map((l) => (l === oldName ? entity.name : l)) } : p,
-        );
-      }
-      logAudit("Edit " + (kind === "skills" ? "skill" : "language"), entity.name);
-    }
+    await apiFetch(`/api/simple-entities/${entity.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name: entity.name, description: entity.desc }),
+    });
+    logAudit("Edit " + label, entity.name);
   } else {
-    list.push({ ...entity, id: uid() });
-    logAudit("Create " + (kind === "skills" ? "skill" : "language"), entity.name);
+    await apiFetch("/api/simple-entities", {
+      method: "POST",
+      body: JSON.stringify({ kind: backendKind, name: entity.name, description: entity.desc }),
+    });
+    logAudit("Create " + label, entity.name);
   }
-  writeStore(data);
-  return delay(data);
+  return fetchDirectory();
 }
 
 export async function deleteSimpleEntity(kind: SimpleEntityKind, id: string): Promise<DirectoryData> {
-  const data = readStore();
-  const entity = data[kind].find((e) => e.id === id);
-  data[kind] = data[kind].filter((e) => e.id !== id);
-  if (entity) {
-    if (kind === "skills") {
-      data.people = data.people.map((p) => {
-        if (!(entity.name in p.skills)) return p;
-        const skills = { ...p.skills };
-        delete skills[entity.name];
-        return { ...p, skills };
-      });
-    } else {
-      data.people = data.people.map((p) => ({ ...p, langs: p.langs.filter((l) => l !== entity.name) }));
-    }
-    logAudit("Delete " + (kind === "skills" ? "skill" : "language"), entity.name);
-  }
-  writeStore(data);
-  return delay(data);
+  const label = kind === "skills" ? "skill" : "language";
+  await apiFetch(`/api/simple-entities/${id}`, { method: "DELETE" });
+  logAudit("Delete " + label, `#${id}`);
+  return fetchDirectory();
 }
 
 export async function assignLicence(personId: string, license: string): Promise<DirectoryData> {
