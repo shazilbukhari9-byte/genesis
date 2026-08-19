@@ -573,3 +573,37 @@ CREATE TABLE IF NOT EXISTS people_groups (
   members TEXT[] NOT NULL DEFAULT '{}',
   vm BOOLEAN NOT NULL DEFAULT false
 );
+
+-- ============================================================
+-- Apps Module — installed/available integrations catalogue backing
+-- frontend/src/mcm/apps-redesign.ts's Apps > Installed / Available tabs
+-- (see backend/apps.py for the /api/apps/* endpoints). One table for both
+-- lists (same pattern as simple_entities' kind discriminator above): a row
+-- is "available" while installed = false and moves into "installed" the
+-- same way any other toggle would, rather than being copied into a second
+-- table — install/uninstall is just flipping that flag plus its status
+-- fields, not a structural move.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS apps (
+  id TEXT PRIMARY KEY,                 -- stable slug, e.g. 'salesforce-cti' — matches the frontend's app.id
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,              -- machine code: 'crm' | 'uc' | 'ticketing' | 'analytics' | ...
+  category_label TEXT NOT NULL,        -- display label shown in the category badge
+  description TEXT NOT NULL DEFAULT '',
+  icon TEXT NOT NULL DEFAULT '',       -- icon key the frontend maps to an SVG (see APP_ICONS in apps-redesign.ts)
+  permissions TEXT[] NOT NULL DEFAULT '{}',
+  installed BOOLEAN NOT NULL DEFAULT false,
+  status TEXT NOT NULL DEFAULT 'inactive',           -- 'active' | 'inactive' | 'error'
+  status_label TEXT NOT NULL DEFAULT 'Inactive',
+  integration_status TEXT NOT NULL DEFAULT 'Not connected',
+  last_sync_label TEXT,                -- human text ('2 minutes ago') — this app has no real sync engine yet
+  installed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_apps_tenant_installed ON apps(tenant_id, installed);
+
+DROP TRIGGER IF EXISTS trg_apps_touch ON apps;
+CREATE TRIGGER trg_apps_touch BEFORE UPDATE ON apps
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();

@@ -17,6 +17,7 @@ from platform_config import platform_config_bp
 from telephony import telephony_bp
 from alerts import alerts_bp
 from directory import directory_bp
+from apps import apps_bp
 import config
 import init_db
 
@@ -38,6 +39,7 @@ app.register_blueprint(platform_config_bp)
 app.register_blueprint(telephony_bp)
 app.register_blueprint(alerts_bp)
 app.register_blueprint(directory_bp)
+app.register_blueprint(apps_bp)
 register_auth_guard(app)
 
 
@@ -111,6 +113,13 @@ def index():
         'config': [
             'GET /api/config   (secrets_set only, never real secret values)',
             'PUT /api/config   (blank value on a secret field leaves it unchanged)',
+        ],
+        'apps': [
+            'GET    /api/apps/installed',
+            'GET    /api/apps/available',
+            'POST   /api/apps/available/<id>/install',
+            'PUT    /api/apps/installed/<id>',
+            'DELETE /api/apps/installed/<id>',
         ],
     })
 
