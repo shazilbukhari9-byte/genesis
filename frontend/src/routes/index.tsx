@@ -10,6 +10,7 @@ import { MCM_SCRIPT } from "../mcm/scripts";
 import { AUTHORG_SCRIPT } from "../mcm/authorg-redesign";
 import { DIRECTORY_SCRIPT } from "../mcm/directory-redesign";
 import { APPS_SCRIPT } from "../mcm/apps-redesign";
+import { CANNED_SCRIPT } from "../mcm/canned-redesign";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
@@ -186,6 +187,14 @@ function McmCloudCx() {
     appsScript.type = "text/javascript";
     appsScript.textContent = APPS_SCRIPT;
     document.body.appendChild(appsScript);
+
+    // Same pattern again — overrides scripts.ts's bare-bones
+    // renderCannedFx/editCannedFx/saveCannedFx/delCannedFx with a fully
+    // interactive, filterable, backend-ready Canned Responses page.
+    const cannedScript = document.createElement("script");
+    cannedScript.type = "text/javascript";
+    cannedScript.textContent = CANNED_SCRIPT;
+    document.body.appendChild(cannedScript);
 
     // Re-assert the toast bridge (see lib/global-toast.tsx) now that
     // MCM_SCRIPT has run and defined its own window.toast — this call is
