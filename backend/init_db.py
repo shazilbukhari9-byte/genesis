@@ -135,6 +135,58 @@ CANNED_RESPONSES = [
      '2026-01-18T12:00:00Z', '2026-01-18T12:00:00Z'),
 ]
 
+# Matches frontend/src/mcm/certs-redesign.ts's CERTIFICATES_FALLBACK exactly
+# — the same 7 certificates the page's static prototype HTML used to hardcode
+# (id, name, purpose, issued_to, issuer, division, valid_from, expires_at).
+# '' division = not division-scoped (root/global CAs).
+CERTIFICATES = [
+    ('cert-byoc-sbc-2026', 'byoc-sbc-2026.pem', 'BYOC trunk', 'sbc.mcmgroup.example', 'DigiCert TLS RSA',
+     'd_home', '2026-02-14', '2027-02-14'),
+    ('cert-edge-hq-lon-01', 'edge-hq-lon-01.pem', 'Edge SIP TLS', 'edge-hq-lon-01.mcm.local', 'MCM Internal CA',
+     'd_home', '2026-01-02', '2027-01-02'),
+    ('cert-edge-hq-lon-02', 'edge-hq-lon-02.pem', 'Edge SIP TLS', 'edge-hq-lon-02.mcm.local', 'MCM Internal CA',
+     'd_home', '2026-01-02', '2027-01-02'),
+    ('cert-entra-signing-2026', 'entra-signing-2026.cer', 'SAML signing', 'sts.windows.net', 'Microsoft',
+     '', '2026-02-14', '2027-02-14'),
+    ('cert-partner-mtls-northstar', 'partner-mtls-northstar.pem', 'Mutual TLS', 'api.northstarbpo.example', 'Sectigo',
+     'd_man', '2025-08-30', '2026-08-30'),
+    ('cert-legacy-pbx-2024', 'legacy-pbx-2024.pem', 'PBX trunk', 'pbx.mcm.local', 'MCM Internal CA',
+     'd_ret', '2024-11-11', '2025-11-11'),
+    ('cert-mcm-internal-root', 'mcm-internal-root.pem', 'Root CA', 'MCM Internal CA', 'Self-signed',
+     '', '2024-01-01', '2034-01-01'),
+]
+
+# Matches frontend/src/mcm/contactlists-redesign.ts's CONTACT_LISTS_FALLBACK
+# exactly — the same 2 lists (13 contacts total) scripts.ts's ensureOB()
+# used to seed DB.contactLists in-memory on first page load.
+CONTACT_LISTS = [
+    (
+        'cl-collections-q3-uk', 'Collections_Q3_UK', 'd_col',
+        ['FirstName', 'LastName', 'Phone', 'Balance', 'TimeZone'],
+        [
+            {'FirstName': 'Oliver', 'LastName': 'Smith', 'Phone': '+447700900101', 'Balance': '£240.50', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Amelia', 'LastName': 'Jones', 'Phone': '+447700900102', 'Balance': '£1,120.00', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Harry', 'LastName': 'Williams', 'Phone': '+447700900103', 'Balance': '£86.20', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Isla', 'LastName': 'Brown', 'Phone': '+447700900104', 'Balance': '£410.00', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'George', 'LastName': 'Taylor', 'Phone': '+447700900105', 'Balance': '£55.75', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Ava', 'LastName': 'Davies', 'Phone': '+447700900106', 'Balance': '£730.10', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Jack', 'LastName': 'Evans', 'Phone': '+447700900107', 'Balance': '£199.99', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Emily', 'LastName': 'Thomas', 'Phone': '+447700900108', 'Balance': '£315.40', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Noah', 'LastName': 'Roberts', 'Phone': '+447700900109', 'Balance': '£67.00', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Mia', 'LastName': 'Walker', 'Phone': '+447700900110', 'Balance': '£925.60', 'TimeZone': 'Europe/London'},
+        ],
+    ),
+    (
+        'cl-renewal-reminders', 'Renewal_Reminders', 'd_ret',
+        ['FirstName', 'LastName', 'Phone', 'RenewalDate'],
+        [
+            {'FirstName': 'Priya', 'LastName': 'Shah', 'Phone': '+447700900201', 'RenewalDate': '15 Sep 2026'},
+            {'FirstName': 'Tom', 'LastName': 'Hughes', 'Phone': '+447700900202', 'RenewalDate': '18 Sep 2026'},
+            {'FirstName': 'Zara', 'LastName': 'Khan', 'Phone': '+447700900203', 'RenewalDate': '21 Sep 2026'},
+        ],
+    ),
+]
+
 USERS = [
     ('Faisal Khan', 'fkhan@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
     ('Adnan Shaikh', 'ashaikh@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
@@ -213,6 +265,29 @@ def run():
             (cr_id, tenant_id, name, category, CANNED_CATEGORY_LABELS.get(category, 'General'), body,
              _extract_substitution_fields(body), created_at, updated_at),
         )
+
+    for cert_id, name, purpose, issued_to, issuer, division, valid_from, expires_at in CERTIFICATES:
+        cur.execute(
+            """
+            INSERT INTO certificates (id, tenant_id, name, purpose, issued_to, issuer, division,
+                                       valid_from, expires_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (cert_id, tenant_id, name, purpose, issued_to, issuer, division, valid_from, expires_at),
+        )
+
+    for list_id, name, division, cols, contacts in CONTACT_LISTS:
+        cur.execute(
+            'INSERT INTO contact_lists (id, tenant_id, name, division, cols) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+            (list_id, tenant_id, name, division, cols),
+        )
+        for contact in contacts:
+            contact_id = list_id + '-' + re.sub(r'[^0-9]', '', contact['Phone'])[-6:]
+            cur.execute(
+                'INSERT INTO contacts (id, tenant_id, list_id, data) VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+                (contact_id, tenant_id, list_id, contact),
+            )
 
     cur.execute('SELECT COUNT(*) AS n FROM users')
     if cur.fetchone()['n'] == 0:

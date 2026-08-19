@@ -201,6 +201,13 @@ CREATE TABLE IF NOT EXISTS queues (
   max_wait_s INTEGER NOT NULL DEFAULT 300
 );
 
+-- Admin > Contact Center > Queues page edits a much richer object (members,
+-- routing strategy, bullseye rings, ACW, division) than ACD/analytics need —
+-- name/max_wait_s above stay exactly as every other query already depends
+-- on; the admin-only fields live in config so nothing else has to change.
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS division TEXT;
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}'::jsonb;
+
 CREATE TABLE IF NOT EXISTS campaigns (
   id SERIAL PRIMARY KEY,
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -325,6 +332,47 @@ CREATE TABLE IF NOT EXISTS extension_pools (
 );
 ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS target_label TEXT;
 
+-- Admin > Quality & WEM > Forecasts page. A planning group maps route paths
+-- (queues + ACD skills + languages) to one forecast entity — queues/skills/
+-- langs are plain string arrays here (like trunks.codecs), not FKs, since
+-- the frontend already stores them as plain name lists, not ids.
+CREATE TABLE IF NOT EXISTS planning_groups (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  queues TEXT[] NOT NULL DEFAULT '{}',
+  skills TEXT[] NOT NULL DEFAULT '{}',
+  langs TEXT[] NOT NULL DEFAULT '{}'
+);
+
+-- service_goals.pgs is an int[] of planning_groups.id — Postgres doesn't
+-- support a real FK constraint on an array column, so this is enforced
+-- only by the frontend sync layer, same as other loosely-referenced
+-- fields elsewhere in this schema (e.g. trunks.codecs).
+CREATE TABLE IF NOT EXISTS service_goals (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  sl INTEGER NOT NULL DEFAULT 80,
+  sls INTEGER NOT NULL DEFAULT 20,
+  asa INTEGER NOT NULL DEFAULT 30,
+  abn INTEGER NOT NULL DEFAULT 0,
+  pgs INTEGER[] NOT NULL DEFAULT '{}'
+);
+
+-- data is the per-planning-group {vol, aht, days} breakdown, keyed by
+-- planning_groups.id (as a JSON object, so the key is textual) — opaque
+-- JSONB blob, same pattern as flows.graph / eval_forms.groups.
+CREATE TABLE IF NOT EXISTS forecasts (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  week TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Generated (ABM)',
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  UNIQUE(tenant_id, week)
+);
+
 -- Edge Groups (Admin > Telephony > Edge Groups) are plain named-list
 -- entities like ACD Skills/Languages, so they reuse simple_entities with
 -- kind='edge_group' instead of a dedicated table.
@@ -374,6 +422,44 @@ CREATE TABLE IF NOT EXISTS eval_forms (
   name TEXT NOT NULL,
   published BOOLEAN NOT NULL DEFAULT false,
   groups JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+
+-- Admin > Contact Center > Recording Policies. queues stores the local
+-- queue ids as plain text, not a real FK — same simplification as Call
+-- Routes' flow reference (see resources.py's call-routes comment).
+CREATE TABLE IF NOT EXISTS recording_policies (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  media TEXT[] NOT NULL DEFAULT '{}',
+  queues TEXT[] NOT NULL DEFAULT '{}',
+  retention INTEGER NOT NULL DEFAULT 365,
+  pct INTEGER NOT NULL DEFAULT 100,
+  active BOOLEAN NOT NULL DEFAULT true
+);
+
+-- Admin > Contact Center > Schedules (business-hours groups a flow's
+-- Schedule node checks against — distinct from Admin > WEM > Schedules,
+-- the agent-shift WFM feature, which isn't covered by this table).
+CREATE TABLE IF NOT EXISTS schedule_groups (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  open_hours TEXT,
+  holidays TEXT,
+  state TEXT NOT NULL DEFAULT 'Open'
+);
+
+-- Admin > Contact Center > Scripts (the list Script Editor opens into).
+-- Only name/type/published persist — the visual drag-drop canvas itself
+-- (scriptView(), window.SCR) is a deep in-place editor, same known gap
+-- as Architect's flow-node editing.
+CREATE TABLE IF NOT EXISTS scripts (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT,
+  published BOOLEAN NOT NULL DEFAULT false
 );
 
 -- Now that flows/queues exist, wire the interactions.flow_id FK too.
@@ -1039,4 +1125,209 @@ CREATE INDEX IF NOT EXISTS idx_message_channels_tenant ON message_channels(tenan
 
 DROP TRIGGER IF EXISTS trg_message_channels_touch ON message_channels;
 CREATE TRIGGER trg_message_channels_touch BEFORE UPDATE ON message_channels
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- Admin > Telephony > Phone Base Settings.
+CREATE TABLE IF NOT EXISTS phone_base_settings (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  model TEXT,
+  codec TEXT,
+  port INTEGER NOT NULL DEFAULT 16384
+);
+
+-- Admin > Telephony > Carrier Connections (BYOC). kind/direction/term/auth/
+-- codecs/byocSid/policySid/note vary a lot by carrier kind, so they live in
+-- config (JSONB) rather than one column each — same pattern as queues.config.
+CREATE TABLE IF NOT EXISTS byoc_trunks (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 100,
+  status TEXT NOT NULL DEFAULT 'Active',
+  locked BOOLEAN NOT NULL DEFAULT false,
+  config JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- Admin > Outbound > Campaigns page edits a richer object than acd.py's
+-- campaigns table (id/tenant_id/name only, used by the dial/monitor
+-- endpoints) had — these are purely additive. queue/script/list/dnc
+-- reference the local queue/script/contact-list/DNC-list ids as plain
+-- text, not real FKs — same simplification as Call Routes' flow reference.
+-- stats/log are simulated live-dialer runtime state, not admin-edited
+-- config, so they aren't persisted here — only what saveCamp() edits is.
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS division TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'Progressive';
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS queue_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS script_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS list_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS dnc_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS caller_id TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS caller_name TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS pace REAL NOT NULL DEFAULT 1.0;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'Off';
+
+-- ============================================================
+-- Digital Certificates Module — backs frontend/src/mcm/certs-redesign.ts's
+-- Telephony > Digital Certificates page (see backend/certs.py for the
+-- /api/certs endpoints). status ('Valid' | 'Expiring' | 'Expired') is
+-- deliberately NOT a stored column — the page's own "Expiry Monitor" tab
+-- already shows this as a live days-remaining calculation, so storing a
+-- status string here would just go stale the moment expires_at passes a
+-- threshold without anything re-writing the row. certs.py computes it from
+-- expires_at/alert_before_days on every read instead, same as the frontend
+-- fallback data does.
+CREATE TABLE IF NOT EXISTS certificates (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  purpose TEXT NOT NULL DEFAULT 'BYOC trunk',
+  issued_to TEXT NOT NULL DEFAULT '',
+  issuer TEXT NOT NULL DEFAULT '',
+  division TEXT NOT NULL DEFAULT '',      -- '' = not division-scoped (root/global CAs), else d_home/d_ret/d_dig/d_col/d_man
+  valid_from DATE,
+  expires_at DATE NOT NULL,
+  alert_before_days INTEGER NOT NULL DEFAULT 30,
+  email_alert BOOLEAN NOT NULL DEFAULT true,
+  auto_renew BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_certificates_tenant_expires ON certificates(tenant_id, expires_at);
+
+DROP TRIGGER IF EXISTS trg_certificates_touch ON certificates;
+CREATE TRIGGER trg_certificates_touch BEFORE UPDATE ON certificates
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Admin > Quality & WEM > Schedules (WFM) — a 5-sub-tab module
+-- (Schedules/Work Plans/Activity Codes/Time Off/Shift Trades), each its
+-- own entity here. agent_ref/from_ref/to_ref store the local user id as
+-- plain text (not a FK) — same simplification used throughout for
+-- cross-entity references the admin UI only ever displays, not queries.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS work_plans (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  days TEXT[] NOT NULL DEFAULT '{}',
+  shift_len INTEGER NOT NULL DEFAULT 8,
+  flex_from TEXT,
+  flex_to TEXT,
+  paid INTEGER,
+  agents TEXT[] NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS activity_codes (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category TEXT,
+  paid BOOLEAN NOT NULL DEFAULT false,
+  adherence TEXT
+);
+
+CREATE TABLE IF NOT EXISTS time_off_requests (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  agent_ref TEXT,
+  code TEXT,
+  dates TEXT,
+  day TEXT,
+  status TEXT NOT NULL DEFAULT 'Pending'
+);
+
+CREATE TABLE IF NOT EXISTS shift_trades (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  from_ref TEXT,
+  to_ref TEXT,
+  day TEXT,
+  status TEXT NOT NULL DEFAULT 'Pending'
+);
+
+-- The generated week schedule itself (genSchedule/pubSchedule/delSchedule).
+-- entries (agent -> day -> shift-or-off) is exactly the shape the frontend
+-- already computes locally, so it round-trips through data (JSONB) whole
+-- rather than being normalised — same pattern as flows.graph.
+CREATE TABLE IF NOT EXISTS wfm_schedules (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  week TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Draft',
+  data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- ============================================================
+-- Admin > Quality & WEM > Calibrations — comparing multiple evaluators'
+-- scores against the same interaction/eval-form to check scoring
+-- consistency. No local seed/functions existed for this page before —
+-- built alongside its backend connection, not just wired to one.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS calibrations (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  form_ref TEXT,
+  interaction_ref TEXT,
+  status TEXT NOT NULL DEFAULT 'In Progress',
+  evaluators JSONB NOT NULL DEFAULT '[]'::jsonb,
+  notes TEXT
+);
+
+-- ============================================================
+-- Admin > Integrations > Bot Connectors — same story as Calibrations: no
+-- local functions existed, built alongside the backend connection.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS bot_connectors (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  platform TEXT NOT NULL DEFAULT 'Custom',
+  status TEXT NOT NULL DEFAULT 'Disconnected',
+  webhook_url TEXT,
+  notes TEXT
+);
+
+-- Contact Lists Module — backs frontend/src/mcm/contactlists-redesign.ts's
+-- Outbound > Contact Lists page (see backend/contactlists.py for the
+-- /api/contactlists endpoints). Each list has its own arbitrary column set
+-- (cols), so per-contact field values live in a JSONB `data` blob keyed by
+-- those column names rather than fixed columns — same "schema owned by the
+-- list, not the table" shape scripts.ts's original in-memory DB.contactLists
+-- used (l.cols / ct.data).
+CREATE TABLE IF NOT EXISTS contact_lists (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  division TEXT NOT NULL DEFAULT '',      -- '' = not division-scoped, else d_home/d_ret/d_dig/d_col/d_man
+  cols TEXT[] NOT NULL DEFAULT ARRAY['FirstName','LastName','Phone'],
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_contact_lists_tenant ON contact_lists(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_contact_lists_touch ON contact_lists;
+CREATE TRIGGER trg_contact_lists_touch BEFORE UPDATE ON contact_lists
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+CREATE TABLE IF NOT EXISTS contacts (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  list_id TEXT NOT NULL REFERENCES contact_lists(id) ON DELETE CASCADE,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'Not attempted',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_result TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_contacts_list ON contacts(list_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_tenant ON contacts(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_contacts_touch ON contacts;
+CREATE TRIGGER trg_contacts_touch BEFORE UPDATE ON contacts
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();

@@ -24,6 +24,8 @@ from apps import apps_bp
 from authorg import authorg_bp
 from adherence import adherence_bp
 from canned import canned_bp
+from certs import certs_bp
+from contactlists import contactlists_bp
 import config
 import init_db
 
@@ -51,6 +53,8 @@ app.register_blueprint(apps_bp)
 app.register_blueprint(authorg_bp)
 app.register_blueprint(adherence_bp)
 app.register_blueprint(canned_bp)
+app.register_blueprint(certs_bp)
+app.register_blueprint(contactlists_bp)
 register_auth_guard(app)
 
 
@@ -204,6 +208,23 @@ def index():
         'message_channels': [
             'GET/POST   /api/message-channels  (filter: ?channel_type=)',
             'GET/PUT/DELETE /api/message-channels/<id>',
+        ],
+        'certs': [
+            'GET    /api/certs  (optional ?division=, ?status=, ?q=)',
+            'POST   /api/certs',
+            'PUT    /api/certs/<id>',
+            'DELETE /api/certs/<id>',
+        ],
+        'contactlists': [
+            'GET    /api/contactlists  (optional ?division=, ?q=)',
+            'GET    /api/contactlists/<id>  (includes contacts)',
+            'POST   /api/contactlists',
+            'PUT    /api/contactlists/<id>',
+            'DELETE /api/contactlists/<id>',
+            'POST   /api/contactlists/<id>/contacts',
+            'POST   /api/contactlists/<id>/contacts/import',
+            'DELETE /api/contactlists/<id>/contacts/<contact_id>',
+            'PATCH  /api/contactlists/<id>/contacts/<contact_id>/dnc',
         ],
     })
 
