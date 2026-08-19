@@ -790,3 +790,21 @@ CREATE TABLE IF NOT EXISTS voicemails (
   state TEXT NOT NULL DEFAULT 'New'     -- New | Played
 );
 CREATE INDEX IF NOT EXISTS idx_voicemails_tenant_state ON voicemails(tenant_id, state);
+
+-- Post-interaction CSAT/NPS surveys (Performance › Speech & Text tab).
+-- score/nps are still generated client-side from the same synthetic
+-- sentiment heuristic that drives the rest of that tab — there's no real
+-- customer-facing survey form yet — but the records themselves persist for
+-- real now instead of living only in a browser tab's in-memory DB.
+CREATE TABLE IF NOT EXISTS surveys (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_name TEXT,
+  agent_name TEXT,
+  queue_name TEXT,
+  score INTEGER NOT NULL,      -- CSAT, 1-5
+  nps INTEGER,                 -- 0-10
+  comment TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_surveys_tenant_created ON surveys(tenant_id, created_at DESC);
