@@ -165,5 +165,10 @@ REGISTRY = {
         fields=["tenant_id", "name", "published", "groups"],
         search=["name"],
         perm=None,
+        # groups is JSONB storing a *list* at its top level — psycopg2 only
+        # auto-adapts dict -> jsonb (see db.py), so a bare Python list needs
+        # explicit Json() wrapping (see app.py's _prep_value) or it adapts
+        # as a Postgres ARRAY literal instead and round-trips wrong.
+        json_fields=["groups"],
     ),
 }
