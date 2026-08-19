@@ -68,6 +68,29 @@ REGISTRY = {
     # tenant-scoped" — but app.py never lets a client set or filter it
     # directly: create forces it from g.tenant_id, list/get/update/delete all
     # scope by it automatically. See _tenant_scoped() in app.py.
+    "surveys": dict(
+        table="surveys",
+        order="created_at DESC",
+        fields=["tenant_id", "customer_name", "agent_name", "queue_name", "score", "nps", "comment"],
+        search=["customer_name", "agent_name"],
+        perm=None,
+    ),
+    "callbacks": dict(
+        table="callbacks",
+        order="requested_at DESC",
+        fields=["tenant_id", "customer_name", "ani", "queue_name", "requested_at",
+                 "due_at", "origin", "state", "agent_id", "notes"],
+        search=["customer_name", "ani"],
+        perm=None,
+    ),
+    "voicemails": dict(
+        table="voicemails",
+        order="left_at DESC",
+        fields=["tenant_id", "from_name", "ani", "queue_name", "left_at",
+                 "duration_s", "transcript", "state"],
+        search=["from_name"],
+        perm=None,
+    ),
     "trunks": dict(
         table="trunks",
         order="priority, name",
@@ -100,5 +123,45 @@ REGISTRY = {
                  "assignment_type", "target_label"],
         search=["phone_number"],
         perm=None,
+    ),
+    "edges": dict(
+        table="edges",
+        order="name",
+        fields=["tenant_id", "name", "model", "edge_group", "state"],
+        search=["name"],
+        perm=None,
+    ),
+    "emergency-groups": dict(
+        table="emergency_groups",
+        order="name",
+        fields=["tenant_id", "name", "flows", "active"],
+        search=["name"],
+        perm=None,
+    ),
+    "email-domains": dict(
+        table="email_domains",
+        order="domain",
+        fields=["tenant_id", "domain", "verified"],
+        search=["domain"],
+        perm=None,
+    ),
+    "email-addresses": dict(
+        table="email_addresses",
+        order="addr",
+        fields=["tenant_id", "addr", "route", "target"],
+        search=["addr"],
+        perm=None,
+    ),
+    "eval-forms": dict(
+        table="eval_forms",
+        order="name",
+        fields=["tenant_id", "name", "published", "groups"],
+        search=["name"],
+        perm=None,
+        # groups is JSONB storing a *list* at its top level — psycopg2 only
+        # auto-adapts dict -> jsonb (see db.py), so a bare Python list needs
+        # explicit Json() wrapping (see app.py's _prep_value) or it adapts
+        # as a Postgres ARRAY literal instead and round-trips wrong.
+        json_fields=["groups"],
     ),
 }

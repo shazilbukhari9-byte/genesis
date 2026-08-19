@@ -21,7 +21,6 @@ function mapFromApi(row: any): OAuthClient {
     tokenDurationSec: 3600,
     lastUsed: row.updated_at ? new Date(row.updated_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Never",
     status: row.enabled ? "Active" : "Disabled",
-    statusNote: undefined,
   };
 }
 
@@ -34,10 +33,10 @@ function mapToApi(c: Partial<OAuthClient>) {
     "SAML2 Bearer": "saml2_bearer",
   };
   const payload: Record<string, any> = {};
-  if (c.name !== undefined) payload.name = c.name;
-  if (c.grantType !== undefined) payload.grant_types = grantMap[c.grantType] ?? "client_credentials";
-  if (c.scope !== undefined) payload.scopes = c.scope;
-  if (c.status !== undefined) payload.enabled = c.status === "Active";
+  if (c.name !== undefined) payload["name"] = c.name;
+  if (c.grantType !== undefined) payload["grant_types"] = grantMap[c.grantType] ?? "client_credentials";
+  if (c.scope !== undefined) payload["scopes"] = c.scope;
+  if (c.status !== undefined) payload["enabled"] = c.status === "Active";
   return payload;
 }
 

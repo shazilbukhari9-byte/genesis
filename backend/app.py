@@ -3,6 +3,7 @@ from datetime import datetime
 from calendar import monthrange
 from flask import Flask, jsonify, request, g
 from flask_cors import CORS
+from psycopg2.extras import Json as PgJson
 
 from db import get_db
 from resources import REGISTRY
@@ -22,6 +23,7 @@ from oauth_clients import oauth_bp
 from apps import apps_bp
 from authorg import authorg_bp
 from adherence import adherence_bp
+from canned import canned_bp
 import config
 import init_db
 
@@ -48,6 +50,7 @@ app.register_blueprint(oauth_bp)
 app.register_blueprint(apps_bp)
 app.register_blueprint(authorg_bp)
 app.register_blueprint(adherence_bp)
+app.register_blueprint(canned_bp)
 register_auth_guard(app)
 
 
@@ -171,6 +174,12 @@ def index():
             'POST   /api/apps/available/<id>/install',
             'PUT    /api/apps/installed/<id>',
             'DELETE /api/apps/installed/<id>',
+        ],
+        'canned': [
+            'GET    /api/canned  (optional ?category=, ?q=)',
+            'POST   /api/canned',
+            'PUT    /api/canned/<id>',
+            'DELETE /api/canned/<id>',
         ],
     })
 
@@ -449,6 +458,18 @@ def _tenant_scoped(spec):
     return 'tenant_id' in spec['fields']
 
 
+def _prep_value(col, value, spec):
+    """psycopg2 only auto-adapts dict -> jsonb (see db.py); a bare Python
+    list adapts to a Postgres ARRAY literal instead, which several TEXT[]
+    columns here rely on (roles.perms, trunks.codecs, ...). A JSONB column
+    that stores a list at its top level (eval_forms.groups) needs to opt
+    out of that via spec['json_fields'] so it round-trips as JSON, not an
+    array literal that happens to also parse as '{}' for an empty list."""
+    if isinstance(value, list) and col in spec.get('json_fields', ()):
+        return PgJson(value)
+    return value
+
+
 @app.route('/api/<resource>')
 def resource_list(resource):
     spec = REGISTRY.get(resource)
@@ -526,7 +547,7 @@ def resource_create(resource):
     if not cols:
         return jsonify({'ok': False, 'error': 'no writable fields supplied'}), 400
 
-    values = [data[c] for c in cols]
+    values = [_prep_value(c, data[c], spec) for c in cols]
     if _tenant_scoped(spec):
         cols = cols + ['tenant_id']
         values = values + [g.tenant_id]
@@ -569,7 +590,7 @@ def resource_update(resource, row_id):
 
     set_clause = ', '.join(f'{c} = %s' for c in cols)
     update_sql = f"UPDATE {spec['table']} SET {set_clause} WHERE id = %s"
-    update_params = [data[c] for c in cols] + [row_id]
+    update_params = [_prep_value(c, data[c], spec) for c in cols] + [row_id]
     if _tenant_scoped(spec):
         update_sql += ' AND tenant_id = %s'
         update_params.append(g.tenant_id)

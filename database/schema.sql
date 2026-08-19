@@ -315,6 +315,57 @@ CREATE TABLE IF NOT EXISTS did_assignments (
 ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS assignment_type TEXT;
 ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS target_label TEXT;
 
+-- Edge Groups (Admin > Telephony > Edge Groups) are plain named-list
+-- entities like ACD Skills/Languages, so they reuse simple_entities with
+-- kind='edge_group' instead of a dedicated table.
+CREATE TABLE IF NOT EXISTS edges (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  model TEXT,
+  edge_group TEXT,
+  state TEXT NOT NULL DEFAULT 'Online'
+);
+
+-- Admin > Routing > Emergency Groups — no create/edit UI, only toggling an
+-- existing group active/inactive, so flows is just a snapshot list rather
+-- than a normalised join.
+CREATE TABLE IF NOT EXISTS emergency_groups (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  flows TEXT[] NOT NULL DEFAULT '{}',
+  active BOOLEAN NOT NULL DEFAULT false
+);
+
+-- Admin > Contact Center > Email Settings — verified sending domains and
+-- the inbound addresses routed off each one.
+CREATE TABLE IF NOT EXISTS email_domains (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  domain TEXT NOT NULL,
+  verified BOOLEAN NOT NULL DEFAULT false
+);
+
+CREATE TABLE IF NOT EXISTS email_addresses (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  addr TEXT NOT NULL,
+  route TEXT,
+  target TEXT
+);
+
+-- Admin > Quality & WEM > Evaluation Forms — groups/questions edited live
+-- in the form builder, committed as one JSONB blob on Save (same pattern
+-- as flows.graph) rather than a normalised groups/questions schema.
+CREATE TABLE IF NOT EXISTS eval_forms (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  published BOOLEAN NOT NULL DEFAULT false,
+  groups JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+
 -- Now that flows/queues exist, wire the interactions.flow_id FK too.
 DO $$
 BEGIN
@@ -794,4 +845,71 @@ CREATE INDEX IF NOT EXISTS idx_wfm_schedules_tenant ON wfm_schedules(tenant_id);
 
 DROP TRIGGER IF EXISTS trg_wfm_schedules_touch ON wfm_schedules;
 CREATE TRIGGER trg_wfm_schedules_touch BEFORE UPDATE ON wfm_schedules
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Callbacks & queue voicemail (Performance › Callbacks tab) — plain
+-- CRUD entities, registered in resources.py's generic registry rather
+-- than a hand-written blueprint (see resources.py's own comment on why
+-- interactions.py is the exception, not the rule).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS callbacks (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_name TEXT NOT NULL,
+  ani TEXT NOT NULL,
+  queue_name TEXT,
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  due_at TIMESTAMPTZ,                  -- NULL = as soon as an agent is free
+  origin TEXT NOT NULL DEFAULT 'Agent scheduled',
+  state TEXT NOT NULL DEFAULT 'Waiting',   -- Waiting | In progress | Completed | Cancelled
+  agent_id INTEGER REFERENCES users(id),
+  notes TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_callbacks_tenant_state ON callbacks(tenant_id, state);
+
+CREATE TABLE IF NOT EXISTS voicemails (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  from_name TEXT NOT NULL,
+  ani TEXT,
+  queue_name TEXT,
+  left_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  duration_s INTEGER NOT NULL DEFAULT 0,
+  transcript TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'New'     -- New | Played
+);
+CREATE INDEX IF NOT EXISTS idx_voicemails_tenant_state ON voicemails(tenant_id, state);
+
+-- Post-interaction CSAT/NPS surveys (Performance › Speech & Text tab).
+CREATE TABLE IF NOT EXISTS surveys (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  customer_name TEXT,
+  agent_name TEXT,
+  queue_name TEXT,
+  score INTEGER NOT NULL,      -- CSAT, 1-5
+  nps INTEGER,                 -- 0-10
+  comment TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_surveys_tenant_created ON surveys(tenant_id, created_at DESC);
+
+-- ============================================================
+-- Canned Responses Module
+CREATE TABLE IF NOT EXISTS canned_responses (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'general',
+  category_label TEXT NOT NULL DEFAULT 'General',
+  body TEXT NOT NULL DEFAULT '',
+  substitution_fields TEXT[] NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_canned_responses_tenant_category ON canned_responses(tenant_id, category);
+
+DROP TRIGGER IF EXISTS trg_canned_responses_touch ON canned_responses;
+CREATE TRIGGER trg_canned_responses_touch BEFORE UPDATE ON canned_responses
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
