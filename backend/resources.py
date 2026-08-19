@@ -171,4 +171,54 @@ REGISTRY = {
         # as a Postgres ARRAY literal instead and round-trips wrong.
         json_fields=["groups"],
     ),
+    # ── Prompts (Routing > Prompts) ──
+    "prompts": dict(
+        table="prompts",
+        order="name",
+        fields=["tenant_id", "name", "description", "tts", "lang", "audio_name"],
+        search=["name", "description"],
+        perm=None,
+    ),
+    # ── Phone Base Settings (Telephony > Phone Base Settings) ──
+    "base-settings": dict(
+        table="base_settings",
+        order="name",
+        fields=["tenant_id", "name", "model", "codec", "rtp_port"],
+        search=["name", "model"],
+        perm=None,
+    ),
+    # ── Phone Management (Telephony > Phone Management) ──
+    "phones": dict(
+        table="phones",
+        order="name",
+        fields=["tenant_id", "name", "base_name", "site_name", "assigned_user", "mac", "status"],
+        search=["name", "mac"],
+        perm=None,
+    ),
+    # ── Number Plans (Telephony > Number Plans, scoped to site_name) ──
+    "number-plans": dict(
+        table="number_plans",
+        order="sort_order, name",
+        fields=["tenant_id", "site_name", "name", "match_type", "match_spec",
+                 "classification", "normalisation", "sort_order"],
+        search=["name"],
+        perm=None,
+    ),
+    # ── Outbound Routes (Telephony > Outbound Routes, scoped to site_name) ──
+    "outbound-routes": dict(
+        table="outbound_routes",
+        order="name",
+        fields=["tenant_id", "site_name", "name", "classifications", "trunk_ids",
+                 "distribution", "enabled"],
+        search=["name"],
+        perm=None,
+    ),
+    # ── Message Channels (Contact Center > Message Routing) ──
+    "message-channels": dict(
+        table="message_channels",
+        order="channel_type, name",
+        fields=["tenant_id", "channel_type", "name", "config", "queue_id", "enabled"],
+        search=["name", "channel_type"],
+        perm=None,
+    ),
 }

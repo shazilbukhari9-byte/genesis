@@ -181,6 +181,30 @@ def index():
             'PUT    /api/canned/<id>',
             'DELETE /api/canned/<id>',
         ],
+        'prompts': [
+            'GET/POST   /api/prompts',
+            'GET/PUT/DELETE /api/prompts/<id>',
+        ],
+        'base_settings': [
+            'GET/POST   /api/base-settings',
+            'GET/PUT/DELETE /api/base-settings/<id>',
+        ],
+        'phones': [
+            'GET/POST   /api/phones',
+            'GET/PUT/DELETE /api/phones/<id>',
+        ],
+        'number_plans': [
+            'GET/POST   /api/number-plans  (filter: ?site_name=)',
+            'GET/PUT/DELETE /api/number-plans/<id>',
+        ],
+        'outbound_routes': [
+            'GET/POST   /api/outbound-routes  (filter: ?site_name=)',
+            'GET/PUT/DELETE /api/outbound-routes/<id>',
+        ],
+        'message_channels': [
+            'GET/POST   /api/message-channels  (filter: ?channel_type=)',
+            'GET/PUT/DELETE /api/message-channels/<id>',
+        ],
     })
 
 

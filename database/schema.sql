@@ -923,3 +923,120 @@ CREATE INDEX IF NOT EXISTS idx_canned_responses_tenant_category ON canned_respon
 DROP TRIGGER IF EXISTS trg_canned_responses_touch ON canned_responses;
 CREATE TRIGGER trg_canned_responses_touch BEFORE UPDATE ON canned_responses
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Prompts Module
+CREATE TABLE IF NOT EXISTS prompts (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  tts TEXT NOT NULL DEFAULT '',
+  lang TEXT NOT NULL DEFAULT 'en-GB',
+  audio_name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_prompts_tenant ON prompts(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_prompts_touch ON prompts;
+CREATE TRIGGER trg_prompts_touch BEFORE UPDATE ON prompts
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Phone Base Settings Module
+CREATE TABLE IF NOT EXISTS base_settings (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  codec TEXT NOT NULL DEFAULT '',
+  rtp_port INTEGER NOT NULL DEFAULT 16384,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_base_settings_tenant ON base_settings(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_base_settings_touch ON base_settings;
+CREATE TRIGGER trg_base_settings_touch BEFORE UPDATE ON base_settings
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Phone Management Module
+CREATE TABLE IF NOT EXISTS phones (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  base_name TEXT NOT NULL DEFAULT '',
+  site_name TEXT NOT NULL DEFAULT '',
+  assigned_user TEXT DEFAULT '',
+  mac TEXT DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'Not registered',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_phones_tenant ON phones(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_phones_touch ON phones;
+CREATE TRIGGER trg_phones_touch BEFORE UPDATE ON phones
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Number Plans Module (child of Telephony Sites)
+CREATE TABLE IF NOT EXISTS number_plans (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  site_name TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL,
+  match_type TEXT NOT NULL DEFAULT 'Regex',
+  match_spec JSONB NOT NULL DEFAULT '{}',
+  classification TEXT NOT NULL DEFAULT 'National',
+  normalisation TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_number_plans_tenant_site ON number_plans(tenant_id, site_name);
+
+DROP TRIGGER IF EXISTS trg_number_plans_touch ON number_plans;
+CREATE TRIGGER trg_number_plans_touch BEFORE UPDATE ON number_plans
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Outbound Routes Module (child of Telephony Sites)
+CREATE TABLE IF NOT EXISTS outbound_routes (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  site_name TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL,
+  classifications TEXT[] NOT NULL DEFAULT '{}',
+  trunk_ids TEXT[] NOT NULL DEFAULT '{}',
+  distribution TEXT NOT NULL DEFAULT 'Sequential',
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_outbound_routes_tenant_site ON outbound_routes(tenant_id, site_name);
+
+DROP TRIGGER IF EXISTS trg_outbound_routes_touch ON outbound_routes;
+CREATE TRIGGER trg_outbound_routes_touch BEFORE UPDATE ON outbound_routes
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Message Channels Module (Message Routing)
+CREATE TABLE IF NOT EXISTS message_channels (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  channel_type TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  config JSONB NOT NULL DEFAULT '{}',
+  queue_id TEXT DEFAULT '',
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_message_channels_tenant ON message_channels(tenant_id, channel_type);
+
+DROP TRIGGER IF EXISTS trg_message_channels_touch ON message_channels;
+CREATE TRIGGER trg_message_channels_touch BEFORE UPDATE ON message_channels
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
