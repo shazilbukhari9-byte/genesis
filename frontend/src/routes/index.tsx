@@ -13,6 +13,7 @@ import { APPS_SCRIPT } from "../mcm/apps-redesign";
 import { BACKEND_SYNC_SCRIPT } from "../mcm/backend-sync";
 import { CANNED_SCRIPT } from "../mcm/canned-redesign";
 import { CERTS_SCRIPT } from "../mcm/certs-redesign";
+import { CONTACTLISTS_SCRIPT } from "../mcm/contactlists-redesign";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
@@ -212,6 +213,15 @@ function McmCloudCx() {
     certsScript.type = "text/javascript";
     certsScript.textContent = CERTS_SCRIPT;
     document.body.appendChild(certsScript);
+
+    // Wraps window.openPage to intercept 'contactlists' — it's DYN4-routed
+    // in scripts.ts (like 'canned' was DYN9-routed), so a plain
+    // window.renderContactLists reassignment alone wouldn't be picked up.
+    // See mcm/contactlists-redesign.ts.
+    const contactListsScript = document.createElement("script");
+    contactListsScript.type = "text/javascript";
+    contactListsScript.textContent = CONTACTLISTS_SCRIPT;
+    document.body.appendChild(contactListsScript);
 
     // Re-assert the toast bridge (see lib/global-toast.tsx) now that
     // MCM_SCRIPT has run and defined its own window.toast — this call is

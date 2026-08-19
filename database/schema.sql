@@ -1083,3 +1083,44 @@ CREATE INDEX IF NOT EXISTS idx_certificates_tenant_expires ON certificates(tenan
 DROP TRIGGER IF EXISTS trg_certificates_touch ON certificates;
 CREATE TRIGGER trg_certificates_touch BEFORE UPDATE ON certificates
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Contact Lists Module — backs frontend/src/mcm/contactlists-redesign.ts's
+-- Outbound > Contact Lists page (see backend/contactlists.py for the
+-- /api/contactlists endpoints). Each list has its own arbitrary column set
+-- (cols), so per-contact field values live in a JSONB `data` blob keyed by
+-- those column names rather than fixed columns — same "schema owned by the
+-- list, not the table" shape scripts.ts's original in-memory DB.contactLists
+-- used (l.cols / ct.data).
+CREATE TABLE IF NOT EXISTS contact_lists (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  division TEXT NOT NULL DEFAULT '',      -- '' = not division-scoped, else d_home/d_ret/d_dig/d_col/d_man
+  cols TEXT[] NOT NULL DEFAULT ARRAY['FirstName','LastName','Phone'],
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_contact_lists_tenant ON contact_lists(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_contact_lists_touch ON contact_lists;
+CREATE TRIGGER trg_contact_lists_touch BEFORE UPDATE ON contact_lists
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+CREATE TABLE IF NOT EXISTS contacts (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  list_id TEXT NOT NULL REFERENCES contact_lists(id) ON DELETE CASCADE,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'Not attempted',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_result TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_contacts_list ON contacts(list_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_tenant ON contacts(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_contacts_touch ON contacts;
+CREATE TRIGGER trg_contacts_touch BEFORE UPDATE ON contacts
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
