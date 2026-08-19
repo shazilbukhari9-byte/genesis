@@ -17,6 +17,8 @@ from platform_config import platform_config_bp
 from telephony import telephony_bp
 from alerts import alerts_bp
 from directory import directory_bp
+from sso import sso_bp
+from oauth_clients import oauth_bp
 import config
 import init_db
 
@@ -38,6 +40,8 @@ app.register_blueprint(platform_config_bp)
 app.register_blueprint(telephony_bp)
 app.register_blueprint(alerts_bp)
 app.register_blueprint(directory_bp)
+app.register_blueprint(sso_bp)
+app.register_blueprint(oauth_bp)
 register_auth_guard(app)
 
 
@@ -107,6 +111,27 @@ def index():
             'POST /api/directory/emails',
             'PUT /api/directory/me/presence',
             'POST /api/directory/seed',
+        ],
+        'sso': [
+            'GET    /api/sso/providers         (admin — list configured providers)',
+            'POST   /api/sso/providers         (admin — create provider)',
+            'GET    /api/sso/providers/<id>     (admin — get provider)',
+            'PUT    /api/sso/providers/<id>     (admin — update provider)',
+            'DELETE /api/sso/providers/<id>     (admin — delete provider)',
+            'GET    /api/auth/sso/providers     (public — list enabled providers for login page)',
+            'POST   /api/auth/sso/begin         (public — start SSO flow)',
+            'GET    /api/auth/sso/callback      (public — IdP redirect callback)',
+            'POST   /api/auth/sso/check-domain  (public — check if SSO exists for email)',
+        ],
+        'oauth': [
+            'GET    /api/oauth/clients          (admin — list clients)',
+            'POST   /api/oauth/clients          (admin — create client, returns secret once)',
+            'GET    /api/oauth/clients/<id>      (admin — get client)',
+            'PUT    /api/oauth/clients/<id>      (admin — update client)',
+            'DELETE /api/oauth/clients/<id>      (admin — delete client)',
+            'POST   /api/oauth/clients/<id>/rotate-secret  (admin — generate new secret)',
+            'POST   /api/oauth/token             (public — exchange credentials for token)',
+            'POST   /api/oauth/revoke            (public — revoke a token)',
         ],
         'config': [
             'GET /api/config   (secrets_set only, never real secret values)',

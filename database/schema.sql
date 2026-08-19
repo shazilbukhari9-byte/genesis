@@ -574,3 +574,83 @@ CREATE TABLE IF NOT EXISTS people_groups (
   members TEXT[] NOT NULL DEFAULT '{}',
   vm BOOLEAN NOT NULL DEFAULT false
 );
+
+-- ============================================================
+-- SSO Providers — stores OIDC/SAML identity provider configs
+-- per tenant. Each provider has a discovery URL (for OIDC) or
+-- metadata (for SAML), client credentials, and domain mapping.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS sso_providers (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,                       -- display name, e.g. 'Microsoft Entra ID'
+  protocol TEXT NOT NULL DEFAULT 'oidc',    -- 'oidc' | 'saml'
+  -- OIDC fields
+  issuer_url TEXT,                          -- e.g. https://login.microsoftonline.com/{tenant}/v2.0
+  client_id TEXT,
+  client_secret TEXT,                       -- encrypted/hashed in prod, plain for prototype
+  discovery_url TEXT,                       -- .well-known/openid-configuration URL
+  -- SAML fields
+  metadata_url TEXT,
+  entity_id TEXT,
+  -- Common
+  domain_hint TEXT,                         -- e.g. 'mcmgroup.com' — auto-routes users by email domain
+  scopes TEXT NOT NULL DEFAULT 'openid email profile',
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sso_providers_tenant ON sso_providers(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_sso_providers_touch ON sso_providers;
+CREATE TRIGGER trg_sso_providers_touch BEFORE UPDATE ON sso_providers
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- Temporary state during the SSO redirect flow (CSRF protection).
+-- Deleted after callback or after expiry.
+CREATE TABLE IF NOT EXISTS sso_states (
+  state TEXT PRIMARY KEY,
+  provider_id INTEGER NOT NULL REFERENCES sso_providers(id) ON DELETE CASCADE,
+  redirect_uri TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+-- ============================================================
+-- OAuth Clients — external apps that access MCM's API using
+-- client_credentials or authorization_code grant. Each client
+-- belongs to a tenant and has scoped permissions.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  client_id TEXT NOT NULL UNIQUE,           -- public identifier
+  client_secret_hash TEXT NOT NULL,         -- hashed secret
+  scopes TEXT NOT NULL DEFAULT 'read',      -- space-separated: 'read write admin'
+  redirect_uris TEXT[] DEFAULT '{}',        -- for authorization_code flow
+  grant_types TEXT NOT NULL DEFAULT 'client_credentials', -- 'client_credentials' | 'authorization_code'
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_clients_tenant ON oauth_clients(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_clients_client_id ON oauth_clients(client_id);
+
+DROP TRIGGER IF EXISTS trg_oauth_clients_touch ON oauth_clients;
+CREATE TRIGGER trg_oauth_clients_touch BEFORE UPDATE ON oauth_clients
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- Tokens issued to OAuth clients (short-lived, revocable)
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+  token TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  scopes TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_tokens_expires ON oauth_tokens(expires_at);

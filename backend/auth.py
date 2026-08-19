@@ -29,6 +29,11 @@ PUBLIC_PATHS = (
     # public and rely on Telnyx's own Ed25519 webhook signature instead
     # (see telephony.py's _verify_telnyx_signature).
     '/api/telephony/sms-webhook', '/api/telephony/voice-webhook',
+    # SSO — user hasn't authenticated yet, that's the whole point
+    '/api/auth/sso/begin', '/api/auth/sso/callback',
+    '/api/auth/sso/providers', '/api/auth/sso/check-domain',
+    # OAuth token endpoint — client authenticates with its own credentials
+    '/api/oauth/token', '/api/oauth/revoke',
 )
 
 
@@ -46,6 +51,8 @@ def register_auth_guard(app):
         token = header[len('Bearer '):]
         conn = get_db()
         cur = conn.cursor()
+
+        # 1. Try user session token first
         cur.execute(
             """
             SELECT s.user_id, u.name, u.presence, u.tenant_id
@@ -55,15 +62,30 @@ def register_auth_guard(app):
             (token,),
         )
         row = cur.fetchone()
+
+        if row is not None:
+            conn.close()
+            g.user_id = row['user_id']
+            g.user_name = row['name']
+            g.tenant_id = row['tenant_id']
+            return None
+
+        # 2. Try OAuth client token
+        cur.execute(
+            'SELECT client_id, tenant_id, scopes FROM oauth_tokens WHERE token = %s AND expires_at > now()',
+            (token,),
+        )
+        oauth_row = cur.fetchone()
         conn.close()
 
-        if row is None:
-            return jsonify({'ok': False, 'error': 'invalid or expired token'}), 401
+        if oauth_row is not None:
+            g.user_id = None
+            g.user_name = f'oauth:{oauth_row["client_id"]}'
+            g.tenant_id = oauth_row['tenant_id']
+            g.oauth_scopes = oauth_row['scopes']
+            return None
 
-        g.user_id = row['user_id']
-        g.user_name = row['name']
-        g.tenant_id = row['tenant_id']
-        return None
+        return jsonify({'ok': False, 'error': 'invalid or expired token'}), 401
 
 
 @auth_bp.route('/api/auth/login', methods=['POST'])
