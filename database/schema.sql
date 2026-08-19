@@ -808,3 +808,31 @@ CREATE TABLE IF NOT EXISTS surveys (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_surveys_tenant_created ON surveys(tenant_id, created_at DESC);
+
+-- ============================================================
+-- Canned Responses Module — backs frontend/src/mcm/canned-redesign.ts's
+-- Canned Responses library (see backend/canned.py for the /api/canned
+-- endpoints). id is a stable slug (matches the frontend's fallback ids and
+-- backend-generated ids alike), not SERIAL, same reasoning as licenses.code
+-- and this file's own apps.id above. tenant_id is UUID + FK, matching every
+-- other tenant-scoped table in this file — not the plain VARCHAR a literal
+-- reading of the spec sheet would suggest, since a client-supplied
+-- string tenant id can't be compared against tenants(id) UUID without an
+-- explicit cast on every query, and can't carry the ON DELETE CASCADE
+-- integrity the rest of this schema relies on.
+CREATE TABLE IF NOT EXISTS canned_responses (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'general',
+  category_label TEXT NOT NULL DEFAULT 'General',
+  body TEXT NOT NULL DEFAULT '',
+  substitution_fields TEXT[] NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_canned_responses_tenant_category ON canned_responses(tenant_id, category);
+
+DROP TRIGGER IF EXISTS trg_canned_responses_touch ON canned_responses;
+CREATE TRIGGER trg_canned_responses_touch BEFORE UPDATE ON canned_responses
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();

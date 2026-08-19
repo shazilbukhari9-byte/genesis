@@ -58,6 +58,23 @@ export const CANNED_SCRIPT: string = `
     });
   }
 
+  /* ─── Backend row → frontend shape ───
+     backend/canned.py (RealDictCursor) returns raw canned_responses columns
+     — snake_case created_at/updated_at, same as apps.py's rows. This maps
+     those onto the camelCase createdAt/updatedAt formatUpdated() and the
+     rest of this module expect, same job mapBackendInstalledApp() does in
+     apps-redesign.ts. category/categoryLabel/substitutionFields pass through
+     as-is (or are absent) — withDerivedFields() always recomputes those two
+     from category/body regardless, so this only needs to fix the date
+     fields. Safe to call on already-camelCase local objects too: the ||
+     fallback is a no-op when createdAt/updatedAt are already set. */
+  function normalizeCannedRow(row) {
+    return Object.assign({}, row, {
+      createdAt: row.createdAt || row.created_at,
+      updatedAt: row.updatedAt || row.updated_at
+    });
+  }
+
   /* ─── REST helper compatible with the shared window.apiFetch contract ───
      Same base URL / Authorization: Bearer <window.__authToken> contract as
      frontend/src/features/shared/backend.ts and apps-redesign.ts's own
@@ -105,14 +122,14 @@ export const CANNED_SCRIPT: string = `
         var res = window.CannedAPI.list();
         if (res && typeof res.then === 'function') {
           return res.then(function(list) {
-            return (Array.isArray(list) && list.length) ? list : localCannedStore;
+            return (Array.isArray(list) && list.length) ? list.map(normalizeCannedRow) : localCannedStore;
           }).catch(function() { return localCannedStore; });
         }
-        if (Array.isArray(res) && res.length) return Promise.resolve(res);
+        if (Array.isArray(res) && res.length) return Promise.resolve(res.map(normalizeCannedRow));
       } catch (e) { /* fall through to REST */ }
     }
     return cannedApiFetch('/api/canned').then(function(rows) {
-      return (Array.isArray(rows) && rows.length) ? rows : localCannedStore;
+      return (Array.isArray(rows) && rows.length) ? rows.map(normalizeCannedRow) : localCannedStore;
     }).catch(function() { return localCannedStore; });
   }
 
@@ -138,7 +155,7 @@ export const CANNED_SCRIPT: string = `
           return (hookRes && typeof hookRes.then === 'function') ? hookRes : Promise.resolve(hookRes);
         } catch (e) { /* fall through */ }
       }
-      return cannedApiFetch('/api/canned', { method: 'POST', body: JSON.stringify(payload) }).catch(function() {
+      return cannedApiFetch('/api/canned', { method: 'POST', body: JSON.stringify(payload) }).then(normalizeCannedRow).catch(function() {
         var now = new Date().toISOString();
         var created = Object.assign({ id: 'cr-' + Math.random().toString(36).slice(2, 10), createdAt: now, updatedAt: now }, payload);
         localCannedStore.push(created);
@@ -155,7 +172,7 @@ export const CANNED_SCRIPT: string = `
           return (hookRes && typeof hookRes.then === 'function') ? hookRes : Promise.resolve(hookRes);
         } catch (e) { /* fall through */ }
       }
-      return cannedApiFetch('/api/canned/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(payload) }).catch(function() {
+      return cannedApiFetch('/api/canned/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(payload) }).then(normalizeCannedRow).catch(function() {
         var idx = -1;
         for (var i = 0; i < localCannedStore.length; i++) { if (localCannedStore[i].id === id) { idx = i; break; } }
         var existing = idx > -1 ? localCannedStore[idx] : (CannedService.getById(id) || {});

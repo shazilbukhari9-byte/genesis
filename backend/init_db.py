@@ -7,10 +7,35 @@ inserts when `users` is empty, so this is safe to run on every boot.
 """
 
 import os
+import re
 from werkzeug.security import generate_password_hash
 from db import get_db
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), '..', 'database', 'schema.sql')
+
+# Same category → label map as backend/canned.py and the frontend's
+# CANNED_CATEGORIES — kept in three places because canned.py needs it at
+# request time, this module needs it once at seed time, and the frontend
+# needs it in the browser; not worth a shared-import for three static dicts.
+CANNED_CATEGORY_LABELS = {
+    'greetings': 'Greetings',
+    'billing': 'Billing',
+    'technical': 'Technical Support',
+    'escalation': 'Escalation',
+    'closing': 'Closing',
+    'general': 'General',
+}
+
+_SUBSTITUTION_RE = re.compile(r'\{\{\s*([^}]+?)\s*\}\}')
+
+
+def _extract_substitution_fields(body):
+    seen = []
+    for m in _SUBSTITUTION_RE.finditer(body or ''):
+        token = m.group(1).strip()
+        if token and token not in seen:
+            seen.append(token)
+    return seen
 
 # All seeded demo accounts share this password so they stay loggable now
 # that /api/auth/login actually checks one — fine for a demo tenant, not a
@@ -72,6 +97,42 @@ AVAILABLE_APPS = [
      ['Create and update Zendesk tickets', 'Read ticket status', 'Attach interaction transcripts']),
     ('power-bi-export', 'Power BI Export', 'analytics', 'Analytics', 'barChart', 'Scheduled exports of contact centre data to Power BI',
      ['Read historical reporting data', 'Export scheduled datasets', 'Manage export schedule']),
+]
+
+# Matches frontend/src/mcm/canned-redesign.ts's CANNED_FALLBACK exactly (id,
+# name, category code, body, created_at, updated_at) so the UI looks
+# identical whether it's reading this seed data or its own local fallback.
+# substitution_fields is derived here the same way the frontend derives it
+# (the {{Token}} markers inside body) rather than hand-duplicated separately
+# from the text that defines them.
+CANNED_RESPONSES = [
+    ('cr-greeting-email', 'Greeting — email', 'greetings',
+     'Dear {{Contact.FirstName}}, thank you for contacting MCM Support.',
+     '2026-01-04T09:00:00Z', '2026-01-04T09:00:00Z'),
+    ('cr-greeting-call', 'Greeting — call opener', 'greetings',
+     'Hi {{Contact.FirstName}}, thanks for calling MCM, this is {{Agent.FirstName}} — how can I help today?',
+     '2026-01-05T09:00:00Z', '2026-01-05T09:00:00Z'),
+    ('cr-payment-received', 'Payment received', 'billing',
+     'We confirm receipt of your payment. Your balance is now {{Contact.Balance}}.',
+     '2026-01-06T10:00:00Z', '2026-02-11T14:20:00Z'),
+    ('cr-billing-dispute', 'Billing dispute acknowledged', 'billing',
+     'We have logged your dispute for invoice {{Invoice.Number}} and will respond within 3 business days.',
+     '2026-01-08T11:00:00Z', '2026-01-08T11:00:00Z'),
+    ('cr-password-reset', 'Password reset instructions', 'technical',
+     'Hi {{Contact.FirstName}}, please reset your password at the link we just emailed to {{Contact.Email}}.',
+     '2026-01-10T09:30:00Z', '2026-01-10T09:30:00Z'),
+    ('cr-outage-notice', 'Technical outage notice', 'technical',
+     'We are aware of an issue affecting {{Service.Name}} and are working on a fix. Updates at status.mcmgroup.com.',
+     '2026-01-12T08:00:00Z', '2026-03-02T16:45:00Z'),
+    ('cr-escalate-supervisor', 'Escalated to supervisor', 'escalation',
+     'Your case has been escalated to {{Supervisor.Name}} and will be reviewed within 24 hours.',
+     '2026-01-14T13:00:00Z', '2026-01-14T13:00:00Z'),
+    ('cr-call-closing', 'Thank you — call closing', 'closing',
+     'Thank you for calling MCM, {{Contact.FirstName}}. Is there anything else I can help you with today?',
+     '2026-01-16T15:00:00Z', '2026-01-16T15:00:00Z'),
+    ('cr-general-followup', 'General follow-up', 'general',
+     'Just checking in on your recent request — let us know if you need anything further, {{Contact.FirstName}}.',
+     '2026-01-18T12:00:00Z', '2026-01-18T12:00:00Z'),
 ]
 
 USERS = [
@@ -139,6 +200,18 @@ def run():
             ON CONFLICT (id) DO NOTHING
             """,
             (app_id, tenant_id, name, category, category_label, icon, description, permissions),
+        )
+
+    for cr_id, name, category, body, created_at, updated_at in CANNED_RESPONSES:
+        cur.execute(
+            """
+            INSERT INTO canned_responses (id, tenant_id, name, category, category_label, body,
+                                           substitution_fields, created_at, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (cr_id, tenant_id, name, category, CANNED_CATEGORY_LABELS.get(category, 'General'), body,
+             _extract_substitution_fields(body), created_at, updated_at),
         )
 
     cur.execute('SELECT COUNT(*) AS n FROM users')
