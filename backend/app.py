@@ -16,6 +16,7 @@ from auth import auth_bp, register_auth_guard
 from platform_config import platform_config_bp
 from telephony import telephony_bp
 from alerts import alerts_bp
+from directory import directory_bp
 import config
 import init_db
 
@@ -25,7 +26,7 @@ _SAFE_IDENTIFIER = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
-CORS(app, origins=['http://localhost:8080', 'https://genesis-eta-six.vercel.app'])
+CORS(app, origins=['http://localhost:8080', 'https://genesis-eta-six.vercel.app'], supports_credentials=True)
 app.register_blueprint(interactions_bp)
 app.register_blueprint(acd_bp)
 app.register_blueprint(carrier_bp)
@@ -36,6 +37,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(platform_config_bp)
 app.register_blueprint(telephony_bp)
 app.register_blueprint(alerts_bp)
+app.register_blueprint(directory_bp)
 register_auth_guard(app)
 
 
@@ -95,6 +97,16 @@ def index():
             'GET  /api/bootstrap',
             'GET  /api/health       (public)',
             '--- everything else under /api requires Authorization: Bearer <token> ---',
+        ],
+        'directory': [
+            'GET/POST /api/directory/<entity>  (people|groups|locations|profile-fields|external-contacts|workspaces)',
+            'GET/PUT/DELETE /api/directory/<entity>/<id>',
+            'GET/PUT /api/directory/favourites[/<id>]',
+            'GET/POST /api/directory/threads/<id>/messages',
+            'POST /api/directory/calls  PUT /api/directory/calls/<id>',
+            'POST /api/directory/emails',
+            'PUT /api/directory/me/presence',
+            'POST /api/directory/seed',
         ],
         'config': [
             'GET /api/config   (secrets_set only, never real secret values)',

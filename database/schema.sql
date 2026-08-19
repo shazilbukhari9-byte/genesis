@@ -395,6 +395,157 @@ CREATE TABLE IF NOT EXISTS simple_entities (
 
 CREATE INDEX IF NOT EXISTS idx_simple_entities_tenant_kind ON simple_entities(tenant_id, kind);
 
+<<<<<<< HEAD
+-- ============================================================
+-- Directory Module — tables backing the directory-redesign.ts
+-- REST endpoints (/api/directory/*). Each entity is tenant-scoped.
+-- People reuses the existing users table; these cover the rest.
+-- ============================================================
+
+-- Directory people — richer profile than the core users table.
+-- Stores the full contact-centre person object that the directory
+-- workspace needs (skills, queues, languages, timezone, etc.).
+CREATE TABLE IF NOT EXISTS dir_people (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  title TEXT,
+  dept TEXT,
+  division TEXT,
+  location TEXT,
+  email TEXT,
+  phone TEXT,
+  ext TEXT,
+  presence TEXT NOT NULL DEFAULT 'Offline',
+  station TEXT,
+  manager TEXT,
+  licence TEXT,
+  tz TEXT,
+  started TEXT,
+  skills TEXT[] DEFAULT '{}',
+  langs TEXT[] DEFAULT '{}',
+  queues TEXT[] DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_dir_people_tenant ON dir_people(tenant_id);
+
+-- Ring/hunt groups
+CREATE TABLE IF NOT EXISTS dir_groups (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT,
+  ext TEXT,
+  ring TEXT,
+  owner TEXT,
+  member_ids INTEGER[] DEFAULT '{}',
+  voicemail BOOLEAN NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS idx_dir_groups_tenant ON dir_groups(tenant_id);
+
+-- Physical / virtual sites
+CREATE TABLE IF NOT EXISTS dir_locations (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT,
+  address TEXT,
+  country TEXT,
+  tz TEXT,
+  hours TEXT,
+  floors TEXT[] DEFAULT '{}',
+  emergency TEXT,
+  site TEXT,
+  status TEXT NOT NULL DEFAULT 'Operational'
+);
+CREATE INDEX IF NOT EXISTS idx_dir_locations_tenant ON dir_locations(tenant_id);
+
+-- Custom profile fields (admin-managed)
+CREATE TABLE IF NOT EXISTS dir_profile_fields (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  key TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'Text',
+  section TEXT,
+  visibility TEXT NOT NULL DEFAULT 'Everyone',
+  required BOOLEAN NOT NULL DEFAULT false,
+  system BOOLEAN NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS idx_dir_profile_fields_tenant ON dir_profile_fields(tenant_id);
+
+-- Contacts outside the organisation
+CREATE TABLE IF NOT EXISTS dir_external_contacts (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  org TEXT,
+  role TEXT,
+  email TEXT,
+  phone TEXT,
+  relationship TEXT,
+  last_contact TEXT,
+  owner TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_dir_external_contacts_tenant ON dir_external_contacts(tenant_id);
+
+-- Document workspaces
+CREATE TABLE IF NOT EXISTS dir_workspaces (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT,
+  owner TEXT,
+  access TEXT,
+  docs INTEGER NOT NULL DEFAULT 0,
+  size TEXT,
+  updated TEXT,
+  retention TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_dir_workspaces_tenant ON dir_workspaces(tenant_id);
+
+-- Per-user favourite entries (person / group / contact)
+CREATE TABLE IF NOT EXISTS dir_favourites (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_id INTEGER NOT NULL,
+  target_type TEXT NOT NULL,  -- 'people' | 'groups' | 'external'
+  UNIQUE(tenant_id, user_id, target_id, target_type)
+);
+CREATE INDEX IF NOT EXISTS idx_dir_favourites_user ON dir_favourites(user_id);
+
+-- Chat threads between directory people
+CREATE TABLE IF NOT EXISTS dir_thread_messages (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  thread_id INTEGER NOT NULL,   -- the dir_people id of the other party
+  sender TEXT NOT NULL,          -- 'me' | 'them'
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_dir_thread_messages_thread ON dir_thread_messages(tenant_id, thread_id);
+
+-- Call log
+CREATE TABLE IF NOT EXISTS dir_calls (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  target_id INTEGER,
+  target_name TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ended_at TIMESTAMPTZ,
+  duration_s INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_dir_calls_tenant ON dir_calls(tenant_id);
+
+-- Activity / audit feed for directory actions
+CREATE TABLE IF NOT EXISTS dir_activity (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_dir_activity_tenant ON dir_activity(tenant_id, created_at DESC);
+
 -- Roles: integer PK, so unlike divisions this rides the generic resource
 -- registry (backend/resources.py) directly — no dedicated routes needed.
 -- perms is a flat "Domain:action" string array (matches PERMISSION_DOMAINS
