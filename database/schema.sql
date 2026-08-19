@@ -395,7 +395,6 @@ CREATE TABLE IF NOT EXISTS simple_entities (
 
 CREATE INDEX IF NOT EXISTS idx_simple_entities_tenant_kind ON simple_entities(tenant_id, kind);
 
-<<<<<<< HEAD
 -- ============================================================
 -- Directory Module — tables backing the directory-redesign.ts
 -- REST endpoints (/api/directory/*). Each entity is tenant-scoped.
