@@ -313,6 +313,16 @@ CREATE TABLE IF NOT EXISTS did_assignments (
 -- readable target label, not just flow_id/queue_id — plain text columns
 -- for the label the UI actually edits, same pattern as trunks' extra columns.
 ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS assignment_type TEXT;
+
+-- Admin > Telephony > Extensions page's pool ranges (e.g. 7000-7999). Per-
+-- extension assignment to a user stays on the frontend's local DB.users for
+-- now — same known gap as roles/skills-per-person, not fixed here.
+CREATE TABLE IF NOT EXISTS extension_pools (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  start_ext TEXT NOT NULL,
+  end_ext TEXT NOT NULL
+);
 ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS target_label TEXT;
 
 -- Now that flows/queues exist, wire the interactions.flow_id FK too.
