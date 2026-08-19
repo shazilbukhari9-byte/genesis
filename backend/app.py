@@ -27,6 +27,7 @@ from canned import canned_bp
 from certs import certs_bp
 from contactlists import contactlists_bp
 from dataact import dataact_bp
+from dnclists import dnclists_bp
 import config
 import init_db
 
@@ -57,6 +58,7 @@ app.register_blueprint(canned_bp)
 app.register_blueprint(certs_bp)
 app.register_blueprint(contactlists_bp)
 app.register_blueprint(dataact_bp)
+app.register_blueprint(dnclists_bp)
 register_auth_guard(app)
 
 
@@ -234,6 +236,15 @@ def index():
             'PUT    /api/dataact/<id>',
             'DELETE /api/dataact/<id>',
             'POST   /api/dataact/<id>/test',
+        ],
+        'dnclists': [
+            'GET    /api/dnclists  (optional ?q=)',
+            'GET    /api/dnclists/<id>  (includes numbers)',
+            'POST   /api/dnclists',
+            'DELETE /api/dnclists/<id>',
+            'POST   /api/dnclists/<id>/numbers',
+            'DELETE /api/dnclists/<id>/numbers/<number_id>',
+            'GET    /api/dnclists/lookup  (?number=)',
         ],
     })
 

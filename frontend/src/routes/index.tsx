@@ -15,6 +15,7 @@ import { CANNED_SCRIPT } from "../mcm/canned-redesign";
 import { CERTS_SCRIPT } from "../mcm/certs-redesign";
 import { CONTACTLISTS_SCRIPT } from "../mcm/contactlists-redesign";
 import { DATAACT_SCRIPT } from "../mcm/dataact-redesign";
+import { DNCLISTS_SCRIPT } from "../mcm/dnclists-redesign";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
@@ -231,6 +232,14 @@ function McmCloudCx() {
     dataactScript.type = "text/javascript";
     dataactScript.textContent = DATAACT_SCRIPT;
     document.body.appendChild(dataactScript);
+
+    // Wraps window.openPage to intercept 'dnclists' — it's DYN4-routed
+    // in scripts.ts (like 'contactlists'), so a plain window.renderDnc
+    // reassignment alone wouldn't be picked up. See mcm/dnclists-redesign.ts.
+    const dncListsScript = document.createElement("script");
+    dncListsScript.type = "text/javascript";
+    dncListsScript.textContent = DNCLISTS_SCRIPT;
+    document.body.appendChild(dncListsScript);
 
     // Re-assert the toast bridge (see lib/global-toast.tsx) now that
     // MCM_SCRIPT has run and defined its own window.toast — this call is

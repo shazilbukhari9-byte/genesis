@@ -215,6 +215,13 @@ DATA_ACTIONS = [
      'accountId → balance', 'd_man', None, 'Failing', 'Connection refused (503)'),
 ]
 
+# Matches frontend/src/mcm/dnclists-redesign.ts's DNC_LISTS_FALLBACK exactly
+# — the single 'UK-Internal-DNC' list (2 numbers) scripts.ts's ensureOB()
+# used to seed DB.dncLists in-memory on first page load.
+DNC_LISTS = [
+    ('dnc-uk-internal', 'UK-Internal-DNC', ['+447700900104', '+447700900999']),
+]
+
 USERS = [
     ('Faisal Khan', 'fkhan@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
     ('Adnan Shaikh', 'ashaikh@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
@@ -327,6 +334,18 @@ def run():
             """,
             (da_id, tenant_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error),
         )
+
+    for dnc_id, name, numbers in DNC_LISTS:
+        cur.execute(
+            'INSERT INTO dnc_lists (id, tenant_id, name) VALUES (%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+            (dnc_id, tenant_id, name),
+        )
+        for phone in numbers:
+            number_id = dnc_id + '-' + re.sub(r'[^0-9]', '', phone)[-6:]
+            cur.execute(
+                'INSERT INTO dnc_numbers (id, tenant_id, list_id, phone) VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+                (number_id, tenant_id, dnc_id, phone),
+            )
 
     cur.execute('SELECT COUNT(*) AS n FROM users')
     if cur.fetchone()['n'] == 0:

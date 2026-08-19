@@ -1382,3 +1382,34 @@ CREATE INDEX IF NOT EXISTS idx_data_actions_tenant ON data_actions(tenant_id);
 DROP TRIGGER IF EXISTS trg_data_actions_touch ON data_actions;
 CREATE TRIGGER trg_data_actions_touch BEFORE UPDATE ON data_actions
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- DNC Lists Module — backs frontend/src/mcm/dnclists-redesign.ts's
+-- Outbound > DNC Lists page (see backend/dnclists.py for the
+-- /api/dnclists endpoints). Numbers live in their own table (not a TEXT[]
+-- column on dnc_lists) so a single number can be looked up across every
+-- list in the tenant in one indexed query — see dncNumberLookup() /
+-- GET /api/dnclists/lookup — the same job the page's own "Number Lookup"
+-- drawer already did client-side over the in-memory DB.dncLists array.
+CREATE TABLE IF NOT EXISTS dnc_lists (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_dnc_lists_tenant ON dnc_lists(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_dnc_lists_touch ON dnc_lists;
+CREATE TRIGGER trg_dnc_lists_touch BEFORE UPDATE ON dnc_lists
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+CREATE TABLE IF NOT EXISTS dnc_numbers (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  list_id TEXT NOT NULL REFERENCES dnc_lists(id) ON DELETE CASCADE,
+  phone TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dnc_numbers_list_phone ON dnc_numbers(list_id, phone);
+CREATE INDEX IF NOT EXISTS idx_dnc_numbers_tenant_phone ON dnc_numbers(tenant_id, phone);
