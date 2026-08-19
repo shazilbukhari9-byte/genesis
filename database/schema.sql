@@ -309,6 +309,12 @@ CREATE TABLE IF NOT EXISTS did_assignments (
   UNIQUE(tenant_id, phone_number)
 );
 
+-- Admin > Telephony > DID Numbers page assigns a DID to a Person or a
+-- readable target label, not just flow_id/queue_id — plain text columns
+-- for the label the UI actually edits, same pattern as trunks' extra columns.
+ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS assignment_type TEXT;
+ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS target_label TEXT;
+
 -- Now that flows/queues exist, wire the interactions.flow_id FK too.
 DO $$
 BEGIN

@@ -96,7 +96,8 @@ REGISTRY = {
     "did-assignments": dict(
         table="did_assignments",
         order="phone_number",
-        fields=["tenant_id", "phone_number", "destination_type", "flow_id", "queue_id"],
+        fields=["tenant_id", "phone_number", "destination_type", "flow_id", "queue_id",
+                 "assignment_type", "target_label"],
         search=["phone_number"],
         perm=None,
     ),
