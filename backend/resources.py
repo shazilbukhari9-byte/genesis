@@ -164,4 +164,32 @@ REGISTRY = {
         # as a Postgres ARRAY literal instead and round-trips wrong.
         json_fields=["groups"],
     ),
+    "queues": dict(
+        table="queues",
+        order="name",
+        fields=["tenant_id", "name", "max_wait_s", "division", "config"],
+        search=["name"],
+        perm=None,
+    ),
+    "recording-policies": dict(
+        table="recording_policies",
+        order="name",
+        fields=["tenant_id", "name", "media", "queues", "retention", "pct", "active"],
+        search=["name"],
+        perm=None,
+    ),
+    "schedule-groups": dict(
+        table="schedule_groups",
+        order="name",
+        fields=["tenant_id", "name", "open_hours", "holidays", "state"],
+        search=["name"],
+        perm=None,
+    ),
+    "scripts": dict(
+        table="scripts",
+        order="name",
+        fields=["tenant_id", "name", "type", "published"],
+        search=["name"],
+        perm=None,
+    ),
 }

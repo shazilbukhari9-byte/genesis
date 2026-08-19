@@ -201,6 +201,13 @@ CREATE TABLE IF NOT EXISTS queues (
   max_wait_s INTEGER NOT NULL DEFAULT 300
 );
 
+-- Admin > Contact Center > Queues page edits a much richer object (members,
+-- routing strategy, bullseye rings, ACW, division) than ACD/analytics need —
+-- name/max_wait_s above stay exactly as every other query already depends
+-- on; the admin-only fields live in config so nothing else has to change.
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS division TEXT;
+ALTER TABLE queues ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}'::jsonb;
+
 CREATE TABLE IF NOT EXISTS campaigns (
   id SERIAL PRIMARY KEY,
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -364,6 +371,44 @@ CREATE TABLE IF NOT EXISTS eval_forms (
   name TEXT NOT NULL,
   published BOOLEAN NOT NULL DEFAULT false,
   groups JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+
+-- Admin > Contact Center > Recording Policies. queues stores the local
+-- queue ids as plain text, not a real FK — same simplification as Call
+-- Routes' flow reference (see resources.py's call-routes comment).
+CREATE TABLE IF NOT EXISTS recording_policies (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  media TEXT[] NOT NULL DEFAULT '{}',
+  queues TEXT[] NOT NULL DEFAULT '{}',
+  retention INTEGER NOT NULL DEFAULT 365,
+  pct INTEGER NOT NULL DEFAULT 100,
+  active BOOLEAN NOT NULL DEFAULT true
+);
+
+-- Admin > Contact Center > Schedules (business-hours groups a flow's
+-- Schedule node checks against — distinct from Admin > WEM > Schedules,
+-- the agent-shift WFM feature, which isn't covered by this table).
+CREATE TABLE IF NOT EXISTS schedule_groups (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  open_hours TEXT,
+  holidays TEXT,
+  state TEXT NOT NULL DEFAULT 'Open'
+);
+
+-- Admin > Contact Center > Scripts (the list Script Editor opens into).
+-- Only name/type/published persist — the visual drag-drop canvas itself
+-- (scriptView(), window.SCR) is a deep in-place editor, same known gap
+-- as Architect's flow-node editing.
+CREATE TABLE IF NOT EXISTS scripts (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT,
+  published BOOLEAN NOT NULL DEFAULT false
 );
 
 -- Now that flows/queues exist, wire the interactions.flow_id FK too.
