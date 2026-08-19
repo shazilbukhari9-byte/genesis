@@ -7,10 +7,13 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { bridgeGlobalToast } from "../lib/global-toast";
 
 function NotFoundComponent() {
   return (
@@ -116,11 +119,32 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const bridgedRef = useRef(false);
+
+  useEffect(() => {
+    if (bridgedRef.current) return;
+    bridgedRef.current = true;
+    // Runs after the route tree's own mount effects (see bridgeGlobalToast's
+    // comment above) — in particular after scripts.ts has defined its own
+    // window.toast, so this always overrides it, not the other way around.
+    bridgeGlobalToast();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop
+        closeOnClick
+        pauseOnHover
+        draggable
+        theme="light"
+        toastClassName="mcm-toast"
+      />
     </QueryClientProvider>
   );
 }
