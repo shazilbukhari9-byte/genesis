@@ -395,6 +395,7 @@ CREATE TABLE IF NOT EXISTS simple_entities (
 
 CREATE INDEX IF NOT EXISTS idx_simple_entities_tenant_kind ON simple_entities(tenant_id, kind);
 
+<<<<<<< HEAD
 -- ============================================================
 -- Directory Module — tables backing the directory-redesign.ts
 -- REST endpoints (/api/directory/*). Each entity is tenant-scoped.
@@ -544,3 +545,32 @@ CREATE TABLE IF NOT EXISTS dir_activity (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_dir_activity_tenant ON dir_activity(tenant_id, created_at DESC);
+
+-- Roles: integer PK, so unlike divisions this rides the generic resource
+-- registry (backend/resources.py) directly — no dedicated routes needed.
+-- perms is a flat "Domain:action" string array (matches PERMISSION_DOMAINS
+-- in types.ts), not a normalised permissions table — nothing else joins
+-- against individual permissions yet.
+CREATE TABLE IF NOT EXISTS roles (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  base BOOLEAN NOT NULL DEFAULT false,
+  perms TEXT[] NOT NULL DEFAULT '{}'
+);
+
+-- "groups" is a reserved-adjacent word in SQL tooling, so the table is named
+-- people_groups. members stores person ids directly (TEXT[], matching
+-- users.id cast to text) rather than a join table — group membership here
+-- is small, admin-edited lists, not something ever queried from the user side.
+CREATE TABLE IF NOT EXISTS people_groups (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'Official',
+  ext TEXT,
+  ring TEXT NOT NULL DEFAULT 'Sequential',
+  members TEXT[] NOT NULL DEFAULT '{}',
+  vm BOOLEAN NOT NULL DEFAULT false
+);
