@@ -293,6 +293,14 @@ REGISTRY = {
         search=["week"],
         perm=None,
     ),
+    "gamification-profiles": dict(
+        table="gamification_profiles",
+        order="name",
+        fields=["tenant_id", "name", "applies_to", "target", "m1", "t1", "w1", "m2", "t2", "w2",
+                 "leaderboard", "badges", "challenges", "reset_period", "status"],
+        search=["name"],
+        perm=None,
+    ),
     "work-plans": dict(
         table="work_plans",
         order="name",

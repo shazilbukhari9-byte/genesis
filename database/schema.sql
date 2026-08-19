@@ -373,6 +373,27 @@ CREATE TABLE IF NOT EXISTS forecasts (
   UNIQUE(tenant_id, week)
 );
 
+-- Admin > Quality & WEM > Gamification page's metric profiles. m2/t2/w2 are
+-- nullable/zero because the edit form's second metric slot is optional.
+CREATE TABLE IF NOT EXISTS gamification_profiles (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  applies_to TEXT NOT NULL DEFAULT 'Division',
+  target TEXT,
+  m1 TEXT NOT NULL,
+  t1 INTEGER NOT NULL DEFAULT 0,
+  w1 INTEGER NOT NULL DEFAULT 0,
+  m2 TEXT,
+  t2 INTEGER NOT NULL DEFAULT 0,
+  w2 INTEGER NOT NULL DEFAULT 0,
+  leaderboard BOOLEAN NOT NULL DEFAULT true,
+  badges BOOLEAN NOT NULL DEFAULT true,
+  challenges BOOLEAN NOT NULL DEFAULT true,
+  reset_period TEXT NOT NULL DEFAULT 'Weekly',
+  status TEXT NOT NULL DEFAULT 'Active'
+);
+
 -- Edge Groups (Admin > Telephony > Edge Groups) are plain named-list
 -- entities like ACD Skills/Languages, so they reuse simple_entities with
 -- kind='edge_group' instead of a dedicated table.
@@ -1343,3 +1364,64 @@ CREATE INDEX IF NOT EXISTS idx_contacts_tenant ON contacts(tenant_id);
 DROP TRIGGER IF EXISTS trg_contacts_touch ON contacts;
 CREATE TRIGGER trg_contacts_touch BEFORE UPDATE ON contacts
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Data Actions Module — backs frontend/src/mcm/dataact-redesign.ts's
+-- Integrations > Data Actions page (see backend/dataact.py for the
+-- /api/dataact endpoints). avg_latency_ms/status/last_error are written by
+-- the Test Action endpoint (a deterministic simulated call — this prototype
+-- has no real Salesforce/ServiceNow/web-service backends to reach, and a
+-- backend that made outbound requests to a user-editable endpoint field
+-- would be an SSRF risk), not hand-edited through the drawer.
+CREATE TABLE IF NOT EXISTS data_actions (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  integration TEXT NOT NULL DEFAULT 'Web Services',   -- Salesforce | ServiceNow | Web Services
+  method TEXT NOT NULL DEFAULT 'GET',
+  endpoint TEXT NOT NULL DEFAULT '',
+  contract TEXT NOT NULL DEFAULT '',                  -- short request → response summary, e.g. 'ani → tier, name'
+  division TEXT NOT NULL DEFAULT '',                  -- '' = not division-scoped, else d_home/d_ret/d_dig/d_col/d_man
+  avg_latency_ms INTEGER,
+  status TEXT NOT NULL DEFAULT 'Draft',               -- Draft | Published | Slow | Failing
+  last_error TEXT NOT NULL DEFAULT '',
+  last_tested_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_data_actions_tenant ON data_actions(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_data_actions_touch ON data_actions;
+CREATE TRIGGER trg_data_actions_touch BEFORE UPDATE ON data_actions
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- DNC Lists Module — backs frontend/src/mcm/dnclists-redesign.ts's
+-- Outbound > DNC Lists page (see backend/dnclists.py for the
+-- /api/dnclists endpoints). Numbers live in their own table (not a TEXT[]
+-- column on dnc_lists) so a single number can be looked up across every
+-- list in the tenant in one indexed query — see dncNumberLookup() /
+-- GET /api/dnclists/lookup — the same job the page's own "Number Lookup"
+-- drawer already did client-side over the in-memory DB.dncLists array.
+CREATE TABLE IF NOT EXISTS dnc_lists (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_dnc_lists_tenant ON dnc_lists(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_dnc_lists_touch ON dnc_lists;
+CREATE TRIGGER trg_dnc_lists_touch BEFORE UPDATE ON dnc_lists
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+CREATE TABLE IF NOT EXISTS dnc_numbers (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  list_id TEXT NOT NULL REFERENCES dnc_lists(id) ON DELETE CASCADE,
+  phone TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dnc_numbers_list_phone ON dnc_numbers(list_id, phone);
+CREATE INDEX IF NOT EXISTS idx_dnc_numbers_tenant_phone ON dnc_numbers(tenant_id, phone);
