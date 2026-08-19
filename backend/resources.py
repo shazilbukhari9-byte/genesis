@@ -68,6 +68,26 @@ REGISTRY = {
     # tenant-scoped" — but app.py never lets a client set or filter it
     # directly: create forces it from g.tenant_id, list/get/update/delete all
     # scope by it automatically. See _tenant_scoped() in app.py.
+    # plans/routes aren't exposed here — the Sites create/edit form never
+    # sets them directly (they're auto-defaulted on create and managed via
+    # the separate Number Plans / Outbound Routes admin pages, which this
+    # entity doesn't cover yet); leaving them out avoids sending a Python
+    # list through the generic JSONB path, which psycopg2 doesn't adapt to
+    # JSON array syntax by default (see the DEFAULT '[]' on the column).
+    "sites": dict(
+        table="sites",
+        order="name",
+        fields=["tenant_id", "name", "location", "tz", "media", "is_default", "edge_group"],
+        search=["name"],
+        perm=None,
+    ),
+    "wrapup-codes": dict(
+        table="wrapup_codes",
+        order="name",
+        fields=["tenant_id", "name", "description"],
+        search=["name"],
+        perm=None,
+    ),
     "surveys": dict(
         table="surveys",
         order="created_at DESC",
@@ -325,7 +345,7 @@ REGISTRY = {
     "activity-codes": dict(
         table="activity_codes",
         order="name",
-        fields=["tenant_id", "name", "category", "paid", "adherence"],
+        fields=["tenant_id", "name", "category", "paid", "adherence", "adherence_rule", "enabled"],
         search=["name"],
         perm=None,
     ),
@@ -346,7 +366,7 @@ REGISTRY = {
     "wfm-schedules": dict(
         table="wfm_schedules",
         order="week DESC",
-        fields=["tenant_id", "week", "status", "data"],
+        fields=["tenant_id", "week", "status", "data", "entries"],
         search=["week"],
         perm=None,
     ),

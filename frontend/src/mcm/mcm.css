@@ -619,10 +619,14 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .authorg-table th[data-col="org"],.authorg-table td[data-col="org"]{width:17%}
 .authorg-table th[data-col="uuid"],.authorg-table td[data-col="uuid"]{width:11%}
 .authorg-table th[data-col="rel"],.authorg-table td[data-col="rel"]{width:10%}
-.authorg-table th[data-col="roles"],.authorg-table td[data-col="roles"]{width:19%}
-.authorg-table th[data-col="divs"],.authorg-table td[data-col="divs"]{width:16%}
-.authorg-table th[data-col="exp"],.authorg-table td[data-col="exp"]{width:13%}
-.authorg-table th[data-col="stat"],.authorg-table td[data-col="stat"]{width:9%}
+.authorg-table th[data-col="roles"],.authorg-table td[data-col="roles"]{width:16%}
+.authorg-table th[data-col="divs"],.authorg-table td[data-col="divs"]{width:15%}
+.authorg-table th[data-col="exp"],.authorg-table td[data-col="exp"]{width:12%}
+/* Wide enough for the longest badge text ("Expiring soon" + dot + padding)
+   at this table's base font-size — a narrower % here clipped the pill via
+   the td{overflow:hidden} rule above once table-layout:fixed capped the
+   cell's rendered width below the badge's natural width. */
+.authorg-table th[data-col="stat"],.authorg-table td[data-col="stat"]{width:13%}
 .authorg-table th[data-col="act"],.authorg-table td[data-col="act"]{width:44px;padding-left:4px;padding-right:8px}
 
 .authorg-sortable{cursor:pointer;user-select:none}
@@ -644,7 +648,8 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .authorg-rel-badge.rel-trustor{background:#fff2ec;color:#c9401a}
 
 .authorg-table td[data-col="roles"],.authorg-table td[data-col="divs"]{overflow:visible;white-space:normal}
-.authorg-pill{display:inline-block;max-width:100%;font-size:11px;padding:3px 8px;border-radius:9px;margin:1px 4px 3px 0;white-space:normal;word-break:break-word;line-height:1.4;vertical-align:top}
+.authorg-table td[data-col="stat"]{overflow:visible}
+.authorg-pill{display:inline-block;max-width:100%;font-size:11px;padding:3px 8px;border-radius:9px;margin:2px 6px 4px 0;white-space:normal;word-break:break-word;line-height:1.4;vertical-align:top}
 .authorg-pill.role-pill{background:#eef2f8;color:#33425c;border:1px solid #e2e8f1}
 .authorg-pill.div-pill{background:#f4f6fa;color:#5b6a7d;border:1px solid #e4e9f0}
 
@@ -743,7 +748,7 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .authorg-meta-val{color:#31404f;font-weight:600;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* Checkbox lists (edit drawer: roles / divisions) */
-.authorg-checkbox-list{display:flex;flex-direction:column;gap:2px;border:1px solid #e4e9f0;border-radius:6px;padding:6px;max-height:180px;overflow-y:auto}
+.authorg-checkbox-list{display:flex;flex-direction:column;gap:4px;border:1px solid #e4e9f0;border-radius:6px;padding:8px;max-height:180px;overflow-y:auto}
 .fld label.authorg-checkbox-label,.authorg-checkbox-label{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;font-size:12.5px;color:#3c4a5c;border-radius:6px;cursor:pointer;transition:background .12s ease;margin-bottom:0;font-weight:400}
 .authorg-checkbox-label:hover{background:#f4f7fb}
 .fld .authorg-checkbox-list input.authorg-custom-chk,

@@ -27,6 +27,7 @@ from canned import canned_bp
 from certs import certs_bp
 from contactlists import contactlists_bp
 from dataact import dataact_bp
+from dnclists import dnclists_bp
 import config
 import init_db
 
@@ -57,6 +58,7 @@ app.register_blueprint(canned_bp)
 app.register_blueprint(certs_bp)
 app.register_blueprint(contactlists_bp)
 app.register_blueprint(dataact_bp)
+app.register_blueprint(dnclists_bp)
 register_auth_guard(app)
 
 
@@ -234,6 +236,15 @@ def index():
             'PUT    /api/dataact/<id>',
             'DELETE /api/dataact/<id>',
             'POST   /api/dataact/<id>/test',
+        ],
+        'dnclists': [
+            'GET    /api/dnclists  (optional ?q=)',
+            'GET    /api/dnclists/<id>  (includes numbers)',
+            'POST   /api/dnclists',
+            'DELETE /api/dnclists/<id>',
+            'POST   /api/dnclists/<id>/numbers',
+            'DELETE /api/dnclists/<id>/numbers/<number_id>',
+            'GET    /api/dnclists/lookup  (?number=)',
         ],
     })
 
@@ -474,6 +485,51 @@ def audit_log():
     rows = cur.fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+# ---------------------------------------------------------------------------
+# Admin > Contact Center > Utilization — one settings row per tenant (which
+# media types can interrupt which, and their max concurrent-interaction
+# caps), not a list of entities, so it's a hand-written GET/PUT rather than
+# a resources.REGISTRY entry, same reasoning as /api/subscription/* above.
+# ---------------------------------------------------------------------------
+
+DEFAULT_UTILIZATION = {
+    'Voice': {'cap': 1, 'intBy': []},
+    'Callback': {'cap': 1, 'intBy': ['Voice']},
+    'Chat': {'cap': 2, 'intBy': ['Voice']},
+    'Email': {'cap': 3, 'intBy': ['Voice', 'Chat']},
+    'Message': {'cap': 2, 'intBy': ['Voice']},
+}
+
+
+@app.route('/api/utilization')
+def get_utilization():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT data FROM utilization_settings WHERE tenant_id = %s', (g.tenant_id,))
+    row = cur.fetchone()
+    conn.close()
+    return jsonify(row['data'] if row else DEFAULT_UTILIZATION)
+
+
+@app.route('/api/utilization', methods=['PUT', 'PATCH'])
+def put_utilization():
+    data = request.get_json(force=True) or {}
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO utilization_settings (tenant_id, data, updated_at) VALUES (%s, %s, now())
+        ON CONFLICT (tenant_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()
+        RETURNING data
+        """,
+        (g.tenant_id, data),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return jsonify(row['data'])
 
 
 # ---------------------------------------------------------------------------

@@ -215,6 +215,41 @@ DATA_ACTIONS = [
      'accountId → balance', 'd_man', None, 'Failing', 'Connection refused (503)'),
 ]
 
+# Matches frontend/src/mcm/dnclists-redesign.ts's DNC_LISTS_FALLBACK exactly
+# — the single 'UK-Internal-DNC' list (2 numbers) scripts.ts's ensureOB()
+# used to seed DB.dncLists in-memory on first page load.
+DNC_LISTS = [
+    ('dnc-uk-internal', 'UK-Internal-DNC', ['+447700900104', '+447700900999']),
+]
+
+# Matches frontend/src/mcm/authorg-redesign.ts's authorgData mock array
+# exactly (org_name, org_id, domain, relationship, scope_roles, divisions,
+# status, expires_at, notes, created_at) — without this seed, a fresh tenant
+# has zero rows in auth_org_trusts, GET /api/v2/authorization/trusts returns
+# [], and loadTrustsFromApi()'s `if (!list.length) return;` guard leaves the
+# frontend showing its local mock data with fake string ids ('org_ie', ...)
+# that don't exist in the database — every edit/revoke/delete against them
+# then 404s silently (the fetch failure is swallowed) instead of persisting.
+# auth_org_trusts.id is SERIAL, not a slug, so this is guarded by a
+# tenant-scoped existence check rather than ON CONFLICT.
+AUTH_ORG_TRUSTS = [
+    ('MCM Retail Ireland', 'a19c4b82-9f33-44f1-bc82-019e28344fa1', 'retail.ie.mcmgroup.com · EU (Dublin)',
+     'Trustee', ['Contact Centre Admin'], ['UK Retail', 'IE Retail'], 'Active', '2026-12-31',
+     'Regional operations management for Irish entity. Provisioned under standard Master Services Agreement.', '2026-01-15'),
+    ('Northstar BPO', '77bd18f0-1a22-49a1-8e01-cc82910499a1', 'partner.northstarbpo.ph · Asia (Manila)',
+     'Trustee', ['Supervisor', 'Agent'], ['Partner — Manila'], 'Active', '2026-09-30',
+     'Outsourced tier-1 customer support partner handling voice & digital queues.', '2026-03-10'),
+    ('MCM Group PLC', '8f14e45f-ceea-4d3b-9c7f-2b1a0d7e33aa', 'mcmcloudcx.com · EU (London) · Parent Entity',
+     'Owner', ['Root / Full Platform Access'], ['All'], 'Owner', None,
+     'Primary billing and root governance entity holding platform ownership.', '2024-06-01'),
+    ('Cloudline Partners', '32ee991a-4421-40c8-8812-7819920100c8', 'cloudline.co.uk · EU (London)',
+     'Trustee', ['Read-only Admin'], ['UK Digital'], 'Expiring soon', '2026-08-11',
+     'External security auditor reviewing chat routing and data privacy compliance.', '2026-02-20'),
+    ('Vertex Consulting', 'be408819-aa21-4712-9c12-381902847712', 'vertex-cx.com · US (East)',
+     'Trustee', ['Implementation'], ['All'], 'Revoked', '2026-07-18',
+     'Architect flow migration partner. Project completed and access revoked.', '2025-11-05'),
+]
+
 USERS = [
     ('Faisal Khan', 'fkhan@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
     ('Adnan Shaikh', 'ashaikh@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
@@ -327,6 +362,31 @@ def run():
             """,
             (da_id, tenant_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error),
         )
+
+    for dnc_id, name, numbers in DNC_LISTS:
+        cur.execute(
+            'INSERT INTO dnc_lists (id, tenant_id, name) VALUES (%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+            (dnc_id, tenant_id, name),
+        )
+        for phone in numbers:
+            number_id = dnc_id + '-' + re.sub(r'[^0-9]', '', phone)[-6:]
+            cur.execute(
+                'INSERT INTO dnc_numbers (id, tenant_id, list_id, phone) VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+                (number_id, tenant_id, dnc_id, phone),
+            )
+
+    cur.execute('SELECT COUNT(*) AS n FROM auth_org_trusts WHERE tenant_id = %s', (tenant_id,))
+    if cur.fetchone()['n'] == 0:
+        for org_name, org_id, domain, relationship, scope_roles, divisions, status, expires_at, notes, created_at in AUTH_ORG_TRUSTS:
+            cur.execute(
+                """
+                INSERT INTO auth_org_trusts (tenant_id, org_name, org_id, domain, relationship, scope_roles,
+                                              divisions, status, expires_at, notes, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (tenant_id, org_name, org_id, domain, relationship, scope_roles, divisions, status,
+                 expires_at, notes, created_at),
+            )
 
     cur.execute('SELECT COUNT(*) AS n FROM users')
     if cur.fetchone()['n'] == 0:
