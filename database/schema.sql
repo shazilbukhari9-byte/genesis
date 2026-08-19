@@ -1009,3 +1009,35 @@ CREATE INDEX IF NOT EXISTS idx_canned_responses_tenant_category ON canned_respon
 DROP TRIGGER IF EXISTS trg_canned_responses_touch ON canned_responses;
 CREATE TRIGGER trg_canned_responses_touch BEFORE UPDATE ON canned_responses
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- ============================================================
+-- Digital Certificates Module — backs frontend/src/mcm/certs-redesign.ts's
+-- Telephony > Digital Certificates page (see backend/certs.py for the
+-- /api/certs endpoints). status ('Valid' | 'Expiring' | 'Expired') is
+-- deliberately NOT a stored column — the page's own "Expiry Monitor" tab
+-- already shows this as a live days-remaining calculation, so storing a
+-- status string here would just go stale the moment expires_at passes a
+-- threshold without anything re-writing the row. certs.py computes it from
+-- expires_at/alert_before_days on every read instead, same as the frontend
+-- fallback data does.
+CREATE TABLE IF NOT EXISTS certificates (
+  id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  purpose TEXT NOT NULL DEFAULT 'BYOC trunk',
+  issued_to TEXT NOT NULL DEFAULT '',
+  issuer TEXT NOT NULL DEFAULT '',
+  division TEXT NOT NULL DEFAULT '',      -- '' = not division-scoped (root/global CAs), else d_home/d_ret/d_dig/d_col/d_man
+  valid_from DATE,
+  expires_at DATE NOT NULL,
+  alert_before_days INTEGER NOT NULL DEFAULT 30,
+  email_alert BOOLEAN NOT NULL DEFAULT true,
+  auto_renew BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_certificates_tenant_expires ON certificates(tenant_id, expires_at);
+
+DROP TRIGGER IF EXISTS trg_certificates_touch ON certificates;
+CREATE TRIGGER trg_certificates_touch BEFORE UPDATE ON certificates
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
