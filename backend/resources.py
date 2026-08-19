@@ -199,4 +199,27 @@ REGISTRY = {
         search=["name"],
         perm=None,
     ),
+    "phone-base-settings": dict(
+        table="phone_base_settings",
+        order="name",
+        fields=["tenant_id", "name", "model", "codec", "port"],
+        search=["name"],
+        perm=None,
+    ),
+    "byoc-trunks": dict(
+        table="byoc_trunks",
+        order="priority, name",
+        fields=["tenant_id", "name", "priority", "status", "locked", "config"],
+        search=["name"],
+        perm=None,
+    ),
+    "campaigns": dict(
+        table="campaigns",
+        order="name",
+        fields=["tenant_id", "name", "division", "mode", "queue_ref", "script_ref",
+                 "list_ref", "dnc_ref", "caller_id", "caller_name", "pace",
+                 "max_attempts", "status"],
+        search=["name"],
+        perm=None,
+    ),
 }

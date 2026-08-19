@@ -968,3 +968,45 @@ CREATE INDEX IF NOT EXISTS idx_canned_responses_tenant_category ON canned_respon
 DROP TRIGGER IF EXISTS trg_canned_responses_touch ON canned_responses;
 CREATE TRIGGER trg_canned_responses_touch BEFORE UPDATE ON canned_responses
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- Admin > Telephony > Phone Base Settings.
+CREATE TABLE IF NOT EXISTS phone_base_settings (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  model TEXT,
+  codec TEXT,
+  port INTEGER NOT NULL DEFAULT 16384
+);
+
+-- Admin > Telephony > Carrier Connections (BYOC). kind/direction/term/auth/
+-- codecs/byocSid/policySid/note vary a lot by carrier kind, so they live in
+-- config (JSONB) rather than one column each — same pattern as queues.config.
+CREATE TABLE IF NOT EXISTS byoc_trunks (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 100,
+  status TEXT NOT NULL DEFAULT 'Active',
+  locked BOOLEAN NOT NULL DEFAULT false,
+  config JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- Admin > Outbound > Campaigns page edits a richer object than acd.py's
+-- campaigns table (id/tenant_id/name only, used by the dial/monitor
+-- endpoints) had — these are purely additive. queue/script/list/dnc
+-- reference the local queue/script/contact-list/DNC-list ids as plain
+-- text, not real FKs — same simplification as Call Routes' flow reference.
+-- stats/log are simulated live-dialer runtime state, not admin-edited
+-- config, so they aren't persisted here — only what saveCamp() edits is.
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS division TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'Progressive';
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS queue_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS script_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS list_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS dnc_ref TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS caller_id TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS caller_name TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS pace REAL NOT NULL DEFAULT 1.0;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS max_attempts INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'Off';
