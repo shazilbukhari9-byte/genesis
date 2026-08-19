@@ -215,7 +215,7 @@ export const DIRECTORY_SCRIPT: string = `
           }
           save();
           return rec;
-        });
+        }).then(function (r) { apiCountsCache = null; refreshApiCounts(); return r; });
       },
       remove: function (id) {
         return via('/' + path + '/' + id, { method: 'DELETE' }, function () {
@@ -227,7 +227,7 @@ export const DIRECTORY_SCRIPT: string = `
           log('Deleted ' + path + ' ' + ((gone && (gone.name || gone.label)) || id));
           save();
           return true;
-        });
+        }).then(function (r) { apiCountsCache = null; refreshApiCounts(); return r; });
       }
     };
   }
@@ -571,7 +571,21 @@ export const DIRECTORY_SCRIPT: string = `
   var TABS = ['People', 'Groups', 'Locations', 'External', 'Favourites'];
   var A = 'MCMDirectory.act.';
 
-  function counts() { var c = SVC.counts(); return { People: c.people, Groups: c.groups, Locations: c.locations, External: c.external, Favourites: c.fav }; }
+  var apiCountsCache = null, apiCountsPending = false;
+  function counts() {
+    if (apiCountsCache) return apiCountsCache;
+    var c = SVC.counts(); return { People: c.people, Groups: c.groups, Locations: c.locations, External: c.external, Favourites: c.fav };
+  }
+  function refreshApiCounts() {
+    if (!USE_API || apiCountsPending) return;
+    apiCountsPending = true;
+    Promise.all([SVC.people.list(), SVC.groups.list(), SVC.locations.list(), SVC.external.list()]).then(function (r) {
+      apiCountsCache = { People: r[0].length, Groups: r[1].length, Locations: r[2].length, External: r[3].length, Favourites: SVC.favIds().length };
+      apiCountsPending = false;
+      var head = document.getElementById('dxr_head');
+      if (head) head.innerHTML = headHtml();
+    }).catch(function () { apiCountsPending = false; });
+  }
   function filtersOn() { return !!(S.q || S.dept || S.loc || S.pres); }
 
   function headHtml() {
@@ -636,6 +650,7 @@ export const DIRECTORY_SCRIPT: string = `
     h.innerHTML = '<div id="dxr_head">' + headHtml() + '</div>' + barHtml() + '<div class="dxr-body" id="dxr_rows"></div>';
     wireBar();
     loadRows();
+    refreshApiCounts();
   }
   function refresh() {
     var h = host(); if (!h) return;
