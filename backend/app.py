@@ -20,6 +20,7 @@ from directory import directory_bp
 from sso import sso_bp
 from oauth_clients import oauth_bp
 from apps import apps_bp
+from canned import canned_bp
 import config
 import init_db
 
@@ -44,6 +45,7 @@ app.register_blueprint(directory_bp)
 app.register_blueprint(sso_bp)
 app.register_blueprint(oauth_bp)
 app.register_blueprint(apps_bp)
+app.register_blueprint(canned_bp)
 register_auth_guard(app)
 
 
@@ -145,6 +147,12 @@ def index():
             'POST   /api/apps/available/<id>/install',
             'PUT    /api/apps/installed/<id>',
             'DELETE /api/apps/installed/<id>',
+        ],
+        'canned': [
+            'GET    /api/canned  (optional ?category=, ?q=)',
+            'POST   /api/canned',
+            'PUT    /api/canned/<id>',
+            'DELETE /api/canned/<id>',
         ],
     })
 
