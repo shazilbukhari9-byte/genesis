@@ -12,8 +12,7 @@ function mapFromApi(row: any): SsoProvider {
     name: row.name ?? "",
     type: row.protocol === "oidc" ? "OIDC" : row.protocol === "saml" ? "SAML 2.0" : row.protocol ?? "OIDC",
     status: row.enabled ? "Enabled" : "Disabled",
-    statusNote: row.domain_hint ? `Domain: ${row.domain_hint}` : undefined,
-    certExpiry: undefined,
+    ...(row.domain_hint ? { statusNote: `Domain: ${row.domain_hint}` } : {}),
     users: 0,
     isDefault: false,
   };
@@ -22,9 +21,9 @@ function mapFromApi(row: any): SsoProvider {
 /* Map frontend SsoProvider → backend write payload */
 function mapToApi(p: Partial<SsoProvider> & { id?: string }) {
   const payload: Record<string, any> = {};
-  if (p.name !== undefined) payload.name = p.name;
-  if (p.type !== undefined) payload.protocol = p.type === "SAML 2.0" ? "saml" : "oidc";
-  if (p.status !== undefined) payload.enabled = p.status === "Enabled";
+  if (p.name !== undefined) payload["name"] = p.name;
+  if (p.type !== undefined) payload["protocol"] = p.type === "SAML 2.0" ? "saml" : "oidc";
+  if (p.status !== undefined) payload["enabled"] = p.status === "Enabled";
   return payload;
 }
 
