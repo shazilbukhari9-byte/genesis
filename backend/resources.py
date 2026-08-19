@@ -124,6 +124,13 @@ REGISTRY = {
         search=["phone_number"],
         perm=None,
     ),
+    "extension-pools": dict(
+        table="extension_pools",
+        order="start_ext",
+        fields=["tenant_id", "start_ext", "end_ext"],
+        search=["start_ext", "end_ext"],
+        perm=None,
+    ),
     "edges": dict(
         table="edges",
         order="name",

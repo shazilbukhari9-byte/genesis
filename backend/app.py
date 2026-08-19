@@ -21,6 +21,8 @@ from directory import directory_bp
 from sso import sso_bp
 from oauth_clients import oauth_bp
 from apps import apps_bp
+from authorg import authorg_bp
+from adherence import adherence_bp
 from canned import canned_bp
 import config
 import init_db
@@ -46,6 +48,8 @@ app.register_blueprint(directory_bp)
 app.register_blueprint(sso_bp)
 app.register_blueprint(oauth_bp)
 app.register_blueprint(apps_bp)
+app.register_blueprint(authorg_bp)
+app.register_blueprint(adherence_bp)
 app.register_blueprint(canned_bp)
 register_auth_guard(app)
 
@@ -141,6 +145,28 @@ def index():
         'config': [
             'GET /api/config   (secrets_set only, never real secret values)',
             'PUT /api/config   (blank value on a secret field leaves it unchanged)',
+        ],
+        'authorg': [
+            'GET    /api/v2/authorization/trusts          (list trusts)',
+            'POST   /api/v2/authorization/trusts          (create trust)',
+            'GET    /api/v2/authorization/trusts/<id>     (get trust)',
+            'PUT    /api/v2/authorization/trusts/<id>     (update trust)',
+            'DELETE /api/v2/authorization/trusts/<id>     (delete/revoke trust)',
+        ],
+        'alert_rules': [
+            'GET    /api/alerts/rules          (list rules)',
+            'POST   /api/alerts/rules          (create rule)',
+            'GET    /api/alerts/rules/<id>     (get rule)',
+            'PUT    /api/alerts/rules/<id>     (update rule)',
+            'DELETE /api/alerts/rules/<id>     (delete rule)',
+        ],
+        'adherence': [
+            'GET/POST   /api/wfm/activity-codes          (list/create activity codes)',
+            'PUT/DELETE /api/wfm/activity-codes/<id>     (update/delete activity code)',
+            'GET/POST   /api/wfm/management-units        (list/create management units)',
+            'PUT/DELETE /api/wfm/management-units/<id>   (update/delete management unit)',
+            'GET/POST   /api/wfm/schedules               (list/create schedules)',
+            'PUT/DELETE /api/wfm/schedules/<id>          (update/delete schedule)',
         ],
         'apps': [
             'GET    /api/apps/installed',
