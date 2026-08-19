@@ -74,10 +74,48 @@ export const APPS_SCRIPT: string = `
     });
   }
 
+  /* ─── Backend row → frontend shape ───
+     backend/apps.py returns raw apps-table rows (icon as a key string,
+     category as a short machine code, last_sync_label/status_label/
+     integration_status as their literal column names). These adapt that
+     into exactly the shape renderAppCard/renderAvailableRow/the drawers
+     already expect — same job the People page's fromBackendPerson() does
+     in store.ts for its own backend rows. */
+  function mapBackendInstalledApp(row) {
+    return {
+      id: row.id,
+      name: row.name,
+      icon: APP_ICONS[row.icon] || APP_ICONS.cloud,
+      category: row.category_label || row.category,
+      description: row.description || '',
+      status: row.status || 'inactive',
+      statusLabel: row.status_label || 'Inactive',
+      integrationStatus: row.integration_status || 'Not connected',
+      lastSync: row.last_sync_label || '',
+      permissions: Array.isArray(row.permissions) ? row.permissions : []
+    };
+  }
+
+  function mapBackendAvailableApp(row) {
+    return {
+      id: row.id,
+      name: row.name,
+      icon: APP_ICONS[row.icon] || APP_ICONS.cloud,
+      category: row.category,
+      categoryLabel: row.category_label || row.category,
+      description: row.description || '',
+      permissions: Array.isArray(row.permissions) ? row.permissions : []
+    };
+  }
+
   /* ─── Modular data-fetching helper ───
-     Swap in a real backend call by defining window.AppsAPI.listInstalled()
-     (sync array or Promise<array>) — this helper falls back to local seed
-     data automatically if that hook is absent or fails. */
+     window.AppsAPI.listInstalled() (sync array or Promise<array>) is the
+     top-priority swap-in point for a fully custom integration; absent that,
+     this calls the real GET /api/apps/installed endpoint via appsApiFetch.
+     Falls back to the local seed data both when that request fails
+     (offline / not logged in / backend down) and when it legitimately
+     returns zero rows — same "never show a broken empty state" convention
+     the rest of this module already uses for window.AppsAPI above. */
   function fetchInstalledApps() {
     if (window.AppsAPI && typeof window.AppsAPI.listInstalled === 'function') {
       try {
@@ -88,15 +126,17 @@ export const APPS_SCRIPT: string = `
           }).catch(function() { return INSTALLED_APPS_FALLBACK.slice(); });
         }
         if (Array.isArray(res) && res.length) return Promise.resolve(res);
-      } catch (e) { /* fall through to local fallback */ }
+      } catch (e) { /* fall through to REST */ }
     }
-    return Promise.resolve(INSTALLED_APPS_FALLBACK.slice());
+    return appsApiFetch('/api/apps/installed').then(function(rows) {
+      return (Array.isArray(rows) && rows.length) ? rows.map(mapBackendInstalledApp) : INSTALLED_APPS_FALLBACK.slice();
+    }).catch(function() { return INSTALLED_APPS_FALLBACK.slice(); });
   }
 
   /* ─── Modular data-fetching helper (Available tab) ───
-     Swap in a real backend call by defining window.AppsAPI.listAvailable()
-     (sync array or Promise<array>) — falls back to the local catalogue
-     above if that hook is absent or fails. */
+     Same layering as fetchInstalledApps above: window.AppsAPI.listAvailable()
+     first, then the real GET /api/apps/available endpoint, then the local
+     catalogue as a last resort. */
   function fetchAvailableApps() {
     if (window.AppsAPI && typeof window.AppsAPI.listAvailable === 'function') {
       try {
@@ -107,9 +147,11 @@ export const APPS_SCRIPT: string = `
           }).catch(function() { return AVAILABLE_APPS_FALLBACK.slice(); });
         }
         if (Array.isArray(res) && res.length) return Promise.resolve(res);
-      } catch (e) { /* fall through to local fallback */ }
+      } catch (e) { /* fall through to REST */ }
     }
-    return Promise.resolve(AVAILABLE_APPS_FALLBACK.slice());
+    return appsApiFetch('/api/apps/available').then(function(rows) {
+      return (Array.isArray(rows) && rows.length) ? rows.map(mapBackendAvailableApp) : AVAILABLE_APPS_FALLBACK.slice();
+    }).catch(function() { return AVAILABLE_APPS_FALLBACK.slice(); });
   }
 
   var appsCache = INSTALLED_APPS_FALLBACK.slice();
@@ -132,12 +174,12 @@ export const APPS_SCRIPT: string = `
         return availableAppsCache;
       });
     },
-    /* POST /api/apps/available/{id}/install — { app_id } in, { ok, app? } out,
-       matching the REST payload shape every other resource in this app uses
-       (see toBackendPerson/apiFetch in store.ts). Tries window.AppsAPI.installApp
-       first (real backend swap-in point), then the REST endpoint directly,
-       and finally simulates success so the install flow works end-to-end
-       even before that endpoint exists server-side. */
+    /* POST /api/apps/available/{id}/install (backend/apps.py) — { app_id }
+       in, { ok, app } out, matching the REST payload shape every other
+       resource in this app uses (see toBackendPerson/apiFetch in store.ts).
+       Tries window.AppsAPI.installApp first (custom-integration swap-in
+       point), then the real REST endpoint, and finally simulates success
+       so the install flow still completes if the backend is unreachable. */
     installApp: function(id) {
       if (window.AppsAPI && typeof window.AppsAPI.installApp === 'function') {
         try {
@@ -151,6 +193,33 @@ export const APPS_SCRIPT: string = `
       }).catch(function() {
         return new Promise(function(resolve) { setTimeout(resolve, 500); });
       });
+    },
+    /* PUT /api/apps/installed/{id} — persists status/config changes on an
+       already-installed app (e.g. a Configure/resync action). patch may
+       contain status, status_label, integration_status and/or
+       last_sync_label — the only columns backend/apps.py accepts here. */
+    updateInstalled: function(id, patch) {
+      if (window.AppsAPI && typeof window.AppsAPI.updateInstalled === 'function') {
+        try {
+          var hookRes = window.AppsAPI.updateInstalled(id, patch);
+          return (hookRes && typeof hookRes.then === 'function') ? hookRes : Promise.resolve(hookRes);
+        } catch (e) { /* fall through */ }
+      }
+      return appsApiFetch('/api/apps/installed/' + encodeURIComponent(id), {
+        method: 'PUT',
+        body: JSON.stringify(patch)
+      });
+    },
+    /* DELETE /api/apps/installed/{id} — uninstalls (flips the row back to
+       Available server-side; see backend/apps.py's uninstall_app). */
+    uninstallApp: function(id) {
+      if (window.AppsAPI && typeof window.AppsAPI.uninstallApp === 'function') {
+        try {
+          var hookRes = window.AppsAPI.uninstallApp(id);
+          return (hookRes && typeof hookRes.then === 'function') ? hookRes : Promise.resolve(hookRes);
+        } catch (e) { /* fall through */ }
+      }
+      return appsApiFetch('/api/apps/installed/' + encodeURIComponent(id), { method: 'DELETE' });
     }
   };
   window.AppsService = AppsService;
@@ -278,8 +347,9 @@ export const APPS_SCRIPT: string = `
         perms +
       '</div>' +
       '<div style="padding:14px 24px;border-top:1px solid #e2e8f0;display:flex;gap:10px;justify-content:flex-end;background:#f8fafc">' +
+        '<button class="btn sec" style="color:#b3261e;border-color:#f3c6c2;margin-right:auto" onclick="window.appsUninstallApp(\\'' + app.id + '\\')">Uninstall</button>' +
         '<button class="btn sec" onclick="window.appsCloseDetails()">Cancel</button>' +
-        '<button class="btn sec" onclick="window.appsCloseDetails();window.appsToast(\\'Opened configuration for ' + safeName + '\\')">Configure</button>' +
+        '<button class="btn sec" id="apps_configure_btn" onclick="window.appsConfigureApp(\\'' + app.id + '\\',\\'' + safeName + '\\')">Configure</button>' +
         '<button class="btn" onclick="window.appsCloseDetails();window.appsToast(\\'Launching ' + safeName + '\\u2026\\')">Launch</button>' +
       '</div>';
     document.body.appendChild(d);
@@ -291,6 +361,52 @@ export const APPS_SCRIPT: string = `
   };
 
   window.appsToast = function(msg) { showToast(msg); };
+
+  /* ─── Configure (Installed tab) → PUT /api/apps/installed/{id} ───
+     A minimal but real config change: marks the integration freshly
+     resynced. Persists via AppsService.updateInstalled, then refreshes the
+     Installed cache from the backend so the drawer/grid reflect what's
+     actually stored, not just an optimistic local edit. ─── */
+  window.appsConfigureApp = function(id, name) {
+    var btn = document.getElementById('apps_configure_btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving\\u2026'; }
+    AppsService.updateInstalled(id, { status: 'active', status_label: 'Active', integration_status: 'Connected', last_sync_label: 'Just now' })
+      .then(function() { return AppsService.refresh(); })
+      .then(function() {
+        window.appsCloseDetails();
+        window.appsToast('\\u2713 Reconfigured ' + name + ' \\u2014 resynced');
+        if (window.APP && window.APP.view === 'apps') {
+          var body = document.getElementById('apps_tab_body');
+          if (body) body.innerHTML = renderTabBody();
+        }
+      })
+      .catch(function(err) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Configure'; }
+        window.appsToast('\\u2717 Configure failed \\u2014 ' + ((err && err.message) || 'please try again'));
+      });
+  };
+
+  /* ─── Uninstall (Installed tab) → DELETE /api/apps/installed/{id} ───
+     Moves the app back to the Available catalogue server-side, then
+     refreshes both caches so it reappears there immediately. ─── */
+  window.appsUninstallApp = function(id) {
+    var app = AppsService.getById(id);
+    if (!app) return;
+    var safeName = escapeHtml(app.name).replace(/'/g, "\\\\'");
+    AppsService.uninstallApp(id)
+      .then(function() { return Promise.all([AppsService.refresh(), AppsService.refreshAvailable()]); })
+      .then(function() {
+        window.appsCloseDetails();
+        window.appsToast('\\u2713 ' + safeName + ' uninstalled');
+        if (window.APP && window.APP.view === 'apps') {
+          var body = document.getElementById('apps_tab_body');
+          if (body) body.innerHTML = renderTabBody();
+        }
+      })
+      .catch(function(err) {
+        window.appsToast('\\u2717 Uninstall failed \\u2014 ' + ((err && err.message) || 'please try again'));
+      });
+  };
 
   /* ─── App Installation Modal (Available tab) ───
      Opened by clicking a catalogue row or its Install button. Shows the
@@ -349,13 +465,20 @@ export const APPS_SCRIPT: string = `
   window.appsConfirmInstall = function(id, name) {
     var btn = document.getElementById('apps_install_confirm_btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Installing\\u2026'; }
-    AppsService.installApp(id).then(function() {
-      window.appsCloseInstallModal();
-      window.appsToast('\\u2713 ' + name + ' installed');
-    }).catch(function(err) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Install'; }
-      window.appsToast('\\u2717 Install failed \\u2014 ' + ((err && err.message) || 'please try again'));
-    });
+    AppsService.installApp(id)
+      .then(function() { return Promise.all([AppsService.refresh(), AppsService.refreshAvailable()]); })
+      .then(function() {
+        window.appsCloseInstallModal();
+        window.appsToast('\\u2713 ' + name + ' installed');
+        if (window.APP && window.APP.view === 'apps') {
+          var body = document.getElementById('apps_tab_body');
+          if (body) body.innerHTML = renderTabBody();
+        }
+      })
+      .catch(function(err) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Confirm Install'; }
+        window.appsToast('\\u2717 Install failed \\u2014 ' + ((err && err.message) || 'please try again'));
+      });
   };
 
   /* ─── Apply Redesign ─── */

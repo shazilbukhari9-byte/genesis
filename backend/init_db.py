@@ -36,6 +36,44 @@ LICENSES = [
 # division matches the frontend's fixed 5-division set (d_home/d_ret/d_dig/d_col/d_man)
 # email follows the same first-initial+surname@mcmgroup.com pattern the
 # frontend's own demo seed (mkU calls in scripts.ts) already uses.
+# Matches frontend/src/mcm/apps-redesign.ts's INSTALLED_APPS_FALLBACK exactly
+# (id, name, category code, category label, icon key, description,
+# permissions) so the UI looks identical whether it's reading this seed data
+# or its own local fallback. installed=True apps start 'active'/'Connected';
+# the 4 available apps start installed=False/'inactive'/'Not connected'.
+INSTALLED_APPS = [
+    ('salesforce-cx-cloud', 'Salesforce CX Cloud', 'crm', 'CRM Integration', 'cloud', 'Embedded CTI and screen pop',
+     ['Read customer records', 'Write interaction history', 'Screen pop on inbound calls'], '2 minutes ago'),
+    ('servicenow-unified', 'ServiceNow Unified', 'itsm', 'ITSM Integration', 'settings', 'Front and back office',
+     ['Read/write incidents', 'Read CMDB assets', 'Sync front & back office cases'], '5 minutes ago'),
+    ('customised-analytics', 'Customised Analytics', 'analytics', 'Reporting & BI', 'barChart', 'Prebuilt and custom dashboards',
+     ['Read historical data', 'Export reports', 'Manage custom dashboards'], '12 minutes ago'),
+    ('bot-manager', 'Bot Manager', 'automation', 'Automation & Bots', 'cpu', 'Native and third-party bots',
+     ['Manage bot flows', 'Read conversation transcripts', 'Deploy bot updates'], '1 minute ago'),
+    ('workforce-mobile', 'Workforce Mobile', 'workforce', 'Workforce Management', 'smartphone', 'Schedules and time-off',
+     ['Read/write schedules', 'Manage time-off requests', 'Send push notifications'], '8 minutes ago'),
+    ('secure-payments', 'Secure Payments', 'payments', 'Payments & Compliance', 'lock', 'PCI card capture',
+     ['PCI-scoped card capture', 'Tokenize payment data', 'Write audit trail logs'], '20 minutes ago'),
+    ('agent-copilot', 'Agent Copilot', 'ai', 'AI & Agent Assist', 'headset', 'Real-time assistance',
+     ['Read live transcript', 'Suggest agent responses', 'Access knowledge base'], 'Just now'),
+    ('knowledge-workbench', 'Knowledge Workbench', 'knowledge', 'Knowledge Management', 'bookOpen', 'Article authoring',
+     ['Read/write articles', 'Manage publishing workflow', 'Access search index'], '30 minutes ago'),
+]
+
+# Matches frontend/src/mcm/apps-redesign.ts's AVAILABLE_APPS_FALLBACK exactly —
+# the 4 AppFoundry catalogue integrations also listed on Admin > Integrations
+# > Catalogue. category_label doubles as the badge text ('CRM', 'UC', etc).
+AVAILABLE_APPS = [
+    ('salesforce-cti', 'Salesforce CTI', 'crm', 'CRM', 'cloud', 'Click-to-dial and screen pop from Salesforce',
+     ['Read/write Salesforce contacts', 'Screen pop on inbound calls', 'Log call activity to Salesforce']),
+    ('microsoft-teams', 'Microsoft Teams', 'uc', 'UC', 'users', 'Presence sync and click-to-chat with Teams',
+     ['Read Teams presence status', 'Send click-to-chat messages', 'Sync calendar availability']),
+    ('zendesk', 'Zendesk', 'ticketing', 'Ticketing', 'messageSquare', 'Two-way ticket sync for every interaction',
+     ['Create and update Zendesk tickets', 'Read ticket status', 'Attach interaction transcripts']),
+    ('power-bi-export', 'Power BI Export', 'analytics', 'Analytics', 'barChart', 'Scheduled exports of contact centre data to Power BI',
+     ['Read historical reporting data', 'Export scheduled datasets', 'Manage export schedule']),
+]
+
 USERS = [
     ('Faisal Khan', 'fkhan@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
     ('Adnan Shaikh', 'ashaikh@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
@@ -80,6 +118,27 @@ def run():
         cur.execute(
             'INSERT INTO licenses (code, label, purchased, unit_price) VALUES (%s,%s,%s,%s) ON CONFLICT (code) DO NOTHING',
             (code, label, purchased, unit_price),
+        )
+
+    for app_id, name, category, category_label, icon, description, permissions, last_sync_label in INSTALLED_APPS:
+        cur.execute(
+            """
+            INSERT INTO apps (id, tenant_id, name, category, category_label, icon, description, permissions,
+                               installed, status, status_label, integration_status, last_sync_label, installed_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s, true, 'active', 'Active', 'Connected', %s, now())
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (app_id, tenant_id, name, category, category_label, icon, description, permissions, last_sync_label),
+        )
+
+    for app_id, name, category, category_label, icon, description, permissions in AVAILABLE_APPS:
+        cur.execute(
+            """
+            INSERT INTO apps (id, tenant_id, name, category, category_label, icon, description, permissions)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (app_id, tenant_id, name, category, category_label, icon, description, permissions),
         )
 
     cur.execute('SELECT COUNT(*) AS n FROM users')
