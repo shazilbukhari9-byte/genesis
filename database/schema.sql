@@ -332,6 +332,47 @@ CREATE TABLE IF NOT EXISTS extension_pools (
 );
 ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS target_label TEXT;
 
+-- Admin > Quality & WEM > Forecasts page. A planning group maps route paths
+-- (queues + ACD skills + languages) to one forecast entity — queues/skills/
+-- langs are plain string arrays here (like trunks.codecs), not FKs, since
+-- the frontend already stores them as plain name lists, not ids.
+CREATE TABLE IF NOT EXISTS planning_groups (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  queues TEXT[] NOT NULL DEFAULT '{}',
+  skills TEXT[] NOT NULL DEFAULT '{}',
+  langs TEXT[] NOT NULL DEFAULT '{}'
+);
+
+-- service_goals.pgs is an int[] of planning_groups.id — Postgres doesn't
+-- support a real FK constraint on an array column, so this is enforced
+-- only by the frontend sync layer, same as other loosely-referenced
+-- fields elsewhere in this schema (e.g. trunks.codecs).
+CREATE TABLE IF NOT EXISTS service_goals (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  sl INTEGER NOT NULL DEFAULT 80,
+  sls INTEGER NOT NULL DEFAULT 20,
+  asa INTEGER NOT NULL DEFAULT 30,
+  abn INTEGER NOT NULL DEFAULT 0,
+  pgs INTEGER[] NOT NULL DEFAULT '{}'
+);
+
+-- data is the per-planning-group {vol, aht, days} breakdown, keyed by
+-- planning_groups.id (as a JSON object, so the key is textual) — opaque
+-- JSONB blob, same pattern as flows.graph / eval_forms.groups.
+CREATE TABLE IF NOT EXISTS forecasts (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  week TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Generated (ABM)',
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  UNIQUE(tenant_id, week)
+);
+
 -- Edge Groups (Admin > Telephony > Edge Groups) are plain named-list
 -- entities like ACD Skills/Languages, so they reuse simple_entities with
 -- kind='edge_group' instead of a dedicated table.
