@@ -338,6 +338,34 @@ CREATE TABLE IF NOT EXISTS emergency_groups (
   active BOOLEAN NOT NULL DEFAULT false
 );
 
+-- Admin > Contact Center > Email Settings — verified sending domains and
+-- the inbound addresses routed off each one.
+CREATE TABLE IF NOT EXISTS email_domains (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  domain TEXT NOT NULL,
+  verified BOOLEAN NOT NULL DEFAULT false
+);
+
+CREATE TABLE IF NOT EXISTS email_addresses (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  addr TEXT NOT NULL,
+  route TEXT,
+  target TEXT
+);
+
+-- Admin > Quality & WEM > Evaluation Forms — groups/questions edited live
+-- in the form builder, committed as one JSONB blob on Save (same pattern
+-- as flows.graph) rather than a normalised groups/questions schema.
+CREATE TABLE IF NOT EXISTS eval_forms (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  published BOOLEAN NOT NULL DEFAULT false,
+  groups JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+
 -- Now that flows/queues exist, wire the interactions.flow_id FK too.
 DO $$
 BEGIN

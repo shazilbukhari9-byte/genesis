@@ -131,4 +131,25 @@ REGISTRY = {
         search=["name"],
         perm=None,
     ),
+    "email-domains": dict(
+        table="email_domains",
+        order="domain",
+        fields=["tenant_id", "domain", "verified"],
+        search=["domain"],
+        perm=None,
+    ),
+    "email-addresses": dict(
+        table="email_addresses",
+        order="addr",
+        fields=["tenant_id", "addr", "route", "target"],
+        search=["addr"],
+        perm=None,
+    ),
+    "eval-forms": dict(
+        table="eval_forms",
+        order="name",
+        fields=["tenant_id", "name", "published", "groups"],
+        search=["name"],
+        perm=None,
+    ),
 }
