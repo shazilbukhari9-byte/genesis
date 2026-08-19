@@ -284,19 +284,22 @@ def live_summary():
 def _report_queue_summary(tenant_id, from_dt, to_dt):
     conn = get_db()
     cur = conn.cursor()
+    # Grouped by interactions.queue_name (not a queues-table join) — queue_name
+    # is populated on every interaction regardless of whether a matching row
+    # exists in queues, so this reports real per-queue totals even for
+    # tenants whose queues table isn't (yet) fully seeded.
     cur.execute(
         """
-        SELECT q.name AS queue,
-          COUNT(i.id) AS total,
-          COUNT(*) FILTER (WHERE i.result = 'Handled') AS handled,
-          COUNT(*) FILTER (WHERE i.result = 'Abandoned') AS abandoned,
-          ROUND(AVG(i.wait_s)) AS avg_wait_s
-        FROM queues q
-        LEFT JOIN interactions i ON i.queue_id = q.id AND i.started_at BETWEEN %s AND %s
-        WHERE q.tenant_id = %s
-        GROUP BY q.name ORDER BY q.name
+        SELECT queue_name AS queue,
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE result = 'Handled') AS handled,
+          COUNT(*) FILTER (WHERE result = 'Abandoned') AS abandoned,
+          ROUND(AVG(wait_s)) AS avg_wait_s
+        FROM interactions
+        WHERE tenant_id = %s AND started_at BETWEEN %s AND %s AND queue_name IS NOT NULL
+        GROUP BY queue_name ORDER BY queue_name
         """,
-        (from_dt, to_dt, tenant_id),
+        (tenant_id, from_dt, to_dt),
     )
     rows = cur.fetchall()
     conn.close()
@@ -310,12 +313,13 @@ def _report_agent_summary(tenant_id, from_dt, to_dt):
         """
         SELECT u.name AS agent,
           COUNT(i.id) FILTER (WHERE i.result = 'Handled') AS handled,
-          ROUND(AVG(COALESCE(i.talk_s,0) + COALESCE(i.acw_s,0))) FILTER (WHERE i.result = 'Handled') AS aht
+          ROUND(AVG(COALESCE(i.talk_s,0) + COALESCE(i.acw_s,0)) FILTER (WHERE i.result = 'Handled')) AS aht
         FROM users u
         LEFT JOIN interactions i ON i.agent_id = u.id AND i.started_at BETWEEN %s AND %s
+        WHERE u.tenant_id = %s
         GROUP BY u.name ORDER BY u.name
         """,
-        (from_dt, to_dt),
+        (from_dt, to_dt, tenant_id),
     )
     rows = cur.fetchall()
     conn.close()

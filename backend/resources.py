@@ -71,7 +71,8 @@ REGISTRY = {
     "trunks": dict(
         table="trunks",
         order="priority, name",
-        fields=["tenant_id", "name", "priority", "enabled", "is_platform"],
+        fields=["tenant_id", "name", "priority", "enabled", "is_platform",
+                 "type", "transport", "servers", "codecs", "caller_id", "edge_group", "state"],
         search=["name"],
         perm=None,
     ),
@@ -95,7 +96,8 @@ REGISTRY = {
     "did-assignments": dict(
         table="did_assignments",
         order="phone_number",
-        fields=["tenant_id", "phone_number", "destination_type", "flow_id", "queue_id"],
+        fields=["tenant_id", "phone_number", "destination_type", "flow_id", "queue_id",
+                 "assignment_type", "target_label"],
         search=["phone_number"],
         perm=None,
     ),

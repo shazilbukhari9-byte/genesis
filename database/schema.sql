@@ -259,6 +259,18 @@ CREATE TABLE IF NOT EXISTS trunks (
   is_platform BOOLEAN NOT NULL DEFAULT false
 );
 
+-- Admin > Telephony > Trunks page fields — priority/enabled/is_platform above
+-- are what carrier.py's BYOC route resolver actually reads; these are purely
+-- the richer profile the Trunks admin UI edits (type/transport/servers/
+-- codecs/caller ID/edge-group/in-service state), added without disturbing it.
+ALTER TABLE trunks ADD COLUMN IF NOT EXISTS type TEXT;
+ALTER TABLE trunks ADD COLUMN IF NOT EXISTS transport TEXT;
+ALTER TABLE trunks ADD COLUMN IF NOT EXISTS servers TEXT;
+ALTER TABLE trunks ADD COLUMN IF NOT EXISTS codecs TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE trunks ADD COLUMN IF NOT EXISTS caller_id TEXT;
+ALTER TABLE trunks ADD COLUMN IF NOT EXISTS edge_group TEXT;
+ALTER TABLE trunks ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT 'In-Service';
+
 CREATE TABLE IF NOT EXISTS flows (
   id SERIAL PRIMARY KEY,
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -296,6 +308,12 @@ CREATE TABLE IF NOT EXISTS did_assignments (
   queue_id INTEGER REFERENCES queues(id),
   UNIQUE(tenant_id, phone_number)
 );
+
+-- Admin > Telephony > DID Numbers page assigns a DID to a Person or a
+-- readable target label, not just flow_id/queue_id — plain text columns
+-- for the label the UI actually edits, same pattern as trunks' extra columns.
+ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS assignment_type TEXT;
+ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS target_label TEXT;
 
 -- Now that flows/queues exist, wire the interactions.flow_id FK too.
 DO $$
