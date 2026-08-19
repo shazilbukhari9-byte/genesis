@@ -71,7 +71,8 @@ REGISTRY = {
     "trunks": dict(
         table="trunks",
         order="priority, name",
-        fields=["tenant_id", "name", "priority", "enabled", "is_platform"],
+        fields=["tenant_id", "name", "priority", "enabled", "is_platform",
+                 "type", "transport", "servers", "codecs", "caller_id", "edge_group", "state"],
         search=["name"],
         perm=None,
     ),
