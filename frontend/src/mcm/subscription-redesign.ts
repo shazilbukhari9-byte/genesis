@@ -18,6 +18,20 @@
    hover polish to match Apps/Authorized Organizations) is CSS-only
    — see mcm.css's .subs-banner / .subs-kpi / .subs-card rules — so
    it applies automatically without touching this page's logic.
+
+   It also wraps window.SubsAPI.getOverview to fix a real bug: that
+   function's own .then() does `Object.keys(d.pool)` on whatever the
+   backend returned with zero validation. An expired/missing auth
+   token, a Render cold-start timeout, or any other non-2xx response
+   still resolves to valid JSON (e.g. {"ok":false,"error":"..."}) with
+   no `pool` field — Object.keys(undefined) throws, the rejection is
+   never caught anywhere in the chain, and window.renderSubsFx's
+   `await SubsAPI.getOverview()` aborts before cnt.innerHTML is ever
+   touched. Clicking "Subscription" then updates window.APP.page but
+   leaves the previous screen exactly as it was — reads as "the page
+   doesn't open". The wrap here validates the response shape, races
+   it against a timeout, and falls back to a static placeholder
+   dataset (with a toast) so the page always renders something.
    ============================================================ */
 
 export const SUBSCRIPTION_SCRIPT: string = `
@@ -101,14 +115,72 @@ export const SUBSCRIPTION_SCRIPT: string = `
     document.querySelectorAll('.sc-add, .sa-btn').forEach(function(el) { swapLeadingGlyph(el, ICONS.plus); });
   }
 
+  /* Placeholder dataset shaped exactly like SubsAPI.getOverview()'s real
+     resolved value (same field names renderSubsFx destructures) — used
+     only when the real call fails validation or times out, so the page
+     still renders instead of leaving the previous screen in place. */
+  function buildFallbackOverview() {
+    var pool = { 'CX 1': 40, 'CX 2': 60, 'CX 3': 25, 'CX 4': 10, 'Communicate': 50 };
+    var unitPrice = { 'CX 1': 75, 'CX 2': 115, 'CX 3': 155, 'CX 4': 240, 'Communicate': 18 };
+    var label = { 'CX 1': 'CX 1 \\u2014 Voice', 'CX 2': 'CX 2 \\u2014 Digital', 'CX 3': 'CX 3 \\u2014 WEM', 'CX 4': 'CX 4 \\u2014 AI', 'Communicate': 'Communicate' };
+    var licModel = { 'CX 1': 'Named user', 'CX 2': 'Named user', 'CX 3': 'Named user', 'CX 4': 'Named user', 'Communicate': 'Named user' };
+    var usedMap = { 'CX 1': 0, 'CX 2': 0, 'CX 3': 0, 'CX 4': 0, 'Communicate': 0 };
+    var now = new Date();
+    var billEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return {
+      pool: pool, unitPrice: unitPrice, label: label, tierLabel: label, licModel: licModel, usedMap: usedMap,
+      tierCls: { 'CX 1': 'cx1', 'CX 2': 'cx2', 'CX 3': 'cx3', 'CX 4': 'cx4', 'Communicate': 'add' },
+      tierIcon: {}, totalSeats: 0,
+      voiceMin: 0, msgN: 0, recN: 0, storGb: 0, aiUsed: 0,
+      voiceCost: 0, msgCost: 0, storCost: 0, aiCost: 0, usageTotal: 0, grandTotal: 0,
+      now: now, billEnd: billEnd,
+      daysLeft: Math.max(1, billEnd.getDate() - now.getDate() + 1),
+      billPeriod: now.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }),
+      nextInvDate: '\\u2014', atRisk: [], inv: [],
+      aiPurchased: 182500, aiPct: 0, aiRemaining: 182500, aiDaysLeft: 99
+    };
+  }
+
+  function wrapGetOverview() {
+    if (typeof window.SubsAPI !== 'object' || !window.SubsAPI || typeof window.SubsAPI.getOverview !== 'function' || window.SubsAPI.getOverview.__mcmSubsPolished) return;
+    var originalGetOverview = window.SubsAPI.getOverview;
+    var polished = function() {
+      var timedOut = new Promise(function(resolve) { setTimeout(function() { resolve(null); }, 10000); });
+      var live = originalGetOverview.call(window.SubsAPI).catch(function() { return null; });
+      return Promise.race([live, timedOut]).then(function(result) {
+        if (result && result.pool && typeof result.pool === 'object') return result;
+        if (window.toast) window.toast('\\u26A0 Live billing data unavailable \\u2014 showing a placeholder view. Try Refresh once the connection recovers.');
+        return buildFallbackOverview();
+      });
+    };
+    polished.__mcmSubsPolished = true;
+    window.SubsAPI.getOverview = polished;
+  }
+
   function wrapRenderSubsFx() {
     if (typeof window.renderSubsFx !== 'function' || window.renderSubsFx.__mcmSubsPolished) return;
     var originalRenderSubsFx = window.renderSubsFx;
     var polished = async function() {
-      var result = await originalRenderSubsFx.apply(this, arguments);
-      stripDuplicateManagePlanButton();
-      modernizeSubsIcons();
-      return result;
+      try {
+        var result = await originalRenderSubsFx.apply(this, arguments);
+        stripDuplicateManagePlanButton();
+        modernizeSubsIcons();
+        return result;
+      } catch (e) {
+        // Last-resort net: even with getOverview() now always resolving,
+        // render something rather than silently leaving the previous
+        // page on screen if anything else in the chain still throws.
+        var cnt = document.getElementById('cnt');
+        if (cnt) {
+          cnt.innerHTML = '<div class="phd"><div class="bc"><a onclick="adminIndex()">Admin</a> \\u203a Account Settings</div>' +
+            '<div class="tt"><h1>Subscription</h1></div></div>' +
+            '<div class="pbody"><div class="panel" style="padding:24px;text-align:center;color:#5b6a7d">' +
+            'Couldn\\u2019t load the Subscription page right now.<br>' +
+            '<button class="btn sec" style="margin-top:12px" onclick="renderSubsFx()">Retry</button>' +
+            '</div></div>';
+        }
+        if (window.toast) window.toast('\\u2717 Subscription page failed to load \\u2014 please try again.');
+      }
     };
     polished.__mcmSubsPolished = true;
     window.renderSubsFx = polished;
@@ -131,6 +203,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
   }
 
   function applySubsPolish() {
+    wrapGetOverview();
     wrapRenderSubsFx();
     wrapSubsOpenModal();
   }
