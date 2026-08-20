@@ -16,6 +16,7 @@ import { CERTS_SCRIPT } from "../mcm/certs-redesign";
 import { CONTACTLISTS_SCRIPT } from "../mcm/contactlists-redesign";
 import { DATAACT_SCRIPT } from "../mcm/dataact-redesign";
 import { DNCLISTS_SCRIPT } from "../mcm/dnclists-redesign";
+import { SUBSCRIPTION_SCRIPT } from "../mcm/subscription-redesign";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
@@ -240,6 +241,15 @@ function McmCloudCx() {
     dncListsScript.type = "text/javascript";
     dncListsScript.textContent = DNCLISTS_SCRIPT;
     document.body.appendChild(dncListsScript);
+
+    // Wraps window.renderSubsFx to drop the billing banner's own duplicate
+    // "Manage Plan" button after every render — the light-themed banner
+    // and de-emphasized KPI cards are pure CSS (see mcm.css). See
+    // mcm/subscription-redesign.ts.
+    const subscriptionScript = document.createElement("script");
+    subscriptionScript.type = "text/javascript";
+    subscriptionScript.textContent = SUBSCRIPTION_SCRIPT;
+    document.body.appendChild(subscriptionScript);
 
     // Re-assert the toast bridge (see lib/global-toast.tsx) now that
     // MCM_SCRIPT has run and defined its own window.toast — this call is

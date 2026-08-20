@@ -8,6 +8,7 @@ inserts when `users` is empty, so this is safe to run on every boot.
 
 import os
 import re
+from datetime import datetime
 from werkzeug.security import generate_password_hash
 from db import get_db
 
@@ -56,6 +57,27 @@ LICENSES = [
     ('CX 3', 'CX 3 — WEM', 25, 155),
     ('CX 4', 'CX 4 — AI', 10, 240),
     ('Communicate', 'Communicate', 50, 18),
+]
+
+# backend/app.py's GET /api/subscription/overview reads these two tables
+# directly (with no tenant filter — invoices/usage_log are global, not
+# per-tenant, matching how the rest of that route's schema already works)
+# to fill the Subscription page's Usage tab, Invoices tab, and AI Tokens
+# gauge. Without a seed, both tables start empty and those three sections
+# render as real zeros — the route isn't broken, it's just wired up to
+# nothing to display. Two invoices (one paid, one still open this month)
+# and one usage_log row per metric ('voice_min'|'sms'|'storage_gb'|
+# 'ai_tokens') give it something real to show.
+INVOICES = [
+    ('Jul 2026', 'INV-2026-07', 44210.0, 'Paid'),
+    ('Aug 2026', 'INV-2026-08', 46870.0, 'Open'),
+]
+
+USAGE_LOG = [
+    ('voice_min', 12480.0),
+    ('sms', 3260.0),
+    ('storage_gb', 148.0),
+    ('ai_tokens', 64000.0),
 ]
 
 # division matches the frontend's fixed 5-division set (d_home/d_ret/d_dig/d_col/d_man)
@@ -386,6 +408,22 @@ def run():
                 """,
                 (tenant_id, org_name, org_id, domain, relationship, scope_roles, divisions, status,
                  expires_at, notes, created_at),
+            )
+
+    cur.execute('SELECT COUNT(*) AS n FROM invoices')
+    if cur.fetchone()['n'] == 0:
+        for period_label, reference, total, status in INVOICES:
+            cur.execute(
+                'INSERT INTO invoices (period_label, reference, total, status) VALUES (%s,%s,%s,%s)',
+                (period_label, reference, total, status),
+            )
+
+    cur.execute('SELECT COUNT(*) AS n FROM usage_log')
+    if cur.fetchone()['n'] == 0:
+        for metric, amount in USAGE_LOG:
+            cur.execute(
+                'INSERT INTO usage_log (metric, amount, recorded_at) VALUES (%s,%s,%s)',
+                (metric, amount, datetime.now()),
             )
 
     cur.execute('SELECT COUNT(*) AS n FROM users')
