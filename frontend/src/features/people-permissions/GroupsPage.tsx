@@ -33,7 +33,10 @@ export function GroupsPage() {
   });
   const deleteMutation = useMutation({
     mutationFn: deleteGroup,
-    onSuccess: (updated) => queryClient.setQueryData(QUERY_KEY, updated),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      setEditing(null);
+    },
   });
 
   const groups = data?.groups ?? [];
@@ -99,6 +102,7 @@ export function GroupsPage() {
       {editing && (
         <GroupDrawer
           group={editing}
+          groups={groups}
           people={data?.people ?? []}
           saving={saveMutation.isPending}
           onClose={() => setEditing(null)}
@@ -118,6 +122,7 @@ const RING_HELP: Record<Group["ring"], string> = {
 
 function GroupDrawer({
   group,
+  groups,
   people,
   saving,
   onClose,
@@ -125,6 +130,7 @@ function GroupDrawer({
   onDelete,
 }: {
   group: Group | Omit<Group, "id">;
+  groups: Group[];
   people: Person[];
   saving: boolean;
   onClose: () => void;
@@ -132,6 +138,8 @@ function GroupDrawer({
   onDelete?: () => void;
 }) {
   const [draft, setDraft] = useState(group);
+  const [errors, setErrors] = useState<string[]>([]);
+  const isNew = !("id" in draft);
 
   function toggleMember(id: string) {
     setDraft((d) => ({
@@ -140,17 +148,55 @@ function GroupDrawer({
     }));
   }
 
+  function validate(): string[] {
+    const errs: string[] = [];
+    const name = draft.name.trim();
+    if (name.length < 2) errs.push("Group name is required.");
+    const existingId = "id" in draft ? draft.id : undefined;
+    if (groups.some((g) => g.name.toLowerCase() === name.toLowerCase() && g.id !== existingId)) {
+      errs.push("Group name already exists.");
+    }
+    if (draft.ext && !/^\d{3,6}$/.test(draft.ext)) errs.push("Group number must be 3–6 digits.");
+    return errs;
+  }
+
+  function handleSave() {
+    const errs = validate();
+    if (errs.length) {
+      setErrors(errs);
+      return;
+    }
+    onSave({ ...draft, name: draft.name.trim() });
+  }
+
   return (
     <>
       <div id="scrim" onClick={onClose} />
       <div id="drw">
         <div className="dh">
-          <h2>{"id" in draft ? "Edit group" : "Add group"}</h2>
+          <h2>{isNew ? "Add Group" : `Edit — ${draft.name}`}</h2>
           <div className="x" onClick={onClose}>×</div>
         </div>
         <div className="db">
+          {errors.length > 0 && (
+            <div
+              style={{
+                background: "#fdecea",
+                border: "1px solid #f5c6c0",
+                color: "#b3261e",
+                borderRadius: 5,
+                padding: "8px 11px",
+                fontSize: 12.5,
+                marginBottom: 10,
+              }}
+            >
+              {errors.map((e, i) => (
+                <div key={i}>{e}</div>
+              ))}
+            </div>
+          )}
           <div className="fld">
-            <label>Name</label>
+            <label>Name *</label>
             <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
           </div>
           <div className="fld">
@@ -207,16 +253,20 @@ function GroupDrawer({
 
           {"id" in draft && onDelete && (
             <div className="fld" style={{ marginTop: 14 }}>
-              <LegacyBtn secondary onClick={onDelete}>Delete group</LegacyBtn>
+              <LegacyBtn
+                secondary
+                onClick={() => {
+                  if (window.confirm(`Delete group "${draft.name}"?`)) onDelete();
+                }}
+              >
+                Delete group
+              </LegacyBtn>
             </div>
           )}
         </div>
         <div className="df">
           <LegacyBtn secondary onClick={onClose} disabled={saving}>Cancel</LegacyBtn>
-          <LegacyBtn
-            onClick={() => onSave(draft)}
-            disabled={saving || !draft.name || Boolean(draft.ext) && !/^\d{3,6}$/.test(draft.ext)}
-          >
+          <LegacyBtn onClick={handleSave} disabled={saving}>
             {saving ? "Saving…" : "Save"}
           </LegacyBtn>
         </div>

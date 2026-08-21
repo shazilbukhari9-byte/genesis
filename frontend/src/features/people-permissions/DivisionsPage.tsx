@@ -29,7 +29,10 @@ export function DivisionsPage() {
   });
   const deleteMutation = useMutation({
     mutationFn: deleteDivision,
-    onSuccess: (updated) => queryClient.setQueryData(QUERY_KEY, updated),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      setEditing(null);
+    },
   });
 
   const divisions = data?.divisions ?? [];
