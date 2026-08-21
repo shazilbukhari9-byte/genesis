@@ -305,6 +305,17 @@ def divisions_item(code):
         if existing['is_home']:
             conn.close()
             return jsonify({'ok': False, 'error': 'the default division cannot be deleted'}), 409
+        # Move any users still assigned to this division back to Home first
+        # (same as the UI prototype's delDivision()) — division is a bare
+        # text tag on users.division with no FK, so skipping this would
+        # leave those rows pointing at a division code that no longer exists.
+        cur.execute('SELECT code FROM divisions WHERE tenant_id = %s AND is_home = true', (g.tenant_id,))
+        home = cur.fetchone()
+        if home:
+            cur.execute(
+                'UPDATE users SET division = %s WHERE tenant_id = %s AND division = %s',
+                (home['code'], g.tenant_id, code),
+            )
         cur.execute('DELETE FROM divisions WHERE code = %s', (code,))
         conn.commit()
         conn.close()
