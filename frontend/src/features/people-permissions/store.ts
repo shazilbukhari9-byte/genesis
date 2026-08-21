@@ -1,11 +1,12 @@
 import type { DirectoryData, Division, Group, Person, Role, SimpleEntity } from "./types";
 import { apiFetch } from "../shared/backend";
 
-// People (this file's `people` list only — Roles/Divisions/Groups/Skills/
-// Languages below are still localStorage-backed, a separate follow-up) are
-// backed by the real `users` table via the generic /api/people resource
-// registered in backend/resources.py. roles/skills/langs aren't columns on
-// that table yet, so they come back empty from the backend for now.
+// People (this file's `people` list only — Divisions/Groups below are still
+// localStorage-backed, a separate follow-up) are backed by the real `users`
+// table via the generic /api/people resource registered in
+// backend/resources.py. roles is users.roles (integer[] of roles.id, cast
+// to strings here to match Role.id elsewhere), skills is users.skills
+// (jsonb {skillName: proficiency}), langs is users.langs (text[]).
 interface BackendPerson {
   id: number;
   name: string;
@@ -17,6 +18,9 @@ interface BackendPerson {
   dept: string | null;
   station: string | null;
   ext: string | null;
+  roles: number[] | null;
+  skills: Record<string, number> | null;
+  langs: string[] | null;
 }
 
 function fromBackendPerson(u: BackendPerson): Person {
@@ -27,10 +31,10 @@ function fromBackendPerson(u: BackendPerson): Person {
     title: u.title ?? "",
     dept: u.dept ?? "",
     division: u.division ?? "",
-    roles: [],
+    roles: (u.roles ?? []).map(String),
     license: u.license_code ?? "",
-    skills: {},
-    langs: [],
+    skills: u.skills ?? {},
+    langs: u.langs ?? [],
     station: u.station ?? "",
     state: (u.state as Person["state"]) || "Active",
     created: "",
@@ -112,6 +116,9 @@ function toBackendPerson(person: Partial<Person>): Record<string, unknown> {
     dept: person.dept,
     station: person.station,
     ext: person.ext,
+    ...(person.roles ? { roles: person.roles.map(Number) } : {}),
+    ...(person.skills ? { skills: person.skills } : {}),
+    ...(person.langs ? { langs: person.langs } : {}),
   };
 }
 

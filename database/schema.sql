@@ -32,6 +32,17 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS ext TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email) WHERE email IS NOT NULL;
 
+-- People page (People & Permissions): role assignment, ACD skill
+-- proficiency, and spoken languages. roles stores roles.id values as a
+-- plain integer array (no FK — Postgres can't FK into an array column
+-- without a trigger, and this mirrors how roles.perms is already a bare
+-- TEXT[] with no enforced referential integrity either). skills is a
+-- {skillName: proficiency 1-5} map rather than a join table, matching how
+-- small/admin-edited this list is (same reasoning as people_groups.members).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS roles INTEGER[] NOT NULL DEFAULT '{}';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS skills JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS langs TEXT[] NOT NULL DEFAULT '{}';
+
 CREATE TABLE IF NOT EXISTS usage_log (
   id SERIAL PRIMARY KEY,
   metric TEXT NOT NULL,       -- 'voice_min' | 'sms' | 'storage_gb' | 'ai_tokens'

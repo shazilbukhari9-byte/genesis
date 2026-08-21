@@ -24,7 +24,10 @@ REGISTRY = {
     "people": dict(
         table="users",
         order="name",
-        fields=["tenant_id", "name", "email", "license_code", "state", "division", "title", "dept", "station", "ext"],
+        fields=[
+            "tenant_id", "name", "email", "license_code", "state", "division", "title", "dept", "station", "ext",
+            "roles", "skills", "langs",
+        ],
         search=["name", "email"],
         perm=None,
     ),

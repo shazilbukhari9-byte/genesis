@@ -59,6 +59,28 @@ LICENSES = [
     ('Communicate', 'Communicate', 50, 18),
 ]
 
+# Roles/Skills/Languages for People & Permissions (name, description, base,
+# perms) — perms use the frontend's own PERMISSION_DOMAINS format
+# ("Domain:action", see frontend/src/features/people-permissions/types.ts),
+# not the richer permission set the UI prototype this was designed against
+# uses, since that's what RolesPage.tsx already renders checkboxes for.
+# 'Employee' is the one every seeded user gets in addition to their own
+# role(s) — same "base role nobody can remove" behaviour as the prototype.
+ROLES = [
+    ('Admin', 'Full platform access', True,
+     ['People:view', 'People:edit', 'People:delete', 'People:invite', 'Roles:view', 'Roles:edit', 'Roles:delete',
+      'Queues:view', 'Queues:edit', 'Queues:delete', 'Telephony:view', 'Telephony:edit', 'Reporting:view',
+      'Reporting:export', 'Billing:view', 'Billing:edit']),
+    ('Supervisor', 'Manages a team of agents', True,
+     ['People:view', 'Queues:view', 'Queues:edit', 'Reporting:view']),
+    ('Agent', 'Handles interactions', True, ['Queues:view']),
+    ('QA Analyst', 'Reviews interaction quality', True, ['Reporting:view', 'Reporting:export']),
+    ('Employee', 'Base role every user gets', True, ['People:view']),
+]
+
+SKILLS = ['Billing', 'Technical', 'Retention', 'Sales', 'Collections']
+LANGS = ['English', 'Spanish', 'Hindi', 'French']
+
 # backend/app.py's GET /api/subscription/overview reads these two tables
 # directly (with no tenant filter — invoices/usage_log are global, not
 # per-tenant, matching how the rest of that route's schema already works)
@@ -289,6 +311,19 @@ USERS = [
     ('Haruto Sato', 'hsato@mcmgroup.com', 'Communicate', 'Active', 'd_ret'),
 ]
 
+# A handful of representative users get a role beyond the 'Employee'
+# baseline plus a skill/language or two — everyone else just gets
+# 'Employee' with no skills/langs. Deliberately light: this is demo
+# flavour so the People page's Roles/Skills columns aren't all identical,
+# not a full org chart.
+USER_EXTRAS = {
+    'fkhan@mcmgroup.com': (['Admin', 'Supervisor'], {'Billing': 4}, ['English']),
+    'ashaikh@mcmgroup.com': (['Supervisor'], {'Technical': 3}, ['English']),
+    'spetrova@mcmgroup.com': (['Agent'], {'Billing': 3}, ['English', 'Spanish']),
+    'jokafor@mcmgroup.com': (['Agent'], {'Sales': 4}, ['English']),
+    'gadeyemi@mcmgroup.com': (['QA Analyst'], {}, ['English']),
+}
+
 
 def run():
     with open(SCHEMA_PATH, 'r', encoding='utf-8') as f:
@@ -305,6 +340,30 @@ def run():
         cur.execute('INSERT INTO tenants (name) VALUES (%s) RETURNING id', (os.environ.get('OG_DEFAULT_TENANT', 'MCM Group'),))
         tenant = cur.fetchone()
     tenant_id = tenant['id']
+
+    cur.execute('SELECT COUNT(*) AS n FROM roles WHERE tenant_id = %s', (tenant_id,))
+    if cur.fetchone()['n'] == 0:
+        for name, description, base, perms in ROLES:
+            cur.execute(
+                'INSERT INTO roles (tenant_id, name, description, base, perms) VALUES (%s,%s,%s,%s,%s)',
+                (tenant_id, name, description, base, perms),
+            )
+
+    cur.execute('SELECT COUNT(*) AS n FROM simple_entities WHERE tenant_id = %s AND kind = %s', (tenant_id, 'skill'))
+    if cur.fetchone()['n'] == 0:
+        for name in SKILLS:
+            cur.execute(
+                'INSERT INTO simple_entities (tenant_id, kind, name) VALUES (%s,%s,%s)',
+                (tenant_id, 'skill', name),
+            )
+
+    cur.execute('SELECT COUNT(*) AS n FROM simple_entities WHERE tenant_id = %s AND kind = %s', (tenant_id, 'lang'))
+    if cur.fetchone()['n'] == 0:
+        for name in LANGS:
+            cur.execute(
+                'INSERT INTO simple_entities (tenant_id, kind, name) VALUES (%s,%s,%s)',
+                (tenant_id, 'lang', name),
+            )
 
     for div_code, name, description, is_home in DIVISIONS:
         cur.execute(
@@ -447,6 +506,23 @@ def run():
             cur.execute(
                 'UPDATE users SET password_hash = %s WHERE name = %s AND password_hash IS NULL',
                 (DEMO_PASSWORD_HASH, name),
+            )
+
+    # Every seeded user gets the 'Employee' baseline role (can't be
+    # unassigned in the UI — see PersonDrawer); a few also get a second
+    # role plus a skill/language from USER_EXTRAS above. Only touches rows
+    # that still have no roles assigned, so this never clobbers real edits.
+    cur.execute('SELECT id, name FROM roles WHERE tenant_id = %s', (tenant_id,))
+    role_id_by_name = {r['name']: r['id'] for r in cur.fetchall()}
+    employee_role_id = role_id_by_name.get('Employee')
+    if employee_role_id is not None:
+        for _, email, _, _, _ in USERS:
+            extra_roles, skills, langs = USER_EXTRAS.get(email, ([], {}, []))
+            role_ids = [employee_role_id] + [role_id_by_name[r] for r in extra_roles if r in role_id_by_name]
+            cur.execute(
+                "UPDATE users SET roles = %s, skills = %s, langs = %s "
+                "WHERE email = %s AND array_length(roles, 1) IS NULL",
+                (role_ids, skills, langs, email),
             )
 
     conn.commit()
