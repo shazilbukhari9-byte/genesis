@@ -418,10 +418,11 @@ export async function deleteGroup(id: string): Promise<DirectoryData> {
 
 export type SimpleEntityKind = "skills" | "langs";
 
-// roles/skills/langs aren't columns on `users` yet (see the People-page
-// connection notes above), so unlike the old localStorage version this no
-// longer tries to rename references to a skill/language on people — there's
-// nothing real to rename until those get their own backing.
+// users.skills (jsonb, keyed by skill name) and users.langs (text[] of
+// language names) reference these entities by name, so renaming or deleting
+// one has to carry those references along — the backend does that cascade
+// inside the /api/simple-entities update and delete handlers, which is why
+// both calls below just refetch the whole directory afterwards.
 export async function upsertSimpleEntity(kind: SimpleEntityKind, entity: Omit<SimpleEntity, "id"> & { id?: string }): Promise<DirectoryData> {
   const backendKind = kind === "skills" ? "skill" : "lang";
   const label = kind === "skills" ? "skill" : "language";

@@ -709,6 +709,23 @@ def resource_update(resource, row_id):
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
 
+    # ACD Skills / Languages are referenced from users by *name*, not by id —
+    # users.skills is a jsonb object keyed by skill name and users.langs a
+    # text[] of language names (no FK either way). A rename therefore has to
+    # carry those references along, exactly as the UI prototype's saveSimple()
+    # does, or every existing assignment silently detaches.
+    rename_from = None
+    rename_kind = None
+    if resource == 'simple-entities' and 'name' in cols:
+        cur.execute(
+            'SELECT kind, name FROM simple_entities WHERE id = %s AND tenant_id = %s',
+            (row_id, g.tenant_id),
+        )
+        prev = cur.fetchone()
+        if prev is not None and prev['name'] != data['name']:
+            rename_from = prev['name']
+            rename_kind = prev['kind']
+
     set_clause = ', '.join(f'{c} = %s' for c in cols)
     update_sql = f"UPDATE {spec['table']} SET {set_clause} WHERE id = %s"
     update_params = [_prep_value(c, data[c], spec) for c in cols] + [row_id]
@@ -718,6 +735,20 @@ def resource_update(resource, row_id):
     update_sql += ' RETURNING *'
     cur.execute(update_sql, update_params)
     row = cur.fetchone()
+
+    if rename_from is not None:
+        if rename_kind == 'skill':
+            cur.execute(
+                'UPDATE users SET skills = (skills - %s) || jsonb_build_object(%s, skills -> %s) '
+                'WHERE tenant_id = %s AND skills ? %s',
+                (rename_from, row['name'], rename_from, g.tenant_id, rename_from),
+            )
+        else:
+            cur.execute(
+                'UPDATE users SET langs = array_replace(langs, %s, %s) WHERE tenant_id = %s AND %s = ANY(langs)',
+                (rename_from, row['name'], g.tenant_id, rename_from),
+            )
+
     conn.commit()
     conn.close()
     return jsonify(dict(row))
@@ -741,6 +772,17 @@ def resource_delete(resource, row_id):
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
 
+    # Read the skill/language name before the row goes away — the cascade
+    # below needs it (see the rename cascade in resource_update for why the
+    # references are by name).
+    removed = None
+    if resource == 'simple-entities':
+        cur.execute(
+            'SELECT kind, name FROM simple_entities WHERE id = %s AND tenant_id = %s',
+            (row_id, g.tenant_id),
+        )
+        removed = cur.fetchone()
+
     delete_sql = f"DELETE FROM {spec['table']} WHERE id = %s"
     delete_params = [row_id]
     if _tenant_scoped(spec):
@@ -756,6 +798,20 @@ def resource_delete(resource, row_id):
             'UPDATE users SET roles = array_remove(roles, %s) WHERE tenant_id = %s',
             (row_id, g.tenant_id),
         )
+
+    # Same for a deleted skill/language: drop the assignment from everyone who
+    # had it, the way the prototype's delSimple() does.
+    if removed is not None:
+        if removed['kind'] == 'skill':
+            cur.execute(
+                'UPDATE users SET skills = skills - %s WHERE tenant_id = %s AND skills ? %s',
+                (removed['name'], g.tenant_id, removed['name']),
+            )
+        else:
+            cur.execute(
+                'UPDATE users SET langs = array_remove(langs, %s) WHERE tenant_id = %s',
+                (removed['name'], g.tenant_id),
+            )
 
     conn.commit()
     conn.close()
