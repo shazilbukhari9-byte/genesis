@@ -118,6 +118,7 @@ export function RolesPage() {
       {editingRole && (
         <RoleDrawer
           role={editingRole}
+          roles={roles}
           members={editingId !== "new" ? (data?.people ?? []).filter((p) => p.roles.includes(editingId as string)) : []}
           saving={saveMutation.isPending}
           onClose={() => setEditingId(null)}
@@ -135,6 +136,7 @@ export function RolesPage() {
 
 function RoleDrawer({
   role,
+  roles,
   members,
   saving,
   onClose,
@@ -144,6 +146,7 @@ function RoleDrawer({
   onRemoveMember,
 }: {
   role: DraftRole;
+  roles: Role[];
   members: Person[];
   saving: boolean;
   onClose: () => void;
@@ -153,6 +156,7 @@ function RoleDrawer({
   onRemoveMember: (userId: string) => void;
 }) {
   const [draft, setDraft] = useState(role);
+  const [errors, setErrors] = useState<string[]>([]);
   const isBase = "base" in draft && draft.base;
 
   function togglePerm(perm: string) {
@@ -170,15 +174,60 @@ function RoleDrawer({
     }));
   }
 
+  function validate(): string[] {
+    const errs: string[] = [];
+    const name = draft.name.trim();
+    if (name.length < 2) errs.push("Role name is required.");
+    const existingId = "id" in draft ? draft.id : undefined;
+    if (roles.some((r) => r.name.toLowerCase() === name.toLowerCase() && r.id !== existingId)) {
+      errs.push("A role with this name already exists.");
+    }
+    if (draft.perms.length === 0) errs.push("Select at least one permission.");
+    return errs;
+  }
+
+  function handleSave() {
+    const errs = validate();
+    if (errs.length) {
+      setErrors(errs);
+      return;
+    }
+    onSave({ ...draft, name: draft.name.trim() });
+  }
+
   return (
     <>
       <div id="scrim" onClick={onClose} />
-      <div id="drw">
+      <div id="drw" style={{ width: 560 }}>
         <div className="dh">
-          <h2>{"id" in draft ? "Edit role" : "Add role"}</h2>
+          <h2>
+            {"id" in draft ? `Edit — ${draft.name}` : "Add Role"}
+            {isBase && (
+              <span className="tag" style={{ marginLeft: 6 }}>
+                Base
+              </span>
+            )}
+          </h2>
           <div className="x" onClick={onClose}>×</div>
         </div>
         <div className="db">
+          {errors.length > 0 && (
+            <div
+              style={{
+                background: "#fdecea",
+                border: "1px solid #f5c6c0",
+                color: "#b3261e",
+                borderRadius: 5,
+                padding: "8px 11px",
+                fontSize: 12.5,
+                marginBottom: 10,
+              }}
+            >
+              {errors.map((e, i) => (
+                <div key={i}>{e}</div>
+              ))}
+            </div>
+          )}
           <div className="sect">Role</div>
           <div className="fld">
             <label>Name *</label>
@@ -245,7 +294,17 @@ function RoleDrawer({
 
           {"id" in draft && !draft.base && onDelete && (
             <div className="fld" style={{ marginTop: 14 }}>
-              <LegacyBtn secondary onClick={onDelete}>Delete role</LegacyBtn>
+              <LegacyBtn
+                secondary
+                onClick={() => {
+                  const warning = members.length
+                    ? ` It is assigned to ${members.length} user(s); the assignment will be removed.`
+                    : "";
+                  if (window.confirm(`Delete role "${draft.name}"?${warning}`)) onDelete();
+                }}
+              >
+                Delete role
+              </LegacyBtn>
             </div>
           )}
           {"id" in draft && onCopy && (
@@ -256,7 +315,7 @@ function RoleDrawer({
         </div>
         <div className="df">
           <LegacyBtn secondary onClick={onClose} disabled={saving}>Cancel</LegacyBtn>
-          <LegacyBtn onClick={() => onSave(draft)} disabled={saving || !draft.name || draft.perms.length === 0}>
+          <LegacyBtn onClick={handleSave} disabled={saving}>
             {saving ? "Saving…" : "id" in draft ? "Save changes" : "Create role"}
           </LegacyBtn>
         </div>

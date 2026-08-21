@@ -59,23 +59,47 @@ LICENSES = [
     ('Communicate', 'Communicate', 50, 18),
 ]
 
-# Roles/Skills/Languages for People & Permissions (name, description, base,
-# perms) — perms use the frontend's own PERMISSION_DOMAINS format
-# ("Domain:action", see frontend/src/features/people-permissions/types.ts),
-# not the richer permission set the UI prototype this was designed against
-# uses, since that's what RolesPage.tsx already renders checkboxes for.
+# Permission domains (Roles / Permissions page) — must match the frontend's
+# PERMISSION_DOMAINS exactly (frontend/src/features/people-permissions/
+# types.ts), which mirrors the UI prototype's PERMS object one-for-one:
+# {domain: [entity:action, ...]}. A role's perms are 'domain:entity:action'
+# strings, e.g. 'directory:user:view'.
+PERMS = {
+    'directory': ['user:add', 'user:edit', 'user:view', 'user:delete', 'group:add', 'group:edit', 'location:add', 'location:edit'],
+    'authorization': ['role:add', 'role:edit', 'role:view', 'role:delete', 'division:add', 'division:edit', 'division:delete', 'grant:add'],
+    'routing': ['queue:add', 'queue:edit', 'queue:view', 'skill:add', 'skill:edit', 'wrapupCode:add', 'email:manage', 'message:manage'],
+    'conversation': ['call:accept', 'call:record', 'call:monitor', 'call:coach', 'call:barge', 'callback:add', 'email:accept', 'message:accept'],
+    'analytics': ['view:view', 'dashboard:add', 'dashboard:edit', 'alert:add', 'alert:edit', 'export:add'],
+    'quality': ['evaluation:add', 'evaluation:edit', 'calibration:add', 'recording:view', 'recordingPolicy:edit'],
+    'telephony': ['plugin:all', 'trunk:edit', 'site:edit', 'edge:edit', 'phone:add', 'phone:assign', 'did:edit', 'extension:edit'],
+    'architect': ['flow:add', 'flow:edit', 'flow:publish', 'flow:delete', 'prompt:add', 'datatable:edit'],
+    'outbound': ['campaign:add', 'campaign:edit', 'contactList:add', 'dnc:edit', 'ruleSet:edit'],
+    'wem': ['schedule:add', 'schedule:edit', 'forecast:add', 'adherence:view', 'gamification:edit'],
+}
+_ALL_PERMS = [f'{domain}:{action}' for domain, actions in PERMS.items() for action in actions]
+
+# Roles (name, description, base, perms) — the same 7 the prototype seeds.
 # 'Employee' is the one every seeded user gets in addition to their own
 # role(s) — same "base role nobody can remove" behaviour as the prototype.
 ROLES = [
-    ('Admin', 'Full platform access', True,
-     ['People:view', 'People:edit', 'People:delete', 'People:invite', 'Roles:view', 'Roles:edit', 'Roles:delete',
-      'Queues:view', 'Queues:edit', 'Queues:delete', 'Telephony:view', 'Telephony:edit', 'Reporting:view',
-      'Reporting:export', 'Billing:view', 'Billing:edit']),
-    ('Supervisor', 'Manages a team of agents', True,
-     ['People:view', 'Queues:view', 'Queues:edit', 'Reporting:view']),
-    ('Agent', 'Handles interactions', True, ['Queues:view']),
-    ('QA Analyst', 'Reviews interaction quality', True, ['Reporting:view', 'Reporting:export']),
-    ('Employee', 'Base role every user gets', True, ['People:view']),
+    ('Master Admin', 'Full organisation control', True, _ALL_PERMS),
+    ('Admin', 'Administer most settings', True,
+     [p for p in _ALL_PERMS if p != 'authorization:division:delete']),
+    ('Employee', 'Base role for every user', True,
+     ['directory:user:view', 'conversation:call:accept', 'conversation:callback:add']),
+    ('Agent', 'Handle ACD interactions', True,
+     ['directory:user:view', 'conversation:call:accept', 'conversation:email:accept', 'conversation:message:accept',
+      'conversation:callback:add', 'routing:queue:view', 'analytics:view:view']),
+    ('Supervisor', 'Queue & agent management', True,
+     ['directory:user:view', 'routing:queue:view', 'routing:queue:edit', 'conversation:call:monitor',
+      'conversation:call:coach', 'conversation:call:barge', 'analytics:view:view', 'analytics:dashboard:add',
+      'analytics:alert:add', 'wem:adherence:view']),
+    ('Telephony Admin', 'Edges, trunks, phones, numbers', True,
+     ['telephony:plugin:all', 'telephony:trunk:edit', 'telephony:site:edit', 'telephony:edge:edit',
+      'telephony:phone:add', 'telephony:phone:assign', 'telephony:did:edit', 'telephony:extension:edit']),
+    ('Quality Evaluator', 'Evaluations & calibration', True,
+     ['quality:evaluation:add', 'quality:evaluation:edit', 'quality:calibration:add', 'quality:recording:view',
+      'analytics:view:view']),
 ]
 
 SKILLS = ['Billing', 'Technical', 'Retention', 'Sales', 'Collections']
@@ -321,7 +345,7 @@ USER_EXTRAS = {
     'ashaikh@mcmgroup.com': (['Supervisor'], {'Technical': 3}, ['English']),
     'spetrova@mcmgroup.com': (['Agent'], {'Billing': 3}, ['English', 'Spanish']),
     'jokafor@mcmgroup.com': (['Agent'], {'Sales': 4}, ['English']),
-    'gadeyemi@mcmgroup.com': (['QA Analyst'], {}, ['English']),
+    'gadeyemi@mcmgroup.com': (['Quality Evaluator'], {}, ['English']),
 }
 
 

@@ -57,10 +57,14 @@ export interface DirectoryData {
 }
 
 export const PERMISSION_DOMAINS: Record<string, string[]> = {
-  People: ["view", "edit", "delete", "invite"],
-  Roles: ["view", "edit", "delete"],
-  Queues: ["view", "edit", "delete"],
-  Telephony: ["view", "edit"],
-  Reporting: ["view", "export"],
-  Billing: ["view", "edit"],
+  directory: ["user:add", "user:edit", "user:view", "user:delete", "group:add", "group:edit", "location:add", "location:edit"],
+  authorization: ["role:add", "role:edit", "role:view", "role:delete", "division:add", "division:edit", "division:delete", "grant:add"],
+  routing: ["queue:add", "queue:edit", "queue:view", "skill:add", "skill:edit", "wrapupCode:add", "email:manage", "message:manage"],
+  conversation: ["call:accept", "call:record", "call:monitor", "call:coach", "call:barge", "callback:add", "email:accept", "message:accept"],
+  analytics: ["view:view", "dashboard:add", "dashboard:edit", "alert:add", "alert:edit", "export:add"],
+  quality: ["evaluation:add", "evaluation:edit", "calibration:add", "recording:view", "recordingPolicy:edit"],
+  telephony: ["plugin:all", "trunk:edit", "site:edit", "edge:edit", "phone:add", "phone:assign", "did:edit", "extension:edit"],
+  architect: ["flow:add", "flow:edit", "flow:publish", "flow:delete", "prompt:add", "datatable:edit"],
+  outbound: ["campaign:add", "campaign:edit", "contactList:add", "dnc:edit", "ruleSet:edit"],
+  wem: ["schedule:add", "schedule:edit", "forecast:add", "adherence:view", "gamification:edit"],
 };

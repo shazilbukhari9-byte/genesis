@@ -736,6 +736,16 @@ def resource_delete(resource, row_id):
         delete_sql += ' AND tenant_id = %s'
         delete_params.append(g.tenant_id)
     cur.execute(delete_sql, delete_params)
+
+    # A deleted role would otherwise linger as a dangling id inside every
+    # assigned user's users.roles array (no FK there — see schema.sql) —
+    # strip it the same way the UI prototype's delRole() does.
+    if resource == 'roles':
+        cur.execute(
+            'UPDATE users SET roles = array_remove(roles, %s) WHERE tenant_id = %s',
+            (row_id, g.tenant_id),
+        )
+
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
