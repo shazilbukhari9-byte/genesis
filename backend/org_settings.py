@@ -89,15 +89,20 @@ def fetch_org_settings():
 
 @org_settings_bp.route('/api/org-settings', methods=['PATCH'])
 def update_org_setting():
+    """Accepts either a single-field edit (category/index/value — used by
+    clicking one row) or a batch (category/updates: [{index, value}, ...] —
+    used by the "+ Edit <category> Settings" bulk drawer), applied in one
+    write so a bulk save can't land half-committed. Either way, writing to
+    a `type: 'locked'` setting is rejected here rather than silently
+    accepted — the frontend already keeps locked rows out of both edit
+    paths, but this is the actual enforcement point."""
     body = request.get_json(force=True) or {}
     tenant_id = g.tenant_id
     category = body.get('category')
-    index = body.get('index')
-    value = body.get('value')
     changed_by = g.user_name
 
-    if category is None or index is None:
-        return jsonify({'ok': False, 'error': 'category and index required'}), 400
+    if category is None:
+        return jsonify({'ok': False, 'error': 'category required'}), 400
 
     conn = get_db()
     cur = conn.cursor()
@@ -106,13 +111,33 @@ def update_org_setting():
     data = row['data'] if row else _default_settings()
 
     settings_list = data.get(category)
-    if settings_list is None or index >= len(settings_list):
+    if settings_list is None:
         conn.close()
-        return jsonify({'ok': False, 'error': 'unknown category or index'}), 404
+        return jsonify({'ok': False, 'error': 'unknown category'}), 404
 
-    settings_list[index]['value'] = value
-    settings_list[index]['lastChangedAt'] = datetime.now(timezone.utc).isoformat()
-    settings_list[index]['lastChangedBy'] = changed_by
+    updates = body.get('updates')
+    if updates is None:
+        index = body.get('index')
+        if index is None:
+            conn.close()
+            return jsonify({'ok': False, 'error': 'index or updates required'}), 400
+        updates = [{'index': index, 'value': body.get('value')}]
+
+    for update in updates:
+        index = update.get('index')
+        if index is None or index >= len(settings_list):
+            conn.close()
+            return jsonify({'ok': False, 'error': f'unknown index {index}'}), 404
+        if settings_list[index].get('type') == 'locked':
+            conn.close()
+            return jsonify({'ok': False, 'error': f"{settings_list[index]['key']} is locked and cannot be changed"}), 409
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for update in updates:
+        index = update['index']
+        settings_list[index]['value'] = update.get('value')
+        settings_list[index]['lastChangedAt'] = now_iso
+        settings_list[index]['lastChangedBy'] = changed_by
 
     cur.execute(
         """
