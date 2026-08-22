@@ -114,12 +114,12 @@ button{font-family:inherit}
 .pbody{padding:18px 24px 40px}
 /* toolbar */
 .tbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-.tbar input.s{height:31px;border:1px solid #d5dce7;border-radius:4px;padding:0 10px;font-size:12.5px;width:250px;outline:none;background:#fff}
+.tbar input.s{height:31px;border:1px solid #d5dce7;border-radius:4px;padding:0 10px;font-size:12.5px;width:250px;max-width:100%;flex:1 1 200px;outline:none;background:#fff}
 .chip{height:31px;border:1px solid #d5dce7;background:#fff;border-radius:4px;padding:0 11px;font-size:12.5px;color:#3c4a5c;display:flex;align-items:center;gap:6px;cursor:pointer}
 .chip:hover{border-color:#FF4F1F;color:#c9401a}
 .tbar .sp{flex:1}
 /* table */
-.tblw{background:#fff;border:1px solid #dde3ec;border-radius:6px;overflow:hidden}
+.tblw{background:#fff;border:1px solid #dde3ec;border-radius:6px;overflow-x:auto;overflow-y:hidden}
 table.dt{width:100%;border-collapse:collapse}
 table.dt th{background:#f7f9fc;text-align:left;padding:9px 14px;font-size:11.5px;color:#5b6a7d;font-weight:700;border-bottom:1px solid #e4e9f0;white-space:nowrap;letter-spacing:.2px}
 table.dt td{padding:10px 14px;border-bottom:1px solid #f1f4f8;font-size:12.7px;color:#31404f;vertical-align:middle}
@@ -364,7 +364,7 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
    shadow, no colored top bar; status is carried entirely by the sk-badge
    pill (e.g. "1% used", "All healthy") like every other status pill in
    this design system (authorg-status, sc-tier, st). ── */
-.subs-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.subs-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:20px}
 .subs-kpi{background:#fff;border:1px solid #dde3ec;border-radius:8px;padding:17px 18px;position:relative;box-shadow:0 1px 3px rgba(20,35,70,.05)}
 .subs-kpi .sk-label{font-size:10.5px;letter-spacing:.9px;text-transform:uppercase;color:#93a0b3;font-weight:700;margin-bottom:8px;display:block}
 .subs-kpi .sk-val{font-size:24px;font-weight:700;color:#152550;line-height:1;margin-bottom:5px;display:block}
@@ -743,3 +743,62 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 #pf_body table.dt th{padding:11px 17px}
 #pf_body table.dt td{padding:12px 17px}
 #pf_body table.dt tbody tr:hover td{background:#f7f9fd}
+
+/* ============================================================
+   RESPONSIVE / MOBILE — Account Settings & People & Permissions
+   The shell (#top, #anav) and shared page chrome (.dt tables, #drw
+   drawers, .tbar toolbars, .two/.subs-kpis grids) were built fixed-
+   width for desktop only. These rules make the modules under Admin >
+   Account Settings and Admin > People & Permissions usable down to
+   phone widths without changing desktop behavior (all scoped to
+   max-width media queries) or any page's own markup.
+   ============================================================ */
+
+/* Hamburger toggle for #anav — hidden on desktop, shown only once the
+   sidebar starts overlapping content (see responsive-nav.ts). */
+.anav-toggle{display:none;align-items:center;justify-content:center;width:32px;height:32px;border-radius:5px;color:#c0cde6;cursor:pointer;margin-right:6px;flex:none}
+.anav-toggle:hover{background:#1d3169;color:#fff}
+.anav-scrim{position:fixed;inset:48px 0 0 0;background:rgba(16,26,45,.45);z-index:99}
+
+@media(max-width:880px){
+  .anav-toggle{display:flex}
+
+  /* #anav becomes a slide-in overlay instead of a permanent 246px column —
+     #ws stays a flex row, but a fixed-position sidebar is taken out of that
+     flow, so #cnt/*Root already fill the freed width with no other change. */
+  #anav{position:fixed;top:48px;left:-300px;bottom:0;z-index:100;width:82vw;max-width:300px;
+    transition:left .2s ease;box-shadow:4px 0 20px rgba(16,30,60,.25)}
+  body.anav-open #anav{left:0!important}
+
+  /* Global search crowds out the nav tabs before either becomes usable —
+     dropping it is a smaller loss than the tabs it would otherwise starve. */
+  #gs{display:none}
+  #nav{overflow-x:auto;scrollbar-width:none}
+  #nav::-webkit-scrollbar{display:none}
+  #nav .n{min-width:60px;padding:0 10px}
+
+  .phd{padding:12px 14px 0}
+  .pbody{padding:14px 14px 32px}
+  .tabs{overflow-x:auto}
+
+  /* Drawers: a fixed 520px (or a page's own wider override) overflows a
+     phone viewport entirely — full-width sheet instead, same slide-in feel. */
+  #drw{width:100%!important;max-width:100%}
+
+  /* Side-by-side form rows (drawer fields, filter bars) stack instead of
+     compressing into unreadably narrow columns. */
+  .frow{flex-direction:column;gap:0}
+  .two{grid-template-columns:1fr}
+  .iscroll{grid-template-columns:1fr}
+
+  .uc-label{width:120px}
+  .kv span{width:90px}
+}
+
+@media(max-width:520px){
+  #top{padding:0 8px 0 10px}
+  #top .lg b{display:none}
+  .phd h1{font-size:16px}
+  .subs-banner{gap:14px;padding:14px}
+  .subs-banner .sb-sep{display:none}
+}

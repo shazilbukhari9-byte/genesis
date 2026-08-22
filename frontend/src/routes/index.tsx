@@ -17,6 +17,7 @@ import { CONTACTLISTS_SCRIPT } from "../mcm/contactlists-redesign";
 import { DATAACT_SCRIPT } from "../mcm/dataact-redesign";
 import { DNCLISTS_SCRIPT } from "../mcm/dnclists-redesign";
 import { SUBSCRIPTION_SCRIPT } from "../mcm/subscription-redesign";
+import { RESPONSIVE_NAV_SCRIPT } from "../mcm/responsive-nav";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
@@ -171,6 +172,13 @@ function McmCloudCx() {
     script.type = "text/javascript";
     script.textContent = MCM_SCRIPT;
     document.body.appendChild(script);
+
+    // Adds the mobile hamburger toggle for #anav — no API calls, no
+    // dependency on MCM_SCRIPT having run first, safe to inject anywhere.
+    const responsiveNavScript = document.createElement("script");
+    responsiveNavScript.type = "text/javascript";
+    responsiveNavScript.textContent = RESPONSIVE_NAV_SCRIPT;
+    document.body.appendChild(responsiveNavScript);
 
     // Runs after MCM_SCRIPT so window.SNAP already exists — it patches in
     // window.SNAP.authorg (the Authorized Organizations page content) the

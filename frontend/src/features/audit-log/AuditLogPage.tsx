@@ -94,6 +94,8 @@ export function AuditLogPage() {
               display: "flex",
               alignItems: "center",
               width: 280,
+              maxWidth: "100%",
+              flex: "1 1 220px",
               background: "#fff",
               border: "1px solid #d5dce7",
               borderRadius: 7,
