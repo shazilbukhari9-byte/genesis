@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
+import { toast } from "../shared/toast";
 import { deleteSsoProvider, fetchSsoProviders, upsertSsoProvider } from "./ssoService";
 import type { SsoProvider } from "./types";
 
@@ -43,14 +44,18 @@ export function SsoPage() {
 
   const saveMutation = useMutation({
     mutationFn: upsertSsoProvider,
-    onSuccess: (updated) => {
+    onSuccess: (updated, variables) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       setEditing(null);
+      toast(("id" in variables && variables.id ? "Saved — " : "Provider created — ") + `<b>${variables.name}</b>`);
     },
   });
   const deleteMutation = useMutation({
     mutationFn: deleteSsoProvider,
-    onSuccess: (updated) => queryClient.setQueryData(QUERY_KEY, updated),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      toast("Provider deleted");
+    },
   });
 
   const providers = data ?? [];
@@ -278,7 +283,15 @@ export function SsoPage() {
 
               {"id" in editing && (
                 <div className="fld">
-                  <LegacyBtn secondary onClick={() => { deleteMutation.mutate(editing.id); setEditing(null); }}>
+                  <LegacyBtn
+                    secondary
+                    onClick={() => {
+                      if (window.confirm(`Delete provider "${editing.name}"? Users signing in through it will fall back to a password, if allowed.`)) {
+                        deleteMutation.mutate(editing.id);
+                        setEditing(null);
+                      }
+                    }}
+                  >
                     Delete provider
                   </LegacyBtn>
                 </div>

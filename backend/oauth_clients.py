@@ -38,10 +38,17 @@ OAUTH_TOKEN_TTL_HOURS = 1
 def list_clients():
     conn = get_db()
     cur = conn.cursor()
+    # updated_at ticks on *any* edit (rename, rotate, enable/disable — see
+    # trg_oauth_clients_touch), not on token issuance, so it can't stand in
+    # for "last used" without lying — a client that was just renamed would
+    # show as freshly used even if no one has ever authenticated with it.
+    # oauth_tokens.created_at is the real signal: one row per token actually
+    # issued via /api/oauth/token.
     cur.execute(
-        """SELECT id, name, client_id, scopes, redirect_uris, grant_types,
-                  enabled, created_by, created_at, updated_at
-           FROM oauth_clients WHERE tenant_id = %s ORDER BY name""",
+        """SELECT c.id, c.name, c.client_id, c.scopes, c.redirect_uris, c.grant_types,
+                  c.enabled, c.created_by, c.created_at, c.updated_at,
+                  (SELECT MAX(t.created_at) FROM oauth_tokens t WHERE t.client_id = c.client_id) AS last_used_at
+           FROM oauth_clients c WHERE c.tenant_id = %s ORDER BY c.name""",
         (g.tenant_id,),
     )
     rows = [dict(r) for r in cur.fetchall()]
@@ -71,6 +78,10 @@ def create_client():
     if isinstance(redirect_uris, str):
         redirect_uris = [redirect_uris]
     grant_types = data.get('grant_types', 'client_credentials')
+    # Was hardcoded to True — a caller passing enabled: False (e.g. to
+    # pre-provision a partner's credentials before their integration goes
+    # live) silently got an active client anyway.
+    enabled = data.get('enabled', True)
 
     conn = get_db()
     cur = conn.cursor()
@@ -83,7 +94,7 @@ def create_client():
                      enabled, created_by, created_at""",
         (
             g.tenant_id, name, client_id, secret_hash, scopes,
-            redirect_uris, grant_types, True, g.user_id,
+            redirect_uris, grant_types, enabled, g.user_id,
         ),
     )
     row = dict(cur.fetchone())

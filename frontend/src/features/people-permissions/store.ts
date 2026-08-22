@@ -340,17 +340,17 @@ export async function upsertPerson(person: Omit<Person, "id" | "created"> & { id
   const payload = toBackendPerson(person);
   if (person.id) {
     await apiFetch(`/api/people/${person.id}`, { method: "PUT", body: JSON.stringify(payload) });
-    logAudit("Edit person", person.name);
+    logAudit("Edit person", `${person.name} <${person.email}>`);
   } else {
     await apiFetch("/api/people", { method: "POST", body: JSON.stringify({ ...payload, state: person.state || "Active" }) });
-    logAudit("Create person", person.name);
+    logAudit("Create person", `${person.name} <${person.email}>`);
   }
   return fetchDirectory();
 }
 
-export async function deletePerson(id: string): Promise<DirectoryData> {
+export async function deletePerson(id: string, name: string): Promise<DirectoryData> {
   await apiFetch(`/api/people/${id}`, { method: "DELETE" });
-  logAudit("Delete person", `person #${id}`);
+  logAudit("Delete person", name);
   return fetchDirectory();
 }
 
@@ -379,9 +379,9 @@ export async function upsertRole(role: Omit<Role, "id" | "base"> & { id?: string
   return fetchDirectory();
 }
 
-export async function deleteRole(id: string): Promise<DirectoryData> {
+export async function deleteRole(id: string, name: string): Promise<DirectoryData> {
   await apiFetch(`/api/roles/${id}`, { method: "DELETE" });
-  logAudit("Delete role", `role #${id}`);
+  logAudit("Delete role", name);
   return fetchDirectory();
 }
 
@@ -402,9 +402,9 @@ export async function upsertDivision(division: Omit<Division, "id" | "home"> & {
   return fetchDirectory();
 }
 
-export async function deleteDivision(id: string): Promise<DirectoryData> {
+export async function deleteDivision(id: string, name: string): Promise<DirectoryData> {
   await apiFetch(`/api/divisions/${id}`, { method: "DELETE" });
-  logAudit("Delete division", `division ${id}`);
+  logAudit("Delete division", name);
   return fetchDirectory();
 }
 
@@ -420,9 +420,9 @@ export async function upsertGroup(group: Omit<Group, "id"> & { id?: string }): P
   return fetchDirectory();
 }
 
-export async function deleteGroup(id: string): Promise<DirectoryData> {
+export async function deleteGroup(id: string, name: string): Promise<DirectoryData> {
   await apiFetch(`/api/groups/${id}`, { method: "DELETE" });
-  logAudit("Delete group", `group #${id}`);
+  logAudit("Delete group", name);
   return fetchDirectory();
 }
 
@@ -472,9 +472,9 @@ export async function deleteSimpleEntity(
   return { data: await fetchDirectory(), propagatedHits: result._propagatedHits ?? 0 };
 }
 
-export async function assignLicence(personId: string, license: string): Promise<DirectoryData> {
-  await apiFetch(`/api/people/${personId}`, { method: "PUT", body: JSON.stringify({ license_code: license }) });
-  logAudit("Change licence", `person #${personId} → ${license}`);
+export async function assignLicence(personId: string, name: string, oldLicense: string, newLicense: string): Promise<DirectoryData> {
+  await apiFetch(`/api/people/${personId}`, { method: "PUT", body: JSON.stringify({ license_code: newLicense }) });
+  logAudit("Change licence", `${name}: ${oldLicense} → ${newLicense}`);
   return fetchDirectory();
 }
 

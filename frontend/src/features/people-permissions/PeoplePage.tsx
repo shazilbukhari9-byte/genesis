@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
+import { toast } from "../shared/toast";
 import {
   bulkImportPeopleCsv,
   bulkUpdatePeople,
@@ -61,20 +62,30 @@ export function PeoplePage() {
 
   const saveMutation = useMutation({
     mutationFn: upsertPerson,
-    onSuccess: (updated) => {
+    onSuccess: (updated, variables) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       setEditing(null);
+      toast(
+        "id" in variables && variables.id
+          ? `Changes saved for <b>${variables.name}</b>`
+          : `<b>${variables.name}</b> created — invitation email queued`,
+      );
     },
   });
   const deleteMutation = useMutation({
-    mutationFn: deletePerson,
-    onSuccess: (updated) => queryClient.setQueryData(QUERY_KEY, updated),
+    mutationFn: ({ id, name }: { id: string; name: string }) => deletePerson(id, name),
+    onSuccess: (updated, { name }) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      toast(`${name} deleted`);
+    },
   });
   const bulkMutation = useMutation({
     mutationFn: ({ ids, action }: { ids: string[]; action: "activate" | "deactivate" | "invite" | "delete" }) =>
       bulkUpdatePeople(ids, action === "invite" ? "activate" : action),
-    onSuccess: (updated) => {
+    onSuccess: (updated, { ids, action }) => {
       queryClient.setQueryData(QUERY_KEY, updated);
+      const verb = { activate: "activated", deactivate: "deactivated", invite: "invited", delete: "deleted" }[action];
+      toast(`${ids.length} people ${verb}`);
       setSelected([]);
     },
   });
@@ -245,7 +256,14 @@ export function PeoplePage() {
             <LegacyBtn secondary style={{ height: 28 }} onClick={() => bulkMutation.mutate({ ids: selected, action: "invite" })}>
               Send invite
             </LegacyBtn>
-            <LegacyBtn style={{ height: 28 }} onClick={() => bulkMutation.mutate({ ids: selected, action: "delete" })}>
+            <LegacyBtn
+              style={{ height: 28 }}
+              onClick={() => {
+                if (window.confirm(`Delete ${selected.length} selected people? This can't be undone.`)) {
+                  bulkMutation.mutate({ ids: selected, action: "delete" });
+                }
+              }}
+            >
               Delete
             </LegacyBtn>
           </div>
@@ -375,7 +393,9 @@ export function PeoplePage() {
           saving={saveMutation.isPending}
           onClose={() => setEditing(null)}
           onSave={(value) => saveMutation.mutate(value)}
-          {...("id" in editing ? { onDelete: () => deleteMutation.mutate((editing as Person).id) } : {})}
+          {...("id" in editing
+            ? { onDelete: () => deleteMutation.mutate({ id: (editing as Person).id, name: (editing as Person).name }) }
+            : {})}
         />
       )}
 
@@ -683,18 +703,21 @@ function PersonDrawer({
                     Send invite
                   </LegacyBtn>
                 )}
-                <LegacyBtn
-                  secondary
-                  onClick={() => (window as unknown as { toast?: (m: string) => void }).toast?.(`Password reset email sent to ${draft.email}`)}
-                >
+                <LegacyBtn secondary onClick={() => toast(`Password reset email sent to ${draft.email}`)}>
                   Reset password
                 </LegacyBtn>
                 {onDelete && (
                   <LegacyBtn
                     style={{ background: "transparent", color: "#c9401a" }}
                     onClick={() => {
-                      onDelete();
-                      onClose();
+                      if (
+                        window.confirm(
+                          `Delete ${draft.name}? They are removed from the directory; interaction history is retained. Users in a custom division fall back to Home.`,
+                        )
+                      ) {
+                        onDelete();
+                        onClose();
+                      }
                     }}
                   >
                     Delete person
