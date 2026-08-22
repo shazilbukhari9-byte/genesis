@@ -54,7 +54,7 @@ function NewPurchaseDrawer({
             <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Licence, Add-on" />
           </div>
           <div className="fld">
-            <label>Price</label>
+            <label>Price (£)</label>
             <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" />
           </div>
           <div className="fld">
@@ -157,7 +157,7 @@ export function PurchasesPage() {
                       <b className="lnk">{p.item}</b>
                     </td>
                     <td>{p.category ?? "—"}</td>
-                    <td>{p.price != null ? `$${p.price.toFixed(2)}` : "—"}</td>
+                    <td>{p.price != null ? `£${p.price.toFixed(2)}` : "—"}</td>
                     <td>{p.purchased_at ?? "—"}</td>
                     <td
                       style={{ color: "#a9b3c2", cursor: "pointer" }}
