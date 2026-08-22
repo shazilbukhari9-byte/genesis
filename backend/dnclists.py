@@ -99,8 +99,8 @@ def create_dnc_list():
     row = dict(cur.fetchone())
     row['number_count'] = 0
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Create DNC list', name),
+        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.tenant_id, g.user_name, 'Create DNC list', name),
     )
     conn.commit()
     conn.close()
@@ -119,8 +119,8 @@ def delete_dnc_list(list_id):
 
     cur.execute('DELETE FROM dnc_lists WHERE id = %s AND tenant_id = %s', (list_id, g.tenant_id))
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Delete DNC list', existing['name']),
+        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.tenant_id, g.user_name, 'Delete DNC list', existing['name']),
     )
     conn.commit()
     conn.close()
@@ -168,8 +168,8 @@ def add_numbers(list_id):
         added += 1
 
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Add DNC numbers', f"{lst['name']}: {added} added"),
+        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.tenant_id, g.user_name, 'Add DNC numbers', f"{lst['name']}: {added} added"),
     )
     conn.commit()
     conn.close()

@@ -17,6 +17,7 @@ import { CONTACTLISTS_SCRIPT } from "../mcm/contactlists-redesign";
 import { DATAACT_SCRIPT } from "../mcm/dataact-redesign";
 import { DNCLISTS_SCRIPT } from "../mcm/dnclists-redesign";
 import { SUBSCRIPTION_SCRIPT } from "../mcm/subscription-redesign";
+import { INTEGRATIONS_THEME_SCRIPT } from "../mcm/integrations-theme";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
@@ -33,6 +34,7 @@ import { OAuthClientsPage } from "../features/oauth-clients/OAuthClientsPage";
 
 declare global {
   interface Window {
+    __GENESIS_API_BASE?: string;
     __showOrgSettings?: () => void;
     __hideOrgSettings?: () => void;
     __showPurchases?: () => void;
@@ -118,6 +120,15 @@ function McmCloudCx() {
   useEffect(() => {
     if (ranRef.current) return;
     ranRef.current = true;
+
+    // The legacy scripts below (MCM_SCRIPT, BACKEND_SYNC_SCRIPT,
+    // AUTHORG_SCRIPT, DIRECTORY_SCRIPT) run as classic <script> tags, not ES
+    // modules — `import.meta.env` is a syntax error in that context, so
+    // they can't read VITE_API_BASE directly the way features/shared/
+    // backend.ts's real ES-module code does. This bridges the same
+    // environment-configured value onto a global they can read instead,
+    // so no legacy script ever hardcodes an API host.
+    window.__GENESIS_API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5000";
 
     const orgSettings = mountLegacyReactPage("orgsetRoot", <OrganizationSettingsPage />);
     window.__showOrgSettings = orgSettings.show;
@@ -250,6 +261,16 @@ function McmCloudCx() {
     subscriptionScript.type = "text/javascript";
     subscriptionScript.textContent = SUBSCRIPTION_SCRIPT;
     document.body.appendChild(subscriptionScript);
+
+    // Must be appended LAST: it wraps window.openPage, so every other
+    // module's own openPage wrapper has to already be installed for the
+    // chain to stay intact. Purely presentational — it only stamps a
+    // data attribute on <body> so the Integrations enterprise styles in
+    // mcm.css can scope themselves. See mcm/integrations-theme.ts.
+    const integrationsThemeScript = document.createElement("script");
+    integrationsThemeScript.type = "text/javascript";
+    integrationsThemeScript.textContent = INTEGRATIONS_THEME_SCRIPT;
+    document.body.appendChild(integrationsThemeScript);
 
     // Re-assert the toast bridge (see lib/global-toast.tsx) now that
     // MCM_SCRIPT has run and defined its own window.toast — this call is

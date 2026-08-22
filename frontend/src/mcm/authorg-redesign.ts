@@ -85,7 +85,7 @@ export const AUTHORG_SCRIPT: string = `
      falls back to the local mock data below if the server is offline.
      ═══════════════════════════════════════════ */
 
-  var API_BASE = 'https://genesis-yysv.onrender.com/api/v2/authorization';
+  var API_BASE = (window.__GENESIS_API_BASE || 'http://127.0.0.1:5000') + '/api/v2/authorization';
 
   function fmtDMY(d) {
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });

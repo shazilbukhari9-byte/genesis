@@ -125,8 +125,8 @@ def create_contact_list():
     row['contact_count'] = 0
     row['status_summary'] = {}
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Create contact list', name),
+        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.tenant_id, g.user_name, 'Create contact list', name),
     )
     conn.commit()
     conn.close()
@@ -154,8 +154,8 @@ def update_contact_list(list_id):
     )
     row = dict(cur.fetchone())
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Update contact list', row['name']),
+        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.tenant_id, g.user_name, 'Update contact list', row['name']),
     )
     conn.commit()
     conn.close()
@@ -174,8 +174,8 @@ def delete_contact_list(list_id):
 
     cur.execute('DELETE FROM contact_lists WHERE id = %s AND tenant_id = %s', (list_id, g.tenant_id))
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Delete contact list', existing['name']),
+        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.tenant_id, g.user_name, 'Delete contact list', existing['name']),
     )
     conn.commit()
     conn.close()
@@ -212,8 +212,8 @@ def add_contact(list_id):
     )
     row = cur.fetchone()
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Add contact', f'{list_id} › {phone}'),
+        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.tenant_id, g.user_name, 'Add contact', f'{list_id} › {phone}'),
     )
     conn.commit()
     conn.close()
@@ -262,8 +262,8 @@ def import_contacts(list_id):
         ok += 1
 
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Import contacts', f'{list_id}: {ok} added, {len(fail)} rejected'),
+        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.tenant_id, g.user_name, 'Import contacts', f'{list_id}: {ok} added, {len(fail)} rejected'),
     )
     conn.commit()
     conn.close()
@@ -303,8 +303,8 @@ def mark_contact_dnc(list_id, contact_id):
         return jsonify({'ok': False, 'error': 'not found'}), 404
 
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Mark DNC', row['data'].get('Phone', '')),
+        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.tenant_id, g.user_name, 'Mark DNC', row['data'].get('Phone', '')),
     )
     conn.commit()
     conn.close()
