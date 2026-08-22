@@ -777,6 +777,15 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
   #nav::-webkit-scrollbar{display:none}
   #nav .n{min-width:60px;padding:0 10px}
 
+  /* Admin sidebar accordion (see responsive-nav.ts) — each module's link
+     list is collapsed by default and only shown once its group header is
+     tapped, instead of every module's links rendering open at once. */
+  #anav .grp{cursor:pointer;display:flex;align-items:center;justify-content:space-between}
+  #anav .grp::after{content:'';width:7px;height:7px;border-right:1.6px solid #93a0b3;border-bottom:1.6px solid #93a0b3;
+    transform:rotate(-45deg);transition:transform .15s ease;margin-right:2px;flex:none}
+  #anav .grp.nav-grp-open::after{transform:rotate(45deg)}
+  #anav .lk.nav-lk-collapsed{display:none}
+
   .phd{padding:12px 14px 0}
   .pbody{padding:14px 14px 32px}
   .tabs{overflow-x:auto}
