@@ -19,6 +19,7 @@ import { DNCLISTS_SCRIPT } from "../mcm/dnclists-redesign";
 import { SUBSCRIPTION_SCRIPT } from "../mcm/subscription-redesign";
 import { INTEGRATIONS_THEME_SCRIPT } from "../mcm/integrations-theme";
 import { RESPONSIVE_NAV_SCRIPT } from "../mcm/responsive-nav";
+import { SESSION_GUARD_SCRIPT } from "../mcm/session-guard";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
@@ -279,6 +280,17 @@ function McmCloudCx() {
     integrationsThemeScript.type = "text/javascript";
     integrationsThemeScript.textContent = INTEGRATIONS_THEME_SCRIPT;
     document.body.appendChild(integrationsThemeScript);
+
+    // After MCM_SCRIPT, so the session it restores from localStorage exists
+    // to be checked, and after every module that issues API calls, so the
+    // fetch wrapper it installs sees all of them. Validates a restored token
+    // against the backend once on boot and ends the session on any later
+    // 401, instead of leaving a rejected token in place while the UI still
+    // looks signed in. See mcm/session-guard.ts.
+    const sessionGuardScript = document.createElement("script");
+    sessionGuardScript.type = "text/javascript";
+    sessionGuardScript.textContent = SESSION_GUARD_SCRIPT;
+    document.body.appendChild(sessionGuardScript);
 
     // Re-assert the toast bridge (see lib/global-toast.tsx) now that
     // MCM_SCRIPT has run and defined its own window.toast — this call is

@@ -39,7 +39,18 @@ PASSWORD = 'pytest-password-123'
 
 @pytest.fixture(scope='module')
 def db_conn():
+    """Autocommit, deliberately.
+
+    psycopg2 opens a transaction on the first statement, so a fixture that
+    only ever SELECTs leaves its connection sitting `idle in transaction`
+    for the whole module. That is normally invisible, but importing `app`
+    runs init_db.run(), whose `CREATE TABLE IF NOT EXISTS ...` needs a lock
+    that queues behind the idle transaction -- and every later query then
+    queues behind the pending DDL. Running this connection in autocommit
+    means it never holds a transaction open between assertions.
+    """
     conn = get_db()
+    conn.autocommit = True
     yield conn
     conn.close()
 
