@@ -32,6 +32,20 @@
    doesn't open". The wrap here validates the response shape, races
    it against a timeout, and falls back to a static placeholder
    dataset (with a toast) so the page always renders something.
+
+   A second real bug, same "not actually connected" shape: window.
+   subsExportCsv (the header's "Export CSV" button) reads from
+   DB.licenses / DB.users — the legacy freshDB() seed object used by
+   the still-unconverted parts of this engine (Queues, WFM, ...).
+   Nothing anywhere in this codebase ever assigns real data into
+   DB.licenses or DB.users, so the button silently exports a header
+   row with zero data rows while the rest of this page (KPIs, licence
+   cards, invoices) is correctly reading live pool/usedMap/unitPrice
+   from the real backend via SubsAPI.getOverview(). The fix here
+   caches the last real overview (skipping the fallback placeholder —
+   exporting a synthetic dataset as if it were real billing data would
+   be worse than a stale cache) and replaces subsExportCsv to build
+   its CSV from that instead.
    ============================================================ */
 
 export const SUBSCRIPTION_SCRIPT: string = `
@@ -148,13 +162,51 @@ export const SUBSCRIPTION_SCRIPT: string = `
       var timedOut = new Promise(function(resolve) { setTimeout(function() { resolve(null); }, 10000); });
       var live = originalGetOverview.call(window.SubsAPI).catch(function() { return null; });
       return Promise.race([live, timedOut]).then(function(result) {
-        if (result && result.pool && typeof result.pool === 'object') return result;
+        if (result && result.pool && typeof result.pool === 'object') {
+          // Real data only — see subsExportCsv below for why the fallback
+          // placeholder is deliberately never cached here.
+          window.SUBS_LAST_OVERVIEW = result;
+          return result;
+        }
         if (window.toast) window.toast('\\u26A0 Live billing data unavailable \\u2014 showing a placeholder view. Try Refresh once the connection recovers.');
         return buildFallbackOverview();
       });
     };
     polished.__mcmSubsPolished = true;
     window.SubsAPI.getOverview = polished;
+  }
+
+  /* window.subsExportCsv originally read DB.licenses / DB.users — the
+     legacy freshDB() seed object, never populated with real data anywhere
+     in this codebase — instead of the live overview this page actually
+     renders from. Replaced here to build the same CSV shape (unchanged
+     columns) from the cached real overview instead. */
+  function wrapSubsExportCsv() {
+    if (typeof window.subsExportCsv !== 'function' || window.subsExportCsv.__mcmSubsPolished) return;
+    var polished = function() {
+      var d = window.SUBS_LAST_OVERVIEW;
+      if (!d || !d.pool) {
+        if (window.toast) window.toast('\\u2717 No billing data loaded yet \\u2014 open the Subscription page first.');
+        return;
+      }
+      var rows = [['Licence', 'Purchased', 'Assigned', 'Available', 'Utilisation%', 'Unit Price', 'Monthly Cost']];
+      Object.keys(d.pool).forEach(function(l) {
+        var purchased = d.pool[l];
+        var used = (d.usedMap && d.usedMap[l]) || 0;
+        var price = (d.unitPrice && d.unitPrice[l]) || 0;
+        var pct = purchased > 0 ? Math.round(100 * used / purchased) : 0;
+        rows.push([l, purchased, used, purchased - used, pct + '%', '\\u00a3' + price, '\\u00a3' + (used * price).toLocaleString()]);
+      });
+      var csv = rows.map(function(r) { return r.join(','); }).join('\\n');
+      var blob = new Blob([csv], { type: 'text/csv' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'subscription_export.csv';
+      a.click();
+      if (window.toast) window.toast('Subscription data exported as CSV');
+    };
+    polished.__mcmSubsPolished = true;
+    window.subsExportCsv = polished;
   }
 
   function wrapRenderSubsFx() {
@@ -206,6 +258,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
     wrapGetOverview();
     wrapRenderSubsFx();
     wrapSubsOpenModal();
+    wrapSubsExportCsv();
   }
 
   applySubsPolish();
