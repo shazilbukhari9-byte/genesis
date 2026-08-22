@@ -5,6 +5,16 @@ import { apiFetch } from "../shared/backend";
 
 const STORAGE_KEY = "mcm_oauth_clients_v2";
 
+// A one-time secret reveal — returned by the backend exactly once, right
+// after /api/oauth/clients (create) or /rotate-secret. There is nowhere
+// else to ever see it again (only its hash is stored), so the caller has
+// to show it to the admin immediately or it's gone for good.
+export interface OneTimeSecret {
+  clientId: string;
+  clientSecret: string;
+  notice: string;
+}
+
 /* Map backend row → frontend OAuthClient */
 function mapFromApi(row: any): OAuthClient {
   const grantMap: Record<string, string> = {
@@ -21,6 +31,7 @@ function mapFromApi(row: any): OAuthClient {
     tokenDurationSec: 3600,
     lastUsed: row.updated_at ? new Date(row.updated_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Never",
     status: row.enabled ? "Active" : "Disabled",
+    redirectUris: row.redirect_uris ?? [],
   };
 }
 
@@ -37,20 +48,26 @@ function mapToApi(c: Partial<OAuthClient>) {
   if (c.grantType !== undefined) payload["grant_types"] = grantMap[c.grantType] ?? "client_credentials";
   if (c.scope !== undefined) payload["scopes"] = c.scope;
   if (c.status !== undefined) payload["enabled"] = c.status === "Active";
+  if (c.redirectUris !== undefined) payload["redirect_uris"] = c.redirectUris;
   return payload;
+}
+
+function oneTimeSecretOf(row: any): OneTimeSecret | null {
+  if (!row.client_secret) return null;
+  return { clientId: row.client_id, clientSecret: row.client_secret, notice: row._notice ?? "Save this secret now — it cannot be retrieved again." };
 }
 
 /* ── localStorage fallback (same as original) ── */
 
 function defaultClients(): OAuthClient[] {
   return [
-    { id: "oc_1", name: "MCM Integration Service", grantType: "Client Credentials", clientId: "c4f1…9ab", scope: "Integration Admin (All divisions)", tokenDurationSec: 86400, lastUsed: "Today 09:40", status: "Active" },
-    { id: "oc_2", name: "Salesforce Connector", grantType: "Client Credentials", clientId: "7a20…1de", scope: "Data Action Runner", tokenDurationSec: 43200, lastUsed: "Today 09:38", status: "Active" },
-    { id: "oc_3", name: "Supervisor Wallboard", grantType: "Implicit Grant", clientId: "ee81…c07", scope: "Analytics Read (UK Retail)", tokenDurationSec: 3600, lastUsed: "Today 09:12", status: "Active" },
-    { id: "oc_4", name: "WFM Data Export", grantType: "Client Credentials", clientId: "1bb9…44a", scope: "WFM Read", tokenDurationSec: 86400, lastUsed: "Today 04:00", status: "Active" },
-    { id: "oc_5", name: "Mobile Agent App", grantType: "Code Authorization", clientId: "9df3…b62", scope: "Agent", tokenDurationSec: 7200, lastUsed: "Yesterday", status: "Active" },
-    { id: "oc_6", name: "Legacy Reporting Job", grantType: "Client Credentials", clientId: "5c77…20f", scope: "Analytics Read", tokenDurationSec: 86400, lastUsed: "14 Apr 2026", status: "Disabled" },
-    { id: "oc_7", name: "Partner API — Northstar", grantType: "SAML2 Bearer", clientId: "a8e2…771", scope: "Agent (Partner — Manila)", tokenDurationSec: 3600, lastUsed: "Today 02:15", status: "Active", statusNote: "Secret rotation due" },
+    { id: "oc_1", name: "MCM Integration Service", grantType: "Client Credentials", clientId: "c4f1…9ab", scope: "Integration Admin (All divisions)", tokenDurationSec: 86400, lastUsed: "Today 09:40", status: "Active", redirectUris: [] },
+    { id: "oc_2", name: "Salesforce Connector", grantType: "Client Credentials", clientId: "7a20…1de", scope: "Data Action Runner", tokenDurationSec: 43200, lastUsed: "Today 09:38", status: "Active", redirectUris: [] },
+    { id: "oc_3", name: "Supervisor Wallboard", grantType: "Implicit Grant", clientId: "ee81…c07", scope: "Analytics Read (UK Retail)", tokenDurationSec: 3600, lastUsed: "Today 09:12", status: "Active", redirectUris: [] },
+    { id: "oc_4", name: "WFM Data Export", grantType: "Client Credentials", clientId: "1bb9…44a", scope: "WFM Read", tokenDurationSec: 86400, lastUsed: "Today 04:00", status: "Active", redirectUris: [] },
+    { id: "oc_5", name: "Mobile Agent App", grantType: "Code Authorization", clientId: "9df3…b62", scope: "Agent", tokenDurationSec: 7200, lastUsed: "Yesterday", status: "Active", redirectUris: ["https://app.mcmgroup.example/callback"] },
+    { id: "oc_6", name: "Legacy Reporting Job", grantType: "Client Credentials", clientId: "5c77…20f", scope: "Analytics Read", tokenDurationSec: 86400, lastUsed: "14 Apr 2026", status: "Disabled", redirectUris: [] },
+    { id: "oc_7", name: "Partner API — Northstar", grantType: "SAML2 Bearer", clientId: "a8e2…771", scope: "Agent (Partner — Manila)", tokenDurationSec: 3600, lastUsed: "Today 02:15", status: "Active", statusNote: "Secret rotation due", redirectUris: [] },
   ];
 }
 
@@ -81,15 +98,18 @@ export async function fetchOAuthClients(): Promise<OAuthClient[]> {
   }
 }
 
-export async function createOAuthClient(client: Pick<OAuthClient, "name" | "grantType" | "scope" | "tokenDurationSec">): Promise<OAuthClient[]> {
+export async function createOAuthClient(
+  client: Pick<OAuthClient, "name" | "grantType" | "scope" | "tokenDurationSec" | "redirectUris">,
+): Promise<{ data: OAuthClient[]; secret: OneTimeSecret | null }> {
   try {
-    await apiFetch("/api/oauth/clients", {
+    const created = await apiFetch<any>("/api/oauth/clients", {
       method: "POST",
       body: JSON.stringify(mapToApi(client)),
     });
-    return fetchOAuthClients();
+    return { data: await fetchOAuthClients(), secret: oneTimeSecretOf(created) };
   } catch {
-    // Fallback to localStorage
+    // Fallback to localStorage — no real secret to show here, there's no
+    // backend to have generated and hashed one.
     const data = readStore();
     data.push({
       id: "id" + Math.random().toString(36).slice(2, 10),
@@ -100,10 +120,33 @@ export async function createOAuthClient(client: Pick<OAuthClient, "name" | "gran
       tokenDurationSec: client.tokenDurationSec,
       lastUsed: "Never",
       status: "Active",
+      redirectUris: client.redirectUris,
     });
+    writeStore(data);
+    return { data, secret: null };
+  }
+}
+
+export async function updateOAuthClient(
+  id: string,
+  patch: Partial<Pick<OAuthClient, "name" | "grantType" | "scope" | "redirectUris" | "status">>,
+): Promise<OAuthClient[]> {
+  try {
+    await apiFetch(`/api/oauth/clients/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(mapToApi(patch)),
+    });
+    return fetchOAuthClients();
+  } catch {
+    const data = readStore().map((c) => (c.id === id ? { ...c, ...patch } : c));
     writeStore(data);
     return data;
   }
+}
+
+export async function rotateOAuthClientSecret(id: string): Promise<OneTimeSecret | null> {
+  const row = await apiFetch<any>(`/api/oauth/clients/${id}/rotate-secret`, { method: "POST" });
+  return oneTimeSecretOf(row);
 }
 
 export async function revokeOAuthClient(id: string): Promise<OAuthClient[]> {

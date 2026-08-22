@@ -3,11 +3,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
-import { createOAuthClient, deleteOAuthClient, fetchOAuthClients, revokeOAuthClient } from "./oauthService";
-import { GRANT_TYPES } from "./types";
+import {
+  createOAuthClient,
+  deleteOAuthClient,
+  fetchOAuthClients,
+  revokeOAuthClient,
+  rotateOAuthClientSecret,
+  updateOAuthClient,
+  type OneTimeSecret,
+} from "./oauthService";
+import { FUNCTIONAL_GRANT_TYPES, GRANT_TYPES, type OAuthClient } from "./types";
 
 const QUERY_KEY = ["oauth-clients"];
 const TABS = ["Clients", "Scopes", "Activity"];
+
+type Draft = OAuthClient | (Omit<OAuthClient, "id" | "clientId" | "lastUsed" | "status"> & { status: OAuthClient["status"] });
 
 function goToAdminIndex(): void {
   const win = window as unknown as { adminIndex?: () => void; __hideOauth?: () => void };
@@ -15,20 +25,69 @@ function goToAdminIndex(): void {
   win.adminIndex?.();
 }
 
+function emptyDraft(): Draft {
+  return { name: "", grantType: GRANT_TYPES[0] ?? "Client Credentials", scope: "", tokenDurationSec: 3600, status: "Active", redirectUris: [] };
+}
+
+function toast(message: string): void {
+  (window as unknown as { toast?: (m: string) => void }).toast?.(message);
+}
+
+function copyToClipboard(text: string, label: string): void {
+  navigator.clipboard.writeText(text).then(
+    () => toast(`${label} copied`),
+    () => toast(`Couldn't copy ${label.toLowerCase()} — select and copy it manually.`),
+  );
+}
+
 export function OAuthClientsPage() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState(TABS[0]);
   const [search, setSearch] = useState("");
-  const [creating, setCreating] = useState<{ name: string; grantType: string; scope: string; tokenDurationSec: number } | null>(null);
+  const [editing, setEditing] = useState<Draft | null>(null);
+  const [redirectUrisText, setRedirectUrisText] = useState("");
+  // The client secret is generated once, on the server, and only ever
+  // returned in the create/rotate response — nothing shows it again after
+  // this dialog closes, matching the backend's own one-time-reveal design.
+  const [revealSecret, setRevealSecret] = useState<OneTimeSecret | null>(null);
 
   const { data, isLoading } = useQuery({ queryKey: QUERY_KEY, queryFn: fetchOAuthClients });
 
+  function closeDrawer(): void {
+    setEditing(null);
+    setRedirectUrisText("");
+  }
+
+  function openDrawer(client: Draft): void {
+    setEditing(client);
+    setRedirectUrisText(client.redirectUris.join("\n"));
+  }
+
   const createMutation = useMutation({
     mutationFn: createOAuthClient,
+    onSuccess: ({ data: updated, secret }) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      closeDrawer();
+      if (secret) setRevealSecret(secret);
+    },
+  });
+  const updateMutation = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Parameters<typeof updateOAuthClient>[1] }) => updateOAuthClient(id, patch),
     onSuccess: (updated) => {
       queryClient.setQueryData(QUERY_KEY, updated);
-      setCreating(null);
+      closeDrawer();
     },
+  });
+  const rotateMutation = useMutation({
+    mutationFn: rotateOAuthClientSecret,
+    onSuccess: (secret) => {
+      // Both drawers render with id="drw" (same as every other page here) —
+      // closing the edit drawer first avoids two of them mounting at once,
+      // which left the secret reveal dialog invisible behind the first one.
+      closeDrawer();
+      if (secret) setRevealSecret(secret);
+    },
+    onError: () => toast("Couldn't rotate the secret — try again."),
   });
   const revokeMutation = useMutation({
     mutationFn: revokeOAuthClient,
@@ -36,7 +95,10 @@ export function OAuthClientsPage() {
   });
   const deleteMutation = useMutation({
     mutationFn: deleteOAuthClient,
-    onSuccess: (updated) => queryClient.setQueryData(QUERY_KEY, updated),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      closeDrawer();
+    },
   });
 
   const clients = data ?? [];
@@ -60,6 +122,28 @@ export function OAuthClientsPage() {
     URL.revokeObjectURL(a.href);
   }
 
+  function handleSave() {
+    if (!editing) return;
+    const redirectUris = redirectUrisText.split("\n").map((l) => l.trim()).filter(Boolean);
+    if ("id" in editing) {
+      updateMutation.mutate({
+        id: editing.id,
+        patch: { name: editing.name, grantType: editing.grantType, scope: editing.scope, redirectUris, status: editing.status },
+      });
+    } else {
+      createMutation.mutate({ ...editing, redirectUris });
+    }
+  }
+
+  function handleRotate() {
+    if (!editing || !("id" in editing)) return;
+    if (window.confirm("Rotate this client's secret? Every token already issued to it will stop working immediately.")) {
+      rotateMutation.mutate(editing.id);
+    }
+  }
+
+  const saving = createMutation.isPending || updateMutation.isPending;
+
   return (
     <>
       <div className="phd">
@@ -69,9 +153,7 @@ export function OAuthClientsPage() {
         <div className="tt">
           <h1>OAuth Clients</h1>
           <div className="rt">
-            <LegacyBtn onClick={() => setCreating({ name: "", grantType: GRANT_TYPES[0] ?? "Client Credentials", scope: "", tokenDurationSec: 3600 })}>
-              + Create Client
-            </LegacyBtn>
+            <LegacyBtn onClick={() => openDrawer(emptyDraft())}>+ Create Client</LegacyBtn>
             <LegacyBtn secondary onClick={handleExport}>Export</LegacyBtn>
           </div>
         </div>
@@ -118,12 +200,23 @@ export function OAuthClientsPage() {
                     <tr>
                       <td colSpan={9} style={{ color: "#8794a8", padding: 18 }}>Loading…</td>
                     </tr>
+                  ) : filtered.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} style={{ color: "#8794a8", padding: 18 }}>
+                        No OAuth clients yet — use "+ Create Client" to register one.
+                      </td>
+                    </tr>
                   ) : (
                     filtered.map((c) => (
-                      <tr key={c.id}>
-                        <td><input type="checkbox" /></td>
-                        <td><b>{c.name}</b></td>
-                        <td>{c.grantType}</td>
+                      <tr key={c.id} onClick={() => openDrawer(c)} style={{ cursor: "pointer" }}>
+                        <td onClick={(e) => e.stopPropagation()}><input type="checkbox" /></td>
+                        <td><b className="lnk">{c.name}</b></td>
+                        <td>
+                          {c.grantType}
+                          {!FUNCTIONAL_GRANT_TYPES.includes(c.grantType) && (
+                            <div style={{ fontSize: 11, color: "#e0a200" }}>Not yet functional</div>
+                          )}
+                        </td>
                         <td style={{ fontFamily: "monospace", fontSize: 11.5 }}>{c.clientId}</td>
                         <td>{c.scope}</td>
                         <td>{c.tokenDurationSec.toLocaleString()} s</td>
@@ -168,48 +261,137 @@ export function OAuthClientsPage() {
         <LegacyHelpPanel topicKey="oauth" />
       </div>
 
-      {creating && (
+      {editing && (
         <>
-          <div id="scrim" onClick={() => setCreating(null)} />
+          <div id="scrim" onClick={closeDrawer} />
           <div id="drw" style={{ height: "auto", top: "26%", bottom: "auto", borderRadius: "8px 0 0 8px" }}>
             <div className="dh">
-              <h2>Create OAuth client</h2>
-              <div className="x" onClick={() => setCreating(null)}>×</div>
+              <h2>{"id" in editing ? `Edit — ${editing.name}` : "Create OAuth client"}</h2>
+              <div className="x" onClick={closeDrawer}>×</div>
             </div>
             <div className="db">
               <div className="fld">
                 <label>Client name</label>
-                <input value={creating.name} onChange={(e) => setCreating((d) => (d ? { ...d, name: e.target.value } : d))} />
+                <input value={editing.name} onChange={(e) => setEditing((d) => (d ? { ...d, name: e.target.value } : d))} />
               </div>
               <div className="fld">
                 <label>Grant type</label>
-                <select value={creating.grantType} onChange={(e) => setCreating((d) => (d ? { ...d, grantType: e.target.value } : d))}>
+                <select value={editing.grantType} onChange={(e) => setEditing((d) => (d ? { ...d, grantType: e.target.value } : d))}>
                   {GRANT_TYPES.map((g) => (
                     <option key={g}>{g}</option>
                   ))}
                 </select>
+                {!FUNCTIONAL_GRANT_TYPES.includes(editing.grantType) && (
+                  <div style={{ fontSize: 11.5, color: "#8794a8", marginTop: 4 }}>
+                    Only Client Credentials issues working tokens today — a client using this grant type can be saved but can't sign in yet.
+                  </div>
+                )}
               </div>
               <div className="fld">
                 <label>Roles / scope</label>
-                <input value={creating.scope} onChange={(e) => setCreating((d) => (d ? { ...d, scope: e.target.value } : d))} placeholder="e.g. Analytics Read" />
+                <input value={editing.scope} onChange={(e) => setEditing((d) => (d ? { ...d, scope: e.target.value } : d))} placeholder="e.g. Analytics Read" />
               </div>
               <div className="fld">
-                <label>Token duration (seconds)</label>
-                <input
-                  type="number"
-                  value={creating.tokenDurationSec}
-                  onChange={(e) => setCreating((d) => (d ? { ...d, tokenDurationSec: Number(e.target.value) } : d))}
+                <label>Redirect URIs</label>
+                <textarea
+                  rows={2}
+                  style={{ width: "100%", border: "1px solid #ccd4e0", borderRadius: 4, padding: 6, fontSize: 12.5, fontFamily: "inherit" }}
+                  value={redirectUrisText}
+                  placeholder={"One per line, e.g.\nhttps://app.mcmgroup.example/callback"}
+                  onChange={(e) => setRedirectUrisText(e.target.value)}
                 />
+                <div style={{ fontSize: 11, color: "#8794a8", marginTop: 4 }}>Only used by grant types other than Client Credentials.</div>
+              </div>
+              <div className="fld">
+                <label>Token duration</label>
+                <div style={{ fontSize: 12.5, color: "#3d4a5c", padding: "4px 0" }}>
+                  3,600 seconds (1 hour) — fixed for every client, not yet configurable individually.
+                </div>
+              </div>
+              {"id" in editing && (
+                <div className="fld">
+                  <label>Status</label>
+                  <select
+                    value={editing.status}
+                    onChange={(e) => setEditing((d) => (d ? { ...d, status: e.target.value as OAuthClient["status"] } : d))}
+                  >
+                    <option>Active</option>
+                    <option>Disabled</option>
+                  </select>
+                </div>
+              )}
+
+              {"id" in editing && (
+                <>
+                  <div className="sect">Secret</div>
+                  <div className="fld">
+                    <LegacyBtn secondary onClick={handleRotate} disabled={rotateMutation.isPending}>
+                      {rotateMutation.isPending ? "Rotating…" : "Rotate secret"}
+                    </LegacyBtn>
+                    <div style={{ fontSize: 11, color: "#8794a8", marginTop: 6 }}>
+                      Generates a new secret and immediately revokes every token issued with the old one.
+                    </div>
+                  </div>
+                  <div className="fld" style={{ marginTop: 14 }}>
+                    <LegacyBtn secondary onClick={() => deleteMutation.mutate(editing.id)} disabled={deleteMutation.isPending}>
+                      {deleteMutation.isPending ? "Deleting…" : "Delete client"}
+                    </LegacyBtn>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="df">
+              <LegacyBtn secondary onClick={closeDrawer} disabled={saving}>Cancel</LegacyBtn>
+              <LegacyBtn onClick={handleSave} disabled={saving || !editing.name || !editing.scope}>
+                {saving ? "Saving…" : "id" in editing ? "Save" : "Create"}
+              </LegacyBtn>
+            </div>
+          </div>
+        </>
+      )}
+
+      {revealSecret && (
+        <>
+          <div id="scrim" />
+          <div id="drw" style={{ height: "auto", top: "30%", bottom: "auto", borderRadius: "8px 0 0 8px" }}>
+            <div className="dh">
+              <h2>Client secret</h2>
+            </div>
+            <div className="db">
+              <div style={{ background: "#fdecea", border: "1px solid #f5c6c0", color: "#b3261e", borderRadius: 5, padding: "8px 11px", fontSize: 12.5, marginBottom: 12 }}>
+                {revealSecret.notice}
+              </div>
+              <div className="fld">
+                <label>Client ID</label>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <code style={{ flex: 1, fontSize: 12, background: "#f4f6f9", padding: "6px 8px", borderRadius: 4, wordBreak: "break-all" }}>
+                    {revealSecret.clientId}
+                  </code>
+                  <LegacyBtn
+                    secondary
+                    onClick={() => copyToClipboard(revealSecret.clientId, "Client ID")}
+                  >
+                    Copy
+                  </LegacyBtn>
+                </div>
+              </div>
+              <div className="fld">
+                <label>Client secret</label>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <code style={{ flex: 1, fontSize: 12, background: "#f4f6f9", padding: "6px 8px", borderRadius: 4, wordBreak: "break-all" }}>
+                    {revealSecret.clientSecret}
+                  </code>
+                  <LegacyBtn
+                    secondary
+                    onClick={() => copyToClipboard(revealSecret.clientSecret, "Client secret")}
+                  >
+                    Copy
+                  </LegacyBtn>
+                </div>
               </div>
             </div>
             <div className="df">
-              <LegacyBtn secondary onClick={() => setCreating(null)} disabled={createMutation.isPending}>Cancel</LegacyBtn>
-              <LegacyBtn
-                onClick={() => createMutation.mutate(creating)}
-                disabled={createMutation.isPending || !creating.name || !creating.scope}
-              >
-                {createMutation.isPending ? "Creating…" : "Create"}
-              </LegacyBtn>
+              <LegacyBtn onClick={() => setRevealSecret(null)}>I've saved this — close</LegacyBtn>
             </div>
           </div>
         </>
