@@ -422,15 +422,25 @@ export type SimpleEntityKind = "skills" | "langs";
 // language names) reference these entities by name, so renaming or deleting
 // one has to carry those references along — the backend does that cascade
 // inside the /api/simple-entities update and delete handlers, which is why
-// both calls below just refetch the whole directory afterwards.
-export async function upsertSimpleEntity(kind: SimpleEntityKind, entity: Omit<SimpleEntity, "id"> & { id?: string }): Promise<DirectoryData> {
+// both calls below just refetch the whole directory afterwards. Both also
+// reach planning groups, Architect flows and queue bullseye rings (skills)
+// / queue language requirement (languages), matching the UI prototype's
+// propagateSkill()/propagateLang() — _propagatedHits reports how many of
+// those non-user references were touched, for the same "updated everywhere"
+// toast the prototype shows.
+export async function upsertSimpleEntity(
+  kind: SimpleEntityKind,
+  entity: Omit<SimpleEntity, "id"> & { id?: string },
+): Promise<{ data: DirectoryData; propagatedHits: number }> {
   const backendKind = kind === "skills" ? "skill" : "lang";
   const label = kind === "skills" ? "skill" : "language";
+  let propagatedHits = 0;
   if (entity.id) {
-    await apiFetch(`/api/simple-entities/${entity.id}`, {
+    const updated = await apiFetch<{ _propagatedHits?: number }>(`/api/simple-entities/${entity.id}`, {
       method: "PUT",
       body: JSON.stringify({ name: entity.name, description: entity.desc }),
     });
+    propagatedHits = updated._propagatedHits ?? 0;
     logAudit("Edit " + label, entity.name);
   } else {
     await apiFetch("/api/simple-entities", {
@@ -439,14 +449,17 @@ export async function upsertSimpleEntity(kind: SimpleEntityKind, entity: Omit<Si
     });
     logAudit("Create " + label, entity.name);
   }
-  return fetchDirectory();
+  return { data: await fetchDirectory(), propagatedHits };
 }
 
-export async function deleteSimpleEntity(kind: SimpleEntityKind, id: string): Promise<DirectoryData> {
+export async function deleteSimpleEntity(
+  kind: SimpleEntityKind,
+  id: string,
+): Promise<{ data: DirectoryData; propagatedHits: number }> {
   const label = kind === "skills" ? "skill" : "language";
-  await apiFetch(`/api/simple-entities/${id}`, { method: "DELETE" });
+  const result = await apiFetch<{ _propagatedHits?: number }>(`/api/simple-entities/${id}`, { method: "DELETE" });
   logAudit("Delete " + label, `#${id}`);
-  return fetchDirectory();
+  return { data: await fetchDirectory(), propagatedHits: result._propagatedHits ?? 0 };
 }
 
 export async function assignLicence(personId: string, license: string): Promise<DirectoryData> {

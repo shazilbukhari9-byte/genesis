@@ -684,6 +684,133 @@ def resource_create(resource):
     return jsonify(dict(new_row)), 201
 
 
+def _propagate_skill_in_flows(cur, tenant_id, old_name, new_name):
+    """Renaming/deleting a skill has to reach flows.graph.meta.skills too —
+    a node-id-keyed object of skill-name arrays (Transfer-to-ACD skill
+    requirements), same as the UI prototype's propagateSkill(). This is
+    nested inside jsonb at arbitrary node ids, so it's easier to mutate in
+    Python than to write as a single jsonb-path SQL statement."""
+    cur.execute('SELECT id, graph FROM flows WHERE tenant_id = %s', (tenant_id,))
+    hits = 0
+    for row in cur.fetchall():
+        graph = row['graph'] or {}
+        skills_by_node = (graph.get('meta') or {}).get('skills') or {}
+        changed = False
+        for node_id, names in list(skills_by_node.items()):
+            if not isinstance(names, list) or old_name not in names:
+                continue
+            changed = True
+            hits += 1
+            if new_name is not None:
+                skills_by_node[node_id] = [new_name if n == old_name else n for n in names]
+            else:
+                skills_by_node[node_id] = [n for n in names if n != old_name]
+        if changed:
+            cur.execute('UPDATE flows SET graph = %s WHERE id = %s', (PgJson(graph), row['id']))
+    return hits
+
+
+def _propagate_skill_in_queues(cur, tenant_id, old_name, new_name):
+    """Same idea for queues.config.rings[].drop — the bullseye rings' list
+    of skills to drop at each ring, as arrays inside a jsonb array."""
+    cur.execute('SELECT id, config FROM queues WHERE tenant_id = %s', (tenant_id,))
+    hits = 0
+    for row in cur.fetchall():
+        config = row['config'] or {}
+        rings = config.get('rings') or []
+        changed = False
+        for ring in rings:
+            drop = ring.get('drop') if isinstance(ring, dict) else None
+            if not isinstance(drop, list) or old_name not in drop:
+                continue
+            changed = True
+            hits += 1
+            if new_name is not None:
+                ring['drop'] = [new_name if n == old_name else n for n in drop]
+            else:
+                ring['drop'] = [n for n in drop if n != old_name]
+        if changed:
+            cur.execute('UPDATE queues SET config = %s WHERE id = %s', (PgJson(config), row['id']))
+    return hits
+
+
+def _propagate_simple_entity(cur, tenant_id, kind, old_name, new_name):
+    """Mirrors the UI prototype's propagateSkill()/propagateLang(): a
+    skill/language rename or delete (new_name=None) has to reach every place
+    that references it by name, not just users — planning groups, Architect
+    flows and queue bullseye rings for skills; planning groups and queue
+    language requirement for languages. Returns the total reference count
+    touched, for a same-shape audit/toast as the prototype's."""
+    hits = 0
+    if kind == 'skill':
+        if new_name is not None:
+            cur.execute(
+                'UPDATE users SET skills = (skills - %s) || jsonb_build_object(%s, skills -> %s) '
+                'WHERE tenant_id = %s AND skills ? %s',
+                (old_name, new_name, old_name, tenant_id, old_name),
+            )
+        else:
+            cur.execute(
+                'UPDATE users SET skills = skills - %s WHERE tenant_id = %s AND skills ? %s',
+                (old_name, tenant_id, old_name),
+            )
+        hits += cur.rowcount
+
+        if new_name is not None:
+            cur.execute(
+                'UPDATE planning_groups SET skills = array_replace(skills, %s, %s) '
+                'WHERE tenant_id = %s AND %s = ANY(skills)',
+                (old_name, new_name, tenant_id, old_name),
+            )
+        else:
+            cur.execute(
+                'UPDATE planning_groups SET skills = array_remove(skills, %s) '
+                'WHERE tenant_id = %s AND %s = ANY(skills)',
+                (old_name, tenant_id, old_name),
+            )
+        hits += cur.rowcount
+
+        hits += _propagate_skill_in_flows(cur, tenant_id, old_name, new_name)
+        hits += _propagate_skill_in_queues(cur, tenant_id, old_name, new_name)
+    else:
+        if new_name is not None:
+            cur.execute(
+                'UPDATE users SET langs = array_replace(langs, %s, %s) WHERE tenant_id = %s AND %s = ANY(langs)',
+                (old_name, new_name, tenant_id, old_name),
+            )
+        else:
+            cur.execute(
+                'UPDATE users SET langs = array_remove(langs, %s) WHERE tenant_id = %s AND %s = ANY(langs)',
+                (old_name, tenant_id, old_name),
+            )
+        hits += cur.rowcount
+
+        if new_name is not None:
+            cur.execute(
+                'UPDATE planning_groups SET langs = array_replace(langs, %s, %s) '
+                'WHERE tenant_id = %s AND %s = ANY(langs)',
+                (old_name, new_name, tenant_id, old_name),
+            )
+        else:
+            cur.execute(
+                'UPDATE planning_groups SET langs = array_remove(langs, %s) '
+                'WHERE tenant_id = %s AND %s = ANY(langs)',
+                (old_name, tenant_id, old_name),
+            )
+        hits += cur.rowcount
+
+        # queues.config.lang is a single name, not an array — the prototype
+        # blanks it out on delete rather than removing the key.
+        cur.execute(
+            "UPDATE queues SET config = jsonb_set(config, '{lang}', %s) "
+            "WHERE tenant_id = %s AND config ->> 'lang' = %s",
+            (PgJson(new_name if new_name is not None else ''), tenant_id, old_name),
+        )
+        hits += cur.rowcount
+
+    return hits
+
+
 @app.route('/api/<resource>/<int:row_id>', methods=['PUT', 'PATCH'])
 def resource_update(resource, row_id):
     spec = REGISTRY.get(resource)
@@ -736,22 +863,25 @@ def resource_update(resource, row_id):
     cur.execute(update_sql, update_params)
     row = cur.fetchone()
 
+    rename_hits = 0
     if rename_from is not None:
-        if rename_kind == 'skill':
+        rename_hits = _propagate_simple_entity(cur, g.tenant_id, rename_kind, rename_from, row['name'])
+        if rename_hits:
             cur.execute(
-                'UPDATE users SET skills = (skills - %s) || jsonb_build_object(%s, skills -> %s) '
-                'WHERE tenant_id = %s AND skills ? %s',
-                (rename_from, row['name'], rename_from, g.tenant_id, rename_from),
-            )
-        else:
-            cur.execute(
-                'UPDATE users SET langs = array_replace(langs, %s, %s) WHERE tenant_id = %s AND %s = ANY(langs)',
-                (rename_from, row['name'], g.tenant_id, rename_from),
+                'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
+                (
+                    g.user_name,
+                    f'{rename_kind.capitalize()} rename propagated',
+                    f'{rename_from} → {row["name"]} ({rename_hits} reference(s))',
+                ),
             )
 
     conn.commit()
     conn.close()
-    return jsonify(dict(row))
+    resp = dict(row)
+    if rename_from is not None:
+        resp['_propagatedHits'] = rename_hits
+    return jsonify(resp)
 
 
 @app.route('/api/<resource>/<int:row_id>', methods=['DELETE'])
@@ -799,23 +929,29 @@ def resource_delete(resource, row_id):
             (row_id, g.tenant_id),
         )
 
-    # Same for a deleted skill/language: drop the assignment from everyone who
-    # had it, the way the prototype's delSimple() does.
+    # Same for a deleted skill/language: drop it from every place that
+    # referenced it by name — users, planning groups, Architect flows and
+    # queue bullseye rings — the way the prototype's delSimple() +
+    # propagateSkill()/propagateLang() do together.
+    delete_hits = 0
     if removed is not None:
-        if removed['kind'] == 'skill':
+        delete_hits = _propagate_simple_entity(cur, g.tenant_id, removed['kind'], removed['name'], None)
+        if delete_hits:
             cur.execute(
-                'UPDATE users SET skills = skills - %s WHERE tenant_id = %s AND skills ? %s',
-                (removed['name'], g.tenant_id, removed['name']),
-            )
-        else:
-            cur.execute(
-                'UPDATE users SET langs = array_remove(langs, %s) WHERE tenant_id = %s',
-                (removed['name'], g.tenant_id),
+                'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
+                (
+                    g.user_name,
+                    f"{removed['kind'].capitalize()} delete propagated",
+                    f"{removed['name']} removed ({delete_hits} reference(s))",
+                ),
             )
 
     conn.commit()
     conn.close()
-    return jsonify({'ok': True})
+    resp = {'ok': True}
+    if removed is not None:
+        resp['_propagatedHits'] = delete_hits
+    return jsonify(resp)
 
 
 if __name__ == '__main__':
