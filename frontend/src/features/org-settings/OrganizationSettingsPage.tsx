@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
-import { fetchOrgSettings, updateOrgSetting } from "./orgSettingsService";
-import { ORG_SETTINGS_CATEGORIES, type OrgSetting, type OrgSettingsCategory } from "./types";
+import { toast } from "../shared/toast";
+import { fetchOrgSettings, updateOrgSetting, updateOrgSettingsBulk } from "./orgSettingsService";
+import { ORG_SETTINGS_CATEGORIES, validateSettingValue, type OrgSetting, type OrgSettingsCategory } from "./types";
 
 const QUERY_KEY = ["org-settings"];
 
@@ -19,6 +20,41 @@ function goToAdminIndex(): void {
   win.adminIndex?.();
 }
 
+function SettingField({
+  setting,
+  value,
+  onChange,
+}: {
+  setting: OrgSetting;
+  value: OrgSetting["value"];
+  onChange: (value: OrgSetting["value"]) => void;
+}) {
+  if (setting.type === "toggle") {
+    return (
+      <div className="tgl">
+        <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} style={{ width: "auto", marginRight: 6 }} />
+        Enabled
+      </div>
+    );
+  }
+  if (setting.type === "select") {
+    return (
+      <select value={String(value)} onChange={(e) => onChange(e.target.value)}>
+        {setting.options?.map((opt) => (
+          <option key={opt}>{opt}</option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <input
+      type={setting.type === "number" ? "number" : "text"}
+      value={String(value)}
+      onChange={(e) => onChange(setting.type === "number" ? Number(e.target.value) : e.target.value)}
+    />
+  );
+}
+
 function EditDrawer({
   setting,
   onClose,
@@ -31,6 +67,8 @@ function EditDrawer({
   saving: boolean;
 }) {
   const [draft, setDraft] = useState<OrgSetting["value"]>(setting.value);
+  const locked = setting.type === "locked";
+  const error = locked ? null : validateSettingValue(setting, draft);
 
   return (
     <>
@@ -48,38 +86,103 @@ function EditDrawer({
           )}
           <div className="fld">
             <label>{setting.key}</label>
-            {setting.type === "toggle" && (
-              <div className="tgl">
-                <input
-                  type="checkbox"
-                  checked={Boolean(draft)}
-                  onChange={(e) => setDraft(e.target.checked)}
-                  style={{ width: "auto", marginRight: 6 }}
-                />
-                Enabled
-              </div>
+            {/* Locked settings are excluded from the row click-to-edit path (see the
+                table below) and from the bulk drawer, so this only renders if
+                something else ever routes here — read-only, no way to submit a change. */}
+            {locked ? (
+              <div style={{ fontSize: 13, color: "#3d4a5c", padding: "4px 0" }}>{String(setting.value)}</div>
+            ) : (
+              <SettingField setting={setting} value={draft} onChange={setDraft} />
             )}
-            {setting.type === "select" && (
-              <select value={String(draft)} onChange={(e) => setDraft(e.target.value)}>
-                {setting.options?.map((opt) => (
-                  <option key={opt}>{opt}</option>
-                ))}
-              </select>
-            )}
-            {(setting.type === "text" || setting.type === "number") && (
-              <input
-                type={setting.type === "number" ? "number" : "text"}
-                value={String(draft)}
-                onChange={(e) => setDraft(setting.type === "number" ? Number(e.target.value) : e.target.value)}
-              />
-            )}
+            {error && <div style={{ color: "#b3261e", fontSize: 12, marginTop: 4 }}>{error}</div>}
           </div>
+        </div>
+        <div className="df">
+          <LegacyBtn secondary onClick={onClose} disabled={saving}>
+            {locked ? "Close" : "Cancel"}
+          </LegacyBtn>
+          {!locked && (
+            <LegacyBtn onClick={() => onSave(draft)} disabled={saving || Boolean(error)}>
+              {saving ? "Saving…" : "Save changes"}
+            </LegacyBtn>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// The "+ Edit <category> Settings" button used to just open the category's
+// very first row regardless of what it was — on Data Residency that's the
+// locked "Core region" field, opening an editor with no input and an
+// enabled Save button for a value that's supposed to be immutable. This is
+// what that button actually should have meant: edit every editable setting
+// in the category at once. Locked settings aren't listed here at all —
+// same as the table's row click, which already skips them.
+function BulkEditDrawer({
+  categoryLabel,
+  settings,
+  onClose,
+  onSave,
+  saving,
+}: {
+  categoryLabel: string;
+  settings: OrgSetting[];
+  onClose: () => void;
+  onSave: (updates: { index: number; value: OrgSetting["value"] }[]) => void;
+  saving: boolean;
+}) {
+  const editable = useMemo(() => settings.map((s, index) => ({ s, index })).filter((e) => e.s.type !== "locked"), [settings]);
+  const [drafts, setDrafts] = useState<Record<number, OrgSetting["value"]>>(
+    () => Object.fromEntries(editable.map((e) => [e.index, e.s.value])),
+  );
+
+  const errors = useMemo(
+    () => Object.fromEntries(editable.map((e) => [e.index, validateSettingValue(e.s, drafts[e.index] ?? e.s.value)])),
+    [editable, drafts],
+  );
+  const hasErrors = Object.values(errors).some(Boolean);
+
+  function handleSave() {
+    const updates = editable
+      .filter((e) => (drafts[e.index] ?? e.s.value) !== e.s.value)
+      .map((e) => ({ index: e.index, value: drafts[e.index] ?? e.s.value }));
+    if (updates.length === 0) {
+      onClose();
+      return;
+    }
+    onSave(updates);
+  }
+
+  return (
+    <>
+      <div id="scrim" onClick={onClose} />
+      <div id="drw">
+        <div className="dh">
+          <h2>Edit {categoryLabel} Settings</h2>
+          <div className="x" onClick={onClose}>
+            ×
+          </div>
+        </div>
+        <div className="db">
+          {editable.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: "#8794a8" }}>Every setting in this category is locked.</div>
+          ) : (
+            editable.map(({ s, index }) => (
+              <div className="fld" key={s.key}>
+                <label>{s.key}</label>
+                {s.hint && <div style={{ fontSize: 11, color: "#8794a8", marginBottom: 4 }}>{s.hint}</div>}
+                <SettingField setting={s} value={drafts[index] ?? s.value} onChange={(v) => setDrafts((d) => ({ ...d, [index]: v }))} />
+                {errors[index] && <div style={{ color: "#b3261e", fontSize: 12, marginTop: 4 }}>{errors[index]}</div>}
+              </div>
+            ))
+          )}
         </div>
         <div className="df">
           <LegacyBtn secondary onClick={onClose} disabled={saving}>
             Cancel
           </LegacyBtn>
-          <LegacyBtn onClick={() => onSave(draft)} disabled={saving}>
+          <LegacyBtn onClick={handleSave} disabled={saving || editable.length === 0 || hasErrors}>
             {saving ? "Saving…" : "Save changes"}
           </LegacyBtn>
         </div>
@@ -92,8 +195,10 @@ export function OrganizationSettingsPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<OrgSettingsCategory>("general");
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [bulkEditing, setBulkEditing] = useState(false);
+  const [search, setSearch] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: QUERY_KEY,
     queryFn: fetchOrgSettings,
   });
@@ -101,13 +206,31 @@ export function OrganizationSettingsPage() {
   const mutation = useMutation({
     mutationFn: ({ index, value }: { index: number; value: OrgSetting["value"] }) =>
       updateOrgSetting(activeTab, index, value, currentUserName()),
-    onSuccess: (updated) => {
+    onSuccess: (updated, { index }) => {
       queryClient.setQueryData(QUERY_KEY, updated);
+      toast(`Saved — <b>${updated[activeTab][index]?.key}</b>`);
       setEditingIndex(null);
     },
+    onError: () => toast("Couldn't save changes — try again."),
+  });
+
+  const bulkMutation = useMutation({
+    mutationFn: (updates: { index: number; value: OrgSetting["value"] }[]) =>
+      updateOrgSettingsBulk(activeTab, updates, currentUserName()),
+    onSuccess: (updated, updates) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      toast(`${updates.length} setting${updates.length === 1 ? "" : "s"} saved`);
+      setBulkEditing(false);
+    },
+    onError: () => toast("Couldn't save changes — try again."),
   });
 
   const rows = data?.[activeTab] ?? [];
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((s) => s.key.toLowerCase().includes(q) || String(s.value).toLowerCase().includes(q));
+  }, [rows, search]);
   const editingSetting = editingIndex !== null ? (rows[editingIndex] ?? null) : null;
   const activeLabel = ORG_SETTINGS_CATEGORIES.find((c) => c.id === activeTab)?.label ?? "";
 
@@ -131,7 +254,7 @@ export function OrganizationSettingsPage() {
         <div className="tt">
           <h1>Organization Settings</h1>
           <div className="rt">
-            <LegacyBtn disabled={!rows.length} onClick={() => rows.length && setEditingIndex(0)}>
+            <LegacyBtn disabled={!rows.length} onClick={() => rows.length && setBulkEditing(true)}>
               + Edit {activeLabel} Settings
             </LegacyBtn>
             <LegacyBtn secondary onClick={handleExport} disabled={!data}>
@@ -145,7 +268,10 @@ export function OrganizationSettingsPage() {
               key={cat.id}
               className={"tb" + (activeTab === cat.id ? " on" : "")}
               style={{ cursor: "pointer" }}
-              onClick={() => setActiveTab(cat.id)}
+              onClick={() => {
+                setActiveTab(cat.id);
+                setSearch("");
+              }}
             >
               {cat.label}
             </div>
@@ -154,6 +280,22 @@ export function OrganizationSettingsPage() {
       </div>
 
       <div className="pbody">
+        <div className="tbar">
+          <input
+            className="s"
+            placeholder={`Search ${activeLabel.toLowerCase()} settings`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <div className="chip">Division: All ▾</div>
+          <div className="chip">Status: Any ▾</div>
+          <div className="sp" />
+          <div className="chip">⚙ Columns</div>
+          <div className="chip" style={{ cursor: "pointer" }} onClick={() => queryClient.invalidateQueries({ queryKey: QUERY_KEY })}>
+            ↻ Refresh
+          </div>
+        </div>
+
         {activeTab === "residency" && (
           <div style={{ fontSize: 12, color: "#5b6b82", margin: "0 0 10px", lineHeight: 1.6 }}>
             Data residency is fixed at org creation for compliance. Media region is the only adjustable value — it
@@ -179,14 +321,30 @@ export function OrganizationSettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {isLoading || !data ? (
+              {isError ? (
+                <tr>
+                  <td colSpan={5} style={{ color: "#b3261e", padding: 18, textAlign: "center" }}>
+                    Couldn't load organization settings.{" "}
+                    <a onClick={() => refetch()} className="lnk">
+                      Retry
+                    </a>
+                  </td>
+                </tr>
+              ) : isLoading || !data ? (
                 <tr>
                   <td colSpan={5} style={{ color: "#8794a8" }}>
                     Loading…
                   </td>
                 </tr>
+              ) : filteredRows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ color: "#8794a8", padding: 18 }}>
+                    No settings match "{search}"
+                  </td>
+                </tr>
               ) : (
-                rows.map((setting, index) => {
+                filteredRows.map((setting) => {
+                  const index = rows.indexOf(setting);
                   const locked = setting.type === "locked";
                   const touched = setting.lastChangedAt
                     ? `${new Date(setting.lastChangedAt).toLocaleDateString("en-GB", {
@@ -196,9 +354,13 @@ export function OrganizationSettingsPage() {
                       })} · ${setting.lastChangedBy}`
                     : "—";
                   return (
-                    <tr key={setting.key} onClick={() => !locked && setEditingIndex(index)}>
+                    <tr
+                      key={setting.key}
+                      onClick={() => !locked && setEditingIndex(index)}
+                      style={{ cursor: locked ? "default" : "pointer" }}
+                    >
                       <td>
-                        <b className="lnk">{setting.key}</b>
+                        <b className={locked ? undefined : "lnk"}>{setting.key}</b>
                         {setting.hint && (
                           <>
                             <br />
@@ -225,7 +387,7 @@ export function OrganizationSettingsPage() {
                         {locked ? <span className="tag">Locked</span> : <span className="tag o">Editable</span>}
                       </td>
                       <td style={{ fontSize: 11.5, color: "#8794a8" }}>{touched}</td>
-                      <td style={{ color: "#a9b3c2" }}>⋮</td>
+                      <td style={{ color: locked ? "transparent" : "#a9b3c2" }}>⋮</td>
                     </tr>
                   );
                 })
@@ -246,6 +408,16 @@ export function OrganizationSettingsPage() {
             if (editingIndex === null) return;
             mutation.mutate({ index: editingIndex, value });
           }}
+        />
+      )}
+
+      {bulkEditing && (
+        <BulkEditDrawer
+          categoryLabel={activeLabel}
+          settings={rows}
+          saving={bulkMutation.isPending}
+          onClose={() => setBulkEditing(false)}
+          onSave={(updates) => bulkMutation.mutate(updates)}
         />
       )}
     </>

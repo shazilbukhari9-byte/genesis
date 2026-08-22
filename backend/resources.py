@@ -26,7 +26,7 @@ REGISTRY = {
         order="name",
         fields=[
             "tenant_id", "name", "email", "license_code", "state", "division", "title", "dept", "station", "ext",
-            "roles", "skills", "langs",
+            "roles", "skills", "langs", "lang_proficiency",
         ],
         search=["name", "email"],
         perm=None,
@@ -63,7 +63,7 @@ REGISTRY = {
     "purchases": dict(
         table="purchases",
         order="purchased_at DESC, id DESC",
-        fields=["item", "category", "price", "purchased_at"],
+        fields=["tenant_id", "item", "category", "price", "purchased_at"],
         search=["item", "category"],
         perm=None,
     ),

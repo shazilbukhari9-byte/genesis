@@ -354,13 +354,16 @@ USERS = [
 # baseline plus a skill/language or two — everyone else just gets
 # 'Employee' with no skills/langs. Deliberately light: this is demo
 # flavour so the People page's Roles/Skills columns aren't all identical,
-# not a full org chart.
+# not a full org chart. The last tuple element is lang_proficiency
+# (1-5 per language, an addition beyond the UI prototype — see
+# Person.langProficiency in the frontend) so the demo data actually shows
+# the ratings varying, not just uniform membership.
 USER_EXTRAS = {
-    'fkhan@mcmgroup.com': (['Admin', 'Supervisor'], {'Billing': 4}, ['English']),
-    'ashaikh@mcmgroup.com': (['Supervisor'], {'Technical': 3}, ['English']),
-    'spetrova@mcmgroup.com': (['Agent'], {'Billing': 3}, ['English', 'Spanish']),
-    'jokafor@mcmgroup.com': (['Agent'], {'Sales': 4}, ['English']),
-    'gadeyemi@mcmgroup.com': (['Quality Evaluator'], {}, ['English']),
+    'fkhan@mcmgroup.com': (['Admin', 'Supervisor'], {'Billing': 4}, ['English'], {'English': 5}),
+    'ashaikh@mcmgroup.com': (['Supervisor'], {'Technical': 3}, ['English'], {'English': 4}),
+    'spetrova@mcmgroup.com': (['Agent'], {'Billing': 3}, ['English', 'Spanish'], {'English': 3, 'Spanish': 5}),
+    'jokafor@mcmgroup.com': (['Agent'], {'Sales': 4}, ['English'], {'English': 4}),
+    'gadeyemi@mcmgroup.com': (['Quality Evaluator'], {}, ['English'], {'English': 3}),
 }
 
 
@@ -587,13 +590,42 @@ def run():
     employee_role_id = role_id_by_name.get('Employee')
     if employee_role_id is not None:
         for _, email, _, _, _ in USERS:
-            extra_roles, skills, langs = USER_EXTRAS.get(email, ([], {}, []))
+            extra_roles, skills, langs, lang_proficiency = USER_EXTRAS.get(email, ([], {}, [], {}))
             role_ids = [employee_role_id] + [role_id_by_name[r] for r in extra_roles if r in role_id_by_name]
             cur.execute(
-                "UPDATE users SET roles = %s, skills = %s, langs = %s "
+                "UPDATE users SET roles = %s, skills = %s, langs = %s, lang_proficiency = %s "
                 "WHERE email = %s AND array_length(roles, 1) IS NULL",
-                (role_ids, skills, langs, email),
+                (role_ids, skills, langs, lang_proficiency, email),
             )
+
+    # lang_proficiency backfill: any user who already speaks a language
+    # (present in langs, from before this column existed, or added directly
+    # some other way) but has no rating for it yet gets a default of 3 —
+    # otherwise the People page would show an assigned language as "Not
+    # assigned" until someone happens to open and re-save that person.
+    # Idempotent (only touches rows genuinely missing an entry) so it's
+    # safe to run on every startup, same as the rest of this function.
+    cur.execute(
+        """
+        UPDATE users SET lang_proficiency = (
+            SELECT jsonb_object_agg(lang, COALESCE(lang_proficiency -> lang, to_jsonb(3)))
+            FROM unnest(langs) AS lang
+        )
+        WHERE array_length(langs, 1) > 0
+          AND EXISTS (SELECT 1 FROM unnest(langs) AS l WHERE NOT lang_proficiency ? l)
+        """
+    )
+
+    # audit_log tenant_id backfill: the table predates multi-tenancy, so any
+    # row left over from before this column existed has no tenant recorded.
+    # Attribute those to the current tenant (they can only have come from
+    # actions taken against this deployment) rather than leave them globally
+    # visible to every tenant sharing this database. Idempotent (only touches
+    # rows still missing a tenant) so it's safe to run on every startup.
+    cur.execute('UPDATE audit_log SET tenant_id = %s WHERE tenant_id IS NULL', (tenant_id,))
+
+    # Same backfill for purchases — see its tenant_id comment in schema.sql.
+    cur.execute('UPDATE purchases SET tenant_id = %s WHERE tenant_id IS NULL', (tenant_id,))
 
     conn.commit()
     conn.close()

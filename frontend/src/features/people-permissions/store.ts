@@ -6,7 +6,10 @@ import { apiFetch } from "../shared/backend";
 // table via the generic /api/people resource registered in
 // backend/resources.py. roles is users.roles (integer[] of roles.id, cast
 // to strings here to match Role.id elsewhere), skills is users.skills
-// (jsonb {skillName: proficiency}), langs is users.langs (text[]).
+// (jsonb {skillName: proficiency}), langs is users.langs (text[]),
+// langProficiency is users.lang_proficiency (jsonb {langName: proficiency},
+// an addition beyond the UI prototype — see the Person.langProficiency
+// comment in types.ts).
 interface BackendPerson {
   id: number;
   name: string;
@@ -21,6 +24,7 @@ interface BackendPerson {
   roles: number[] | null;
   skills: Record<string, number> | null;
   langs: string[] | null;
+  lang_proficiency: Record<string, number> | null;
 }
 
 function fromBackendPerson(u: BackendPerson): Person {
@@ -35,6 +39,7 @@ function fromBackendPerson(u: BackendPerson): Person {
     license: u.license_code ?? "",
     skills: u.skills ?? {},
     langs: u.langs ?? [],
+    langProficiency: u.lang_proficiency ?? {},
     station: u.station ?? "",
     state: (u.state as Person["state"]) || "Active",
     created: "",
@@ -119,6 +124,7 @@ function toBackendPerson(person: Partial<Person>): Record<string, unknown> {
     ...(person.roles ? { roles: person.roles.map(Number) } : {}),
     ...(person.skills ? { skills: person.skills } : {}),
     ...(person.langs ? { langs: person.langs } : {}),
+    ...(person.langProficiency ? { lang_proficiency: person.langProficiency } : {}),
   };
 }
 
@@ -192,6 +198,7 @@ function defaultDirectory(): DirectoryData {
       license: "CX 3",
       skills: { Billing: 5 },
       langs: ["English"],
+      langProficiency: { English: 5 },
       station: "WebRTC softphone",
       state: "Active",
       created: "04 Jan 2026",
@@ -208,6 +215,7 @@ function defaultDirectory(): DirectoryData {
       license: "CX 2",
       skills: { "Technical Support": 4 },
       langs: ["English"],
+      langProficiency: { English: 4 },
       station: "WebRTC softphone",
       state: "Active",
       created: "12 Jan 2026",
@@ -224,6 +232,7 @@ function defaultDirectory(): DirectoryData {
       license: "CX 2",
       skills: { Billing: 3 },
       langs: ["English", "Hindi"],
+      langProficiency: { English: 3, Hindi: 5 },
       station: "Remote number",
       state: "Active",
       created: "20 Jan 2026",
@@ -240,6 +249,7 @@ function defaultDirectory(): DirectoryData {
       license: "CX 3",
       skills: { "Technical Support": 5, Billing: 2 },
       langs: ["English"],
+      langProficiency: { English: 4 },
       station: "WebRTC softphone",
       state: "Pending invite",
       created: "02 Feb 2026",
@@ -330,17 +340,17 @@ export async function upsertPerson(person: Omit<Person, "id" | "created"> & { id
   const payload = toBackendPerson(person);
   if (person.id) {
     await apiFetch(`/api/people/${person.id}`, { method: "PUT", body: JSON.stringify(payload) });
-    logAudit("Edit person", person.name);
+    logAudit("Edit person", `${person.name} <${person.email}>`);
   } else {
     await apiFetch("/api/people", { method: "POST", body: JSON.stringify({ ...payload, state: person.state || "Active" }) });
-    logAudit("Create person", person.name);
+    logAudit("Create person", `${person.name} <${person.email}>`);
   }
   return fetchDirectory();
 }
 
-export async function deletePerson(id: string): Promise<DirectoryData> {
+export async function deletePerson(id: string, name: string): Promise<DirectoryData> {
   await apiFetch(`/api/people/${id}`, { method: "DELETE" });
-  logAudit("Delete person", `person #${id}`);
+  logAudit("Delete person", name);
   return fetchDirectory();
 }
 
@@ -369,9 +379,9 @@ export async function upsertRole(role: Omit<Role, "id" | "base"> & { id?: string
   return fetchDirectory();
 }
 
-export async function deleteRole(id: string): Promise<DirectoryData> {
+export async function deleteRole(id: string, name: string): Promise<DirectoryData> {
   await apiFetch(`/api/roles/${id}`, { method: "DELETE" });
-  logAudit("Delete role", `role #${id}`);
+  logAudit("Delete role", name);
   return fetchDirectory();
 }
 
@@ -392,9 +402,9 @@ export async function upsertDivision(division: Omit<Division, "id" | "home"> & {
   return fetchDirectory();
 }
 
-export async function deleteDivision(id: string): Promise<DirectoryData> {
+export async function deleteDivision(id: string, name: string): Promise<DirectoryData> {
   await apiFetch(`/api/divisions/${id}`, { method: "DELETE" });
-  logAudit("Delete division", `division ${id}`);
+  logAudit("Delete division", name);
   return fetchDirectory();
 }
 
@@ -410,9 +420,9 @@ export async function upsertGroup(group: Omit<Group, "id"> & { id?: string }): P
   return fetchDirectory();
 }
 
-export async function deleteGroup(id: string): Promise<DirectoryData> {
+export async function deleteGroup(id: string, name: string): Promise<DirectoryData> {
   await apiFetch(`/api/groups/${id}`, { method: "DELETE" });
-  logAudit("Delete group", `group #${id}`);
+  logAudit("Delete group", name);
   return fetchDirectory();
 }
 
@@ -422,15 +432,25 @@ export type SimpleEntityKind = "skills" | "langs";
 // language names) reference these entities by name, so renaming or deleting
 // one has to carry those references along — the backend does that cascade
 // inside the /api/simple-entities update and delete handlers, which is why
-// both calls below just refetch the whole directory afterwards.
-export async function upsertSimpleEntity(kind: SimpleEntityKind, entity: Omit<SimpleEntity, "id"> & { id?: string }): Promise<DirectoryData> {
+// both calls below just refetch the whole directory afterwards. Both also
+// reach planning groups, Architect flows and queue bullseye rings (skills)
+// / queue language requirement (languages), matching the UI prototype's
+// propagateSkill()/propagateLang() — _propagatedHits reports how many of
+// those non-user references were touched, for the same "updated everywhere"
+// toast the prototype shows.
+export async function upsertSimpleEntity(
+  kind: SimpleEntityKind,
+  entity: Omit<SimpleEntity, "id"> & { id?: string },
+): Promise<{ data: DirectoryData; propagatedHits: number }> {
   const backendKind = kind === "skills" ? "skill" : "lang";
   const label = kind === "skills" ? "skill" : "language";
+  let propagatedHits = 0;
   if (entity.id) {
-    await apiFetch(`/api/simple-entities/${entity.id}`, {
+    const updated = await apiFetch<{ _propagatedHits?: number }>(`/api/simple-entities/${entity.id}`, {
       method: "PUT",
       body: JSON.stringify({ name: entity.name, description: entity.desc }),
     });
+    propagatedHits = updated._propagatedHits ?? 0;
     logAudit("Edit " + label, entity.name);
   } else {
     await apiFetch("/api/simple-entities", {
@@ -439,19 +459,22 @@ export async function upsertSimpleEntity(kind: SimpleEntityKind, entity: Omit<Si
     });
     logAudit("Create " + label, entity.name);
   }
-  return fetchDirectory();
+  return { data: await fetchDirectory(), propagatedHits };
 }
 
-export async function deleteSimpleEntity(kind: SimpleEntityKind, id: string): Promise<DirectoryData> {
+export async function deleteSimpleEntity(
+  kind: SimpleEntityKind,
+  id: string,
+): Promise<{ data: DirectoryData; propagatedHits: number }> {
   const label = kind === "skills" ? "skill" : "language";
-  await apiFetch(`/api/simple-entities/${id}`, { method: "DELETE" });
+  const result = await apiFetch<{ _propagatedHits?: number }>(`/api/simple-entities/${id}`, { method: "DELETE" });
   logAudit("Delete " + label, `#${id}`);
-  return fetchDirectory();
+  return { data: await fetchDirectory(), propagatedHits: result._propagatedHits ?? 0 };
 }
 
-export async function assignLicence(personId: string, license: string): Promise<DirectoryData> {
-  await apiFetch(`/api/people/${personId}`, { method: "PUT", body: JSON.stringify({ license_code: license }) });
-  logAudit("Change licence", `person #${personId} → ${license}`);
+export async function assignLicence(personId: string, name: string, oldLicense: string, newLicense: string): Promise<DirectoryData> {
+  await apiFetch(`/api/people/${personId}`, { method: "PUT", body: JSON.stringify({ license_code: newLicense }) });
+  logAudit("Change licence", `${name}: ${oldLicense} → ${newLicense}`);
   return fetchDirectory();
 }
 

@@ -8,7 +8,7 @@ export interface Purchase {
 
 export interface NewPurchase {
   item: string;
-  category?: string;
-  price?: number;
-  purchased_at?: string;
+  category?: string | undefined;
+  price?: number | undefined;
+  purchased_at?: string | undefined;
 }

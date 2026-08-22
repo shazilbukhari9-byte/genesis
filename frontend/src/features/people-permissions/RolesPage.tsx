@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
+import { toast } from "../shared/toast";
 import { deleteRole, fetchDirectory, upsertRole } from "./store";
 import { PERMISSION_DOMAINS, type Person, type Role } from "./types";
 
@@ -24,16 +25,18 @@ export function RolesPage() {
 
   const saveMutation = useMutation({
     mutationFn: upsertRole,
-    onSuccess: (updated) => {
+    onSuccess: (updated, variables) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       setEditingId(null);
+      toast(("id" in variables && variables.id ? "Role saved — " : "Role created — ") + variables.name);
     },
   });
   const deleteMutation = useMutation({
-    mutationFn: deleteRole,
+    mutationFn: ({ id, name }: { id: string; name: string }) => deleteRole(id, name),
     onSuccess: (updated) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       setEditingId(null);
+      toast("Role deleted");
     },
   });
   const removeMemberMutation = useMutation({
@@ -48,9 +51,10 @@ export function RolesPage() {
   });
   const copyMutation = useMutation({
     mutationFn: (role: Role) => upsertRole({ name: `Copy of ${role.name}`, desc: role.desc, perms: role.perms }),
-    onSuccess: (updated) => {
+    onSuccess: (updated, role) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       setEditingId(null);
+      toast(`Role copied — now edit <b>Copy of ${role.name}</b>`);
     },
   });
 
@@ -126,7 +130,9 @@ export function RolesPage() {
           onRemoveMember={(userId) => {
             if (editingId !== "new") removeMemberMutation.mutate({ userId, roleId: editingId as string });
           }}
-          {...(editingId !== "new" ? { onDelete: () => deleteMutation.mutate(editingId as string) } : {})}
+          {...(editingId !== "new"
+            ? { onDelete: () => deleteMutation.mutate({ id: editingId as string, name: editingRole.name }) }
+            : {})}
           {...("id" in editingRole ? { onCopy: () => copyMutation.mutate(editingRole) } : {})}
         />
       )}

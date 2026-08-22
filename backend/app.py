@@ -378,6 +378,7 @@ def divisions_collection():
             (code, g.tenant_id, name, data.get('description', ''), bool(data.get('is_home', False))),
         )
         row = cur.fetchone()
+        _log_resource_audit(cur, 'Create division', name)
         conn.commit()
         conn.close()
         return jsonify(dict(row)), 201
@@ -414,6 +415,7 @@ def divisions_item(code):
                 (home['code'], g.tenant_id, code),
             )
         cur.execute('DELETE FROM divisions WHERE code = %s', (code,))
+        _log_resource_audit(cur, 'Delete division', existing['name'])
         conn.commit()
         conn.close()
         return jsonify({'ok': True})
@@ -424,6 +426,7 @@ def divisions_item(code):
         (data.get('name'), data.get('description'), data.get('is_home'), code),
     )
     row = cur.fetchone()
+    _log_resource_audit(cur, 'Edit division', row['name'])
     conn.commit()
     conn.close()
     return jsonify(dict(row))
@@ -533,8 +536,8 @@ def plan_change():
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s,%s)',
-        (g.tenant_id, g.user_name, 'Plan change requested', note, datetime.now()),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Plan change requested', note, g.tenant_id, datetime.now()),
     )
     conn.commit()
     conn.close()
@@ -561,8 +564,8 @@ def add_seats():
     cur.execute('SELECT purchased FROM licenses WHERE code = %s', (lic,))
     new_total = cur.fetchone()['purchased']
     cur.execute(
-        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s,%s)',
-        (g.tenant_id, g.user_name, 'Seats requested', f'+{qty} {lic} (pool now {new_total})', datetime.now()),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Seats requested', f'+{qty} {lic} (pool now {new_total})', g.tenant_id, datetime.now()),
     )
     conn.commit()
     conn.close()
@@ -579,8 +582,8 @@ def audit_log():
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
-            'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s,%s) RETURNING *',
-            (g.tenant_id, g.user_name, action, data.get('detail', ''), datetime.now()),
+            'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s) RETURNING *',
+            (g.user_name, action, data.get('detail', ''), g.tenant_id, datetime.now()),
         )
         row = cur.fetchone()
         conn.commit()
@@ -680,6 +683,71 @@ def _tenant_scoped(spec):
     and write below — never to a client-supplied value. A client can't read,
     filter, create-into, or move a row into a tenant that isn't its own."""
     return 'tenant_id' in spec['fields']
+
+
+# Friendlier singular labels for resources whose REGISTRY key wouldn't read
+# well in an audit action ("Create simple-entities") — anything not listed
+# here just gets its key title-cased with hyphens turned to spaces.
+_RESOURCE_LABELS = {
+    'people': 'person',
+    'purchases': 'purchase',
+    'simple-entities': 'ACD entity',
+    'did-assignments': 'DID assignment',
+    'wrapup-codes': 'wrap-up code',
+    'eval-forms': 'evaluation form',
+    'byoc-trunks': 'BYOC trunk',
+    'wfm-schedules': 'WFM schedule',
+    'call-routes': 'call route',
+    'extension-pools': 'extension pool',
+    'emergency-groups': 'emergency group',
+    'email-domains': 'email domain',
+    'email-addresses': 'email address',
+    'base-settings': 'base setting',
+    'phone-base-settings': 'phone base setting',
+    'number-plans': 'number plan',
+    'outbound-routes': 'outbound route',
+    'message-channels': 'message channel',
+    'recording-policies': 'recording policy',
+    'schedule-groups': 'schedule group',
+    'planning-groups': 'planning group',
+    'service-goals': 'service goal',
+    'gamification-profiles': 'gamification profile',
+    'installed-integrations': 'installed integration',
+    'integration-credentials': 'integration credential',
+    'work-plans': 'work plan',
+    'activity-codes': 'activity code',
+    'time-off-requests': 'time-off request',
+    'shift-trades': 'shift trade',
+    'calibrations': 'calibration',
+    'bot-connectors': 'bot connector',
+}
+
+# Tried in order for a human-readable identifier to put in the audit detail —
+# the first one present and non-empty on the row wins, else it falls back to
+# the row's id.
+_DISPLAY_NAME_FIELDS = (
+    'name', 'item', 'customer_name', 'from_name', 'phone_number', 'addr',
+    'domain', 'week', 'agent_ref',
+)
+
+
+def _resource_label(resource):
+    return _RESOURCE_LABELS.get(resource, resource.replace('-', ' '))
+
+
+def _resource_display_name(row):
+    for field in _DISPLAY_NAME_FIELDS:
+        value = row.get(field)
+        if value:
+            return value
+    return f"#{row['id']}"
+
+
+def _log_resource_audit(cur, action, detail):
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, action, detail, g.tenant_id),
+    )
 
 
 def _prep_value(col, value, spec):
@@ -788,9 +856,154 @@ def resource_create(resource):
     sql = f"INSERT INTO {spec['table']} ({', '.join(cols)}) VALUES ({placeholders}) RETURNING *"
     cur.execute(sql, values)
     new_row = cur.fetchone()
+    _log_resource_audit(cur, f'Create {_resource_label(resource)}', _resource_display_name(dict(new_row)))
     conn.commit()
     conn.close()
     return jsonify(dict(new_row)), 201
+
+
+def _propagate_skill_in_flows(cur, tenant_id, old_name, new_name):
+    """Renaming/deleting a skill has to reach flows.graph.meta.skills too —
+    a node-id-keyed object of skill-name arrays (Transfer-to-ACD skill
+    requirements), same as the UI prototype's propagateSkill(). This is
+    nested inside jsonb at arbitrary node ids, so it's easier to mutate in
+    Python than to write as a single jsonb-path SQL statement."""
+    cur.execute('SELECT id, graph FROM flows WHERE tenant_id = %s', (tenant_id,))
+    hits = 0
+    for row in cur.fetchall():
+        graph = row['graph'] or {}
+        skills_by_node = (graph.get('meta') or {}).get('skills') or {}
+        changed = False
+        for node_id, names in list(skills_by_node.items()):
+            if not isinstance(names, list) or old_name not in names:
+                continue
+            changed = True
+            hits += 1
+            if new_name is not None:
+                skills_by_node[node_id] = [new_name if n == old_name else n for n in names]
+            else:
+                skills_by_node[node_id] = [n for n in names if n != old_name]
+        if changed:
+            cur.execute('UPDATE flows SET graph = %s WHERE id = %s', (PgJson(graph), row['id']))
+    return hits
+
+
+def _propagate_skill_in_queues(cur, tenant_id, old_name, new_name):
+    """Same idea for queues.config.rings[].drop — the bullseye rings' list
+    of skills to drop at each ring, as arrays inside a jsonb array."""
+    cur.execute('SELECT id, config FROM queues WHERE tenant_id = %s', (tenant_id,))
+    hits = 0
+    for row in cur.fetchall():
+        config = row['config'] or {}
+        rings = config.get('rings') or []
+        changed = False
+        for ring in rings:
+            drop = ring.get('drop') if isinstance(ring, dict) else None
+            if not isinstance(drop, list) or old_name not in drop:
+                continue
+            changed = True
+            hits += 1
+            if new_name is not None:
+                ring['drop'] = [new_name if n == old_name else n for n in drop]
+            else:
+                ring['drop'] = [n for n in drop if n != old_name]
+        if changed:
+            cur.execute('UPDATE queues SET config = %s WHERE id = %s', (PgJson(config), row['id']))
+    return hits
+
+
+def _propagate_simple_entity(cur, tenant_id, kind, old_name, new_name):
+    """Mirrors the UI prototype's propagateSkill()/propagateLang(): a
+    skill/language rename or delete (new_name=None) has to reach every place
+    that references it by name, not just users — planning groups, Architect
+    flows and queue bullseye rings for skills; planning groups and queue
+    language requirement for languages. Returns the total reference count
+    touched, for a same-shape audit/toast as the prototype's."""
+    hits = 0
+    if kind == 'skill':
+        if new_name is not None:
+            cur.execute(
+                'UPDATE users SET skills = (skills - %s) || jsonb_build_object(%s, skills -> %s) '
+                'WHERE tenant_id = %s AND skills ? %s',
+                (old_name, new_name, old_name, tenant_id, old_name),
+            )
+        else:
+            cur.execute(
+                'UPDATE users SET skills = skills - %s WHERE tenant_id = %s AND skills ? %s',
+                (old_name, tenant_id, old_name),
+            )
+        hits += cur.rowcount
+
+        if new_name is not None:
+            cur.execute(
+                'UPDATE planning_groups SET skills = array_replace(skills, %s, %s) '
+                'WHERE tenant_id = %s AND %s = ANY(skills)',
+                (old_name, new_name, tenant_id, old_name),
+            )
+        else:
+            cur.execute(
+                'UPDATE planning_groups SET skills = array_remove(skills, %s) '
+                'WHERE tenant_id = %s AND %s = ANY(skills)',
+                (old_name, tenant_id, old_name),
+            )
+        hits += cur.rowcount
+
+        hits += _propagate_skill_in_flows(cur, tenant_id, old_name, new_name)
+        hits += _propagate_skill_in_queues(cur, tenant_id, old_name, new_name)
+    else:
+        if new_name is not None:
+            cur.execute(
+                'UPDATE users SET langs = array_replace(langs, %s, %s) WHERE tenant_id = %s AND %s = ANY(langs)',
+                (old_name, new_name, tenant_id, old_name),
+            )
+        else:
+            cur.execute(
+                'UPDATE users SET langs = array_remove(langs, %s) WHERE tenant_id = %s AND %s = ANY(langs)',
+                (old_name, tenant_id, old_name),
+            )
+        hits += cur.rowcount
+
+        # lang_proficiency is keyed by language name too (see its column
+        # comment in schema.sql) — carry the rating along the same way a
+        # skill's proficiency survives a rename.
+        if new_name is not None:
+            cur.execute(
+                'UPDATE users SET lang_proficiency = (lang_proficiency - %s) || '
+                'jsonb_build_object(%s, lang_proficiency -> %s) '
+                'WHERE tenant_id = %s AND lang_proficiency ? %s',
+                (old_name, new_name, old_name, tenant_id, old_name),
+            )
+        else:
+            cur.execute(
+                'UPDATE users SET lang_proficiency = lang_proficiency - %s '
+                'WHERE tenant_id = %s AND lang_proficiency ? %s',
+                (old_name, tenant_id, old_name),
+            )
+
+        if new_name is not None:
+            cur.execute(
+                'UPDATE planning_groups SET langs = array_replace(langs, %s, %s) '
+                'WHERE tenant_id = %s AND %s = ANY(langs)',
+                (old_name, new_name, tenant_id, old_name),
+            )
+        else:
+            cur.execute(
+                'UPDATE planning_groups SET langs = array_remove(langs, %s) '
+                'WHERE tenant_id = %s AND %s = ANY(langs)',
+                (old_name, tenant_id, old_name),
+            )
+        hits += cur.rowcount
+
+        # queues.config.lang is a single name, not an array — the prototype
+        # blanks it out on delete rather than removing the key.
+        cur.execute(
+            "UPDATE queues SET config = jsonb_set(config, '{lang}', %s) "
+            "WHERE tenant_id = %s AND config ->> 'lang' = %s",
+            (PgJson(new_name if new_name is not None else ''), tenant_id, old_name),
+        )
+        hits += cur.rowcount
+
+    return hits
 
 
 @app.route('/api/<resource>/<int:row_id>', methods=['PUT', 'PATCH'])
@@ -844,23 +1057,28 @@ def resource_update(resource, row_id):
     update_sql += ' RETURNING *'
     cur.execute(update_sql, update_params)
     row = cur.fetchone()
+    _log_resource_audit(cur, f'Edit {_resource_label(resource)}', _resource_display_name(dict(row)))
 
+    rename_hits = 0
     if rename_from is not None:
-        if rename_kind == 'skill':
+        rename_hits = _propagate_simple_entity(cur, g.tenant_id, rename_kind, rename_from, row['name'])
+        if rename_hits:
             cur.execute(
-                'UPDATE users SET skills = (skills - %s) || jsonb_build_object(%s, skills -> %s) '
-                'WHERE tenant_id = %s AND skills ? %s',
-                (rename_from, row['name'], rename_from, g.tenant_id, rename_from),
-            )
-        else:
-            cur.execute(
-                'UPDATE users SET langs = array_replace(langs, %s, %s) WHERE tenant_id = %s AND %s = ANY(langs)',
-                (rename_from, row['name'], g.tenant_id, rename_from),
+                'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+                (
+                    g.user_name,
+                    f'{rename_kind.capitalize()} rename propagated',
+                    f'{rename_from} → {row["name"]} ({rename_hits} reference(s))',
+                    g.tenant_id,
+                ),
             )
 
     conn.commit()
     conn.close()
-    return jsonify(dict(row))
+    resp = dict(row)
+    if rename_from is not None:
+        resp['_propagatedHits'] = rename_hits
+    return jsonify(resp)
 
 
 @app.route('/api/<resource>/<int:row_id>', methods=['DELETE'])
@@ -871,15 +1089,17 @@ def resource_delete(resource, row_id):
 
     conn = get_db()
     cur = conn.cursor()
-    check_sql = f"SELECT id FROM {spec['table']} WHERE id = %s"
+    check_sql = f"SELECT * FROM {spec['table']} WHERE id = %s"
     check_params = [row_id]
     if _tenant_scoped(spec):
         check_sql += ' AND tenant_id = %s'
         check_params.append(g.tenant_id)
     cur.execute(check_sql, check_params)
-    if cur.fetchone() is None:
+    existing_row = cur.fetchone()
+    if existing_row is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
+    _log_resource_audit(cur, f'Delete {_resource_label(resource)}', _resource_display_name(dict(existing_row)))
 
     # Read the skill/language name before the row goes away — the cascade
     # below needs it (see the rename cascade in resource_update for why the
@@ -908,23 +1128,30 @@ def resource_delete(resource, row_id):
             (row_id, g.tenant_id),
         )
 
-    # Same for a deleted skill/language: drop the assignment from everyone who
-    # had it, the way the prototype's delSimple() does.
+    # Same for a deleted skill/language: drop it from every place that
+    # referenced it by name — users, planning groups, Architect flows and
+    # queue bullseye rings — the way the prototype's delSimple() +
+    # propagateSkill()/propagateLang() do together.
+    delete_hits = 0
     if removed is not None:
-        if removed['kind'] == 'skill':
+        delete_hits = _propagate_simple_entity(cur, g.tenant_id, removed['kind'], removed['name'], None)
+        if delete_hits:
             cur.execute(
-                'UPDATE users SET skills = skills - %s WHERE tenant_id = %s AND skills ? %s',
-                (removed['name'], g.tenant_id, removed['name']),
-            )
-        else:
-            cur.execute(
-                'UPDATE users SET langs = array_remove(langs, %s) WHERE tenant_id = %s',
-                (removed['name'], g.tenant_id),
+                'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+                (
+                    g.user_name,
+                    f"{removed['kind'].capitalize()} delete propagated",
+                    f"{removed['name']} removed ({delete_hits} reference(s))",
+                    g.tenant_id,
+                ),
             )
 
     conn.commit()
     conn.close()
-    return jsonify({'ok': True})
+    resp = {'ok': True}
+    if removed is not None:
+        resp['_propagatedHits'] = delete_hits
+    return jsonify(resp)
 
 
 if __name__ == '__main__':

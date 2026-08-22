@@ -10,6 +10,14 @@ from db import get_db
 
 authorg_bp = Blueprint('authorg', __name__)
 
+# Matches the fixed set of values authorg-redesign.ts's own dropdowns and
+# status-transition helpers ever send (Relationship Type select, and the
+# Extend/Revoke/Reactivate/Delete actions) — anything else was previously
+# accepted and stored with no check, silently breaking that frontend's
+# status/relationship-branching logic (mapApiTrust()) on direct API access.
+VALID_RELATIONSHIPS = {'Owner', 'Trustor', 'Trustee'}
+VALID_STATUSES = {'Active', 'Owner', 'Expiring soon', 'Revoked'}
+
 
 def _row_to_dict(row):
     d = dict(row)
@@ -38,6 +46,10 @@ def create_trust():
     data = request.get_json(force=True) or {}
     if not data.get('org_name'):
         return jsonify({'ok': False, 'error': 'org_name required'}), 400
+    if data.get('relationship') is not None and data['relationship'] not in VALID_RELATIONSHIPS:
+        return jsonify({'ok': False, 'error': f"invalid relationship {data['relationship']!r}"}), 400
+    if data.get('status') is not None and data['status'] not in VALID_STATUSES:
+        return jsonify({'ok': False, 'error': f"invalid status {data['status']!r}"}), 400
 
     conn = get_db()
     cur = conn.cursor()
@@ -60,6 +72,10 @@ def create_trust():
         ),
     )
     row = cur.fetchone()
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Authorize organization', row['org_name'], g.tenant_id),
+    )
     conn.commit()
     conn.close()
     return jsonify(_row_to_dict(row)), 201
@@ -83,6 +99,11 @@ def get_trust(trust_id):
 @authorg_bp.route('/api/v2/authorization/trusts/<int:trust_id>', methods=['PUT', 'PATCH'])
 def update_trust(trust_id):
     data = request.get_json(force=True) or {}
+    if data.get('relationship') is not None and data['relationship'] not in VALID_RELATIONSHIPS:
+        return jsonify({'ok': False, 'error': f"invalid relationship {data['relationship']!r}"}), 400
+    if data.get('status') is not None and data['status'] not in VALID_STATUSES:
+        return jsonify({'ok': False, 'error': f"invalid status {data['status']!r}"}), 400
+
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
@@ -121,6 +142,10 @@ def update_trust(trust_id):
         ),
     )
     row = cur.fetchone()
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Edit authorized organization', row['org_name'], g.tenant_id),
+    )
     conn.commit()
     conn.close()
     return jsonify(_row_to_dict(row))
@@ -134,18 +159,23 @@ def delete_trust(trust_id):
 
     if hard:
         cur.execute(
-            'DELETE FROM auth_org_trusts WHERE id = %s AND tenant_id = %s RETURNING id',
+            'DELETE FROM auth_org_trusts WHERE id = %s AND tenant_id = %s RETURNING id, org_name',
             (trust_id, g.tenant_id),
         )
     else:
         cur.execute(
-            "UPDATE auth_org_trusts SET status = 'Revoked' WHERE id = %s AND tenant_id = %s RETURNING id",
+            "UPDATE auth_org_trusts SET status = 'Revoked' WHERE id = %s AND tenant_id = %s RETURNING id, org_name",
             (trust_id, g.tenant_id),
         )
 
     row = cur.fetchone()
+    if row is None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'not found'}), 404
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Delete authorized organization' if hard else 'Revoke authorized organization', row['org_name'], g.tenant_id),
+    )
     conn.commit()
     conn.close()
-    if row is None:
-        return jsonify({'ok': False, 'error': 'not found'}), 404
     return jsonify({'ok': True})

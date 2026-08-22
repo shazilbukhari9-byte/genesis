@@ -172,8 +172,8 @@ def notify_alert():
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
-        (g.tenant_id, g.user_name, title, detail),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, title, detail, g.tenant_id),
     )
     conn.commit()
     conn.close()

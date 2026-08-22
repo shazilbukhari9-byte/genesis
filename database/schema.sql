@@ -42,6 +42,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email) WHERE e
 ALTER TABLE users ADD COLUMN IF NOT EXISTS roles INTEGER[] NOT NULL DEFAULT '{}';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS skills JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS langs TEXT[] NOT NULL DEFAULT '{}';
+-- lang_proficiency is an addition beyond the UI prototype (which only ever
+-- toggles a language on/off, no rating) so agents can be scored 1-5 per
+-- language the same way they already are per skill, for language-aware
+-- preferred-agent routing. langs stays the membership source of truth (the
+-- legacy routing/WFM engine and the propagation cascade in app.py both key
+-- off it as a plain array) — this is enrichment data alongside it, kept in
+-- sync from the People page whenever a language is checked/unchecked.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS lang_proficiency JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS usage_log (
   id SERIAL PRIMARY KEY,
@@ -66,21 +74,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TIMESTAMP NOT NULL
 );
 
--- audit_log originally had no tenant column while GET /api/subscription/audit
--- returned the newest 200 rows unfiltered, so any signed-in user of any tenant
--- could read every other tenant's audit trail -- which records integration
--- installs, data-action names and bot-connector names. The column is added
--- here rather than inline above so existing deployments pick it up too.
-ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE;
-
--- Existing rows pre-date the column. They are backfilled (never deleted) to the
--- oldest tenant, which is the only one that could have produced them on a
--- single-tenant deployment; a multi-tenant deployment should review them
--- manually before relying on this default.
-UPDATE audit_log SET tenant_id = (SELECT id FROM tenants ORDER BY created_at NULLS FIRST, id LIMIT 1)
-WHERE tenant_id IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id, id DESC);
+-- audit_log's tenant_id column is added further down, immediately after the
+-- tenants table it references exists (see "audit_log predates multi-tenancy"
+-- below). It cannot be declared here: this file creates audit_log before
+-- tenants, so an inline REFERENCES at this point fails on a fresh database.
 
 -- Generic resource-registry entities (see resources.py) live below this line.
 CREATE TABLE IF NOT EXISTS purchases (
@@ -115,6 +112,30 @@ CREATE TABLE IF NOT EXISTS tenants (
 
 DO $$ BEGIN
   ALTER TABLE users ADD CONSTRAINT users_tenant_id_fkey
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- audit_log predates multi-tenancy and was never scoped to a tenant, so every
+-- tenant's entries were mixed together with no isolation. Nullable for now —
+-- init_db.py backfills existing NULL rows to the current tenant on startup,
+-- since there's no way to recover which tenant an old unscoped row belonged to.
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS tenant_id UUID;
+CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id, id DESC);
+DO $$ BEGIN
+  ALTER TABLE audit_log ADD CONSTRAINT audit_log_tenant_id_fkey
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- purchases predates multi-tenancy too — unlike licenses/invoices/usage_log
+-- (see their comment in init_db.py: deliberately global, one shared demo
+-- billing dataset), purchases is a per-admin order history with no rationale
+-- for staying unscoped. Same nullable + startup-backfill treatment as above.
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS tenant_id UUID;
+CREATE INDEX IF NOT EXISTS idx_purchases_tenant ON purchases(tenant_id);
+DO $$ BEGIN
+  ALTER TABLE purchases ADD CONSTRAINT purchases_tenant_id_fkey
     FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;

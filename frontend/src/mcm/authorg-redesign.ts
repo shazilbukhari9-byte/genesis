@@ -91,6 +91,17 @@ export const AUTHORG_SCRIPT: string = `
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
+  /* Extend/Reactivate actions below used to set a literal hardcoded date
+     ('2026-11-14', '2026-12-31') as the new expiry regardless of when the
+     action was actually taken — the confirm dialog and toast both promise
+     "by 90 days" but the applied change was the same fixed calendar date
+     every time. Computes the real thing: N days from right now. */
+  function computeFutureExpiry(days) {
+    var d = new Date();
+    d.setDate(d.getDate() + days);
+    return { expiryDate: d, expiry: fmtDMY(d), expiryDays: 'Valid for ' + days + ' days' };
+  }
+
   /* Maps a backend trust record onto the shape this module renders. */
   function mapApiTrust(t) {
     var relationship = t.relationship || 'Trustee';
@@ -168,12 +179,21 @@ export const AUTHORG_SCRIPT: string = `
     fetch(API_BASE + '/trusts', { headers: authHeaders() })
       .then(function(res) { if (!res.ok) throw new Error('bad status'); return res.json(); })
       .then(function(list) {
-        if (!list || !list.length) return;
+        // A real response — even a genuinely empty array — reflects this
+        // tenant's actual trusts and has to replace the seeded mock data.
+        // The old check (skip unless list.length is truthy) treated "zero
+        // real trusts" the same as "backend unreachable": any admin who
+        // revoked/deleted down to zero and reloaded the page would see 5
+        // fake organizations (including a fake "Owner" self-record)
+        // reappear, with ids that don't exist in the database — every
+        // action against them then silently 404s instead of doing anything.
+        if (!Array.isArray(list)) return;
         authorgData = list.map(mapApiTrust);
         authorgApplyFilters();
       })
       .catch(function() {
-        // Backend offline — the seeded local mock data below stays in use.
+        // Backend unreachable — the seeded local mock data below stays in
+        // use, same as before.
       });
   }
 
@@ -666,6 +686,24 @@ export const AUTHORG_SCRIPT: string = `
   setTimeout(applyAuthorgRedesign, 400);
   loadTrustsFromApi();
 
+  /* The call above fires once, right when this script is injected — which
+     happens as the whole SPA mounts, before the user has usually even
+     logged in yet. /api/v2/authorization/trusts requires a bearer token,
+     so that first fetch reliably 401s, and since loadTrustsFromApi() never
+     runs again, the page is stuck showing the seeded mock data (fake ids,
+     fake dates) for the rest of the session — every create/edit/revoke
+     still writes to the real backend underneath, but the screen never
+     reflects it, and reloading data is only ever one fetch away from being
+     right. Re-fetching every time an admin actually navigates to this page
+     fixes that — same "reload on visit" fix as everywhere else real data
+     needs to survive a login race. */
+  var origOpenPageForAuthorg = window.openPage;
+  window.openPage = function(id) {
+    var result = origOpenPageForAuthorg.apply(this, arguments);
+    if (id === 'authorg') loadTrustsFromApi();
+    return result;
+  };
+
   /* ═══════════════════════════════════════════
      GLOBAL WINDOW FUNCTIONS
      ═══════════════════════════════════════════ */
@@ -698,15 +736,28 @@ export const AUTHORG_SCRIPT: string = `
       '<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #f1f5f9"><span style="color:#64748b;min-width:130px">14 Jun 2026</span><b style="color:#0f172a;min-width:160px">Cloudline Partners</b><span style="color:#2563eb;font-weight:600">Scope Modified</span><span style="color:#64748b">Scoped down to Read-only Admin for UK Digital Division</span></div>';
   }
 
+  // The real audit trail (backend/authorg.py now logs every create/edit/
+  // revoke/delete of a trust into the same audit_log table every other
+  // module writes to) lives at /api/subscription/audit, not under this
+  // file's own /api/v2/authorization base — derive the real API origin from
+  // it rather than hardcoding a second base URL.
+  var AUDIT_API = API_BASE.replace('/api/v2/authorization', '/api/subscription/audit');
+  var TRUST_AUDIT_ACTIONS = ['Authorize organization', 'Edit authorized organization',
+    'Revoke authorized organization', 'Delete authorized organization'];
+
   function apiAuditRows(logs) {
-    return logs.map(function(a) {
-      var when = new Date(a.timestamp);
-      var whenLabel = isNaN(when.getTime()) ? a.timestamp : (fmtDMY(when) + ' ' + when.toTimeString().slice(0, 5));
+    var rows = logs.filter(function(a) { return TRUST_AUDIT_ACTIONS.indexOf(a.action) >= 0; });
+    if (!rows.length) {
+      return '<div style="color:#94a3b8">No trust activity recorded yet.</div>';
+    }
+    return rows.map(function(a) {
+      var when = new Date(a.created_at);
+      var whenLabel = isNaN(when.getTime()) ? a.created_at : (fmtDMY(when) + ' ' + when.toTimeString().slice(0, 5));
       return '<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #f1f5f9">' +
         '<span style="color:#64748b;min-width:130px">' + whenLabel + '</span>' +
-        '<b style="color:#0f172a;min-width:160px">' + (a.org_domain || '—') + '</b>' +
-        '<span style="color:#334155">' + a.action_text + '</span>' +
-        '<span style="color:#64748b;margin-left:auto">' + a.actor_name + '</span>' +
+        '<b style="color:#0f172a;min-width:160px">' + (a.detail || '—') + '</b>' +
+        '<span style="color:#334155">' + a.action + '</span>' +
+        '<span style="color:#64748b;margin-left:auto">' + a.who + '</span>' +
         '</div>';
     }).join('');
   }
@@ -721,10 +772,10 @@ export const AUTHORG_SCRIPT: string = `
       '</td></tr>';
     };
     tb4.innerHTML = wrap(staticAuditRows());
-    fetch(API_BASE + '/audit-logs')
+    fetch(AUDIT_API, { headers: authHeaders() })
       .then(function(res) { if (!res.ok) throw new Error('bad status'); return res.json(); })
       .then(function(logs) {
-        if (!logs || !logs.length) return;
+        if (!Array.isArray(logs)) return;
         var tb = document.getElementById('authorg_tb');
         if (tb && filtersState.tab === 'audit') tb.innerHTML = wrap(apiAuditRows(logs));
       })
@@ -785,7 +836,7 @@ export const AUTHORG_SCRIPT: string = `
     var ids = Object.keys(selectedIds);
     if (!ids.length) return;
     showConfirm('Extend Trust', 'Extend trust validity by 90 days for <b>' + ids.length + '</b> selected organizations?', 'Extend All', '#059669', function() {
-      ids.forEach(function(id) { AuthOrgService.update(id, { expiry: '14 Nov 2026', expiryDate: new Date('2026-11-14'), expiryDays: 'Valid for 91 days', isExpiring: false, status: 'Active', statusClass: 'status-active' }); });
+      ids.forEach(function(id) { AuthOrgService.update(id, Object.assign(computeFutureExpiry(90), { isExpiring: false, status: 'Active', statusClass: 'status-active' })); });
       selectedIds = {};
       var hc = document.getElementById('authorg_chk_all'); if (hc) hc.checked = false;
       authorgApplyFilters();
@@ -1029,7 +1080,7 @@ export const AUTHORG_SCRIPT: string = `
   window.authorgExtendConfirm = function(id) {
     var org = AuthOrgService.getById(id); if (!org) return;
     showConfirm('Extend Trust', 'Extend trust validity for <b>' + org.name + '</b> by 90 days?', 'Extend', '#059669', function() {
-      AuthOrgService.update(id, { expiry: '14 Nov 2026', expiryDate: new Date('2026-11-14'), expiryDays: 'Valid for 91 days', isExpiring: false, status: 'Active', statusClass: 'status-active' });
+      AuthOrgService.update(id, Object.assign(computeFutureExpiry(90), { isExpiring: false, status: 'Active', statusClass: 'status-active' }));
       authorgApplyFilters();
       showToast('Extended trust for <b>' + org.name + '</b> by 90 days');
     });
@@ -1048,7 +1099,7 @@ export const AUTHORG_SCRIPT: string = `
   window.authorgReactivateConfirm = function(id) {
     var org = AuthOrgService.getById(id); if (!org) return;
     showConfirm('Reactivate Trust', 'Reactivate trust relationship for <b>' + org.name + '</b>? They will regain their previously assigned delegated permissions.', 'Reactivate', '#059669', function() {
-      AuthOrgService.update(id, { status: 'Active', statusClass: 'status-active', expiry: '31 Dec 2026', expiryDate: new Date('2026-12-31'), expiryDays: 'Valid for 138 days', isExpiring: false });
+      AuthOrgService.update(id, Object.assign(computeFutureExpiry(90), { status: 'Active', statusClass: 'status-active', isExpiring: false }));
       authorgApplyFilters();
       showToast('Trust reactivated for <b>' + org.name + '</b>');
     });
@@ -1066,11 +1117,11 @@ export const AUTHORG_SCRIPT: string = `
 
   /* Backward compat (called from drawers) */
   window.authorgExtend = function(id) {
-    AuthOrgService.update(id, { expiry: '14 Nov 2026', expiryDate: new Date('2026-11-14'), expiryDays: 'Valid for 91 days', isExpiring: false, status: 'Active', statusClass: 'status-active' });
+    AuthOrgService.update(id, Object.assign(computeFutureExpiry(90), { isExpiring: false, status: 'Active', statusClass: 'status-active' }));
     authorgApplyFilters();
   };
   window.authorgReactivate = function(id) {
-    AuthOrgService.update(id, { status: 'Active', statusClass: 'status-active', expiry: '31 Dec 2026', expiryDate: new Date('2026-12-31'), expiryDays: 'Valid for 138 days', isExpiring: false });
+    AuthOrgService.update(id, Object.assign(computeFutureExpiry(90), { status: 'Active', statusClass: 'status-active', isExpiring: false }));
     authorgApplyFilters();
   };
   window.authorgDelete = function(id) { AuthOrgService.remove(id); delete selectedIds[id]; authorgApplyFilters(); };

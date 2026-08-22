@@ -364,8 +364,8 @@ def create_action():
     # transaction — an action and its contract rows are never half-written.
     _sync_contract_fields(cur, new_id, row['contract'])
     cur.execute(
-        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
-        (g.tenant_id, g.user_name, 'Data action created', name),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Data action created', name, g.tenant_id),
     )
     conn.commit()
     conn.close()
@@ -397,8 +397,8 @@ def update_action(action_id):
     if 'contract' in cols:
         _sync_contract_fields(cur, action_id, row['contract'])
     cur.execute(
-        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
-        (g.tenant_id, g.user_name, 'Data action updated', row['name']),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Data action updated', row['name'], g.tenant_id),
     )
     conn.commit()
     conn.close()
@@ -417,8 +417,8 @@ def delete_action(action_id):
 
     cur.execute('DELETE FROM data_actions WHERE id = %s AND tenant_id = %s', (action_id, g.tenant_id))
     cur.execute(
-        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
-        (g.tenant_id, g.user_name, 'Data action deleted', existing['name']),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Data action deleted', existing['name'], g.tenant_id),
     )
     conn.commit()
     conn.close()
@@ -459,8 +459,8 @@ def test_action(action_id):
                       _result_text(status, error), trigger_source)
 
     cur.execute(
-        'INSERT INTO audit_log (tenant_id, who, action, detail, created_at) VALUES (%s,%s,%s,%s, now())',
-        (g.tenant_id, g.user_name, 'Data action tested', f"{row['name']}: {status}"),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Data action tested', f"{row['name']}: {status}", g.tenant_id),
     )
     conn.commit()
     conn.close()

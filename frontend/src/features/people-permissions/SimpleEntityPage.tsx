@@ -34,17 +34,33 @@ export function SimpleEntityPage({
     setErrors([]);
   }
 
+  // Matches the prototype's post-propagation toasts from its saveSimple()/
+  // delSimple() wrappers — window.toast is the legacy engine's global toast,
+  // shared across the React and vanilla-JS pages.
+  function toastPropagation(hits: number, verb: "Renamed" | "Removed from"): void {
+    if (!hits) return;
+    const win = window as unknown as { toast?: (m: string) => void };
+    const suffix = verb === "Renamed" ? "updated" : "— planning groups, flows and queue routing stay consistent";
+    win.toast?.(
+      verb === "Renamed"
+        ? `Renamed everywhere — ${hits} linked reference(s) ${suffix} (planning groups, flows, queue routing)`
+        : `${verb} ${hits} linked reference(s) ${suffix}`,
+    );
+  }
+
   const saveMutation = useMutation({
     mutationFn: (entity: Omit<SimpleEntity, "id"> & { id?: string }) => upsertSimpleEntity(kind, entity),
-    onSuccess: (updated) => {
+    onSuccess: ({ data: updated, propagatedHits }) => {
       queryClient.setQueryData(QUERY_KEY, updated);
+      toastPropagation(propagatedHits, "Renamed");
       closeDrawer();
     },
   });
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteSimpleEntity(kind, id),
-    onSuccess: (updated) => {
+    onSuccess: ({ data: updated, propagatedHits }) => {
       queryClient.setQueryData(QUERY_KEY, updated);
+      toastPropagation(propagatedHits, "Removed from");
       // Without this the drawer stayed open over a row that no longer exists.
       closeDrawer();
     },

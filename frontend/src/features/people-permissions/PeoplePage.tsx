@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
+import { toast } from "../shared/toast";
 import {
   bulkImportPeopleCsv,
   bulkUpdatePeople,
@@ -38,6 +39,7 @@ function emptyPerson(employeeRoleId?: string): Omit<Person, "id" | "created"> {
     license: "CX 2",
     skills: {},
     langs: [],
+    langProficiency: {},
     station: "WebRTC softphone",
     state: "Pending invite",
     ext: "",
@@ -60,20 +62,30 @@ export function PeoplePage() {
 
   const saveMutation = useMutation({
     mutationFn: upsertPerson,
-    onSuccess: (updated) => {
+    onSuccess: (updated, variables) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       setEditing(null);
+      toast(
+        "id" in variables && variables.id
+          ? `Changes saved for <b>${variables.name}</b>`
+          : `<b>${variables.name}</b> created — invitation email queued`,
+      );
     },
   });
   const deleteMutation = useMutation({
-    mutationFn: deletePerson,
-    onSuccess: (updated) => queryClient.setQueryData(QUERY_KEY, updated),
+    mutationFn: ({ id, name }: { id: string; name: string }) => deletePerson(id, name),
+    onSuccess: (updated, { name }) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      toast(`${name} deleted`);
+    },
   });
   const bulkMutation = useMutation({
     mutationFn: ({ ids, action }: { ids: string[]; action: "activate" | "deactivate" | "invite" | "delete" }) =>
       bulkUpdatePeople(ids, action === "invite" ? "activate" : action),
-    onSuccess: (updated) => {
+    onSuccess: (updated, { ids, action }) => {
       queryClient.setQueryData(QUERY_KEY, updated);
+      const verb = { activate: "activated", deactivate: "deactivated", invite: "invited", delete: "deleted" }[action];
+      toast(`${ids.length} people ${verb}`);
       setSelected([]);
     },
   });
@@ -244,7 +256,14 @@ export function PeoplePage() {
             <LegacyBtn secondary style={{ height: 28 }} onClick={() => bulkMutation.mutate({ ids: selected, action: "invite" })}>
               Send invite
             </LegacyBtn>
-            <LegacyBtn style={{ height: 28 }} onClick={() => bulkMutation.mutate({ ids: selected, action: "delete" })}>
+            <LegacyBtn
+              style={{ height: 28 }}
+              onClick={() => {
+                if (window.confirm(`Delete ${selected.length} selected people? This can't be undone.`)) {
+                  bulkMutation.mutate({ ids: selected, action: "delete" });
+                }
+              }}
+            >
               Delete
             </LegacyBtn>
           </div>
@@ -374,7 +393,9 @@ export function PeoplePage() {
           saving={saveMutation.isPending}
           onClose={() => setEditing(null)}
           onSave={(value) => saveMutation.mutate(value)}
-          {...("id" in editing ? { onDelete: () => deleteMutation.mutate((editing as Person).id) } : {})}
+          {...("id" in editing
+            ? { onDelete: () => deleteMutation.mutate({ id: (editing as Person).id, name: (editing as Person).name }) }
+            : {})}
         />
       )}
 
@@ -496,8 +517,22 @@ function PersonDrawer({
     });
   }
 
-  function toggleLang(name: string, on: boolean) {
-    set("langs", on ? [...draft.langs, name] : draft.langs.filter((l) => l !== name));
+  // Mirrors setSkill's 0-5 rating above, an addition beyond the prototype's
+  // plain on/off checkbox — see the Person.langProficiency comment in
+  // types.ts. langs stays in sync (present iff proficiency > 0) since it's
+  // still what routing eligibility and the legacy engine key off.
+  function setLangProficiency(name: string, proficiency: number) {
+    setDraft((d) => {
+      const nextProficiency = { ...d.langProficiency };
+      const nextLangs = d.langs.filter((l) => l !== name);
+      if (proficiency > 0) {
+        nextProficiency[name] = proficiency;
+        nextLangs.push(name);
+      } else {
+        delete nextProficiency[name];
+      }
+      return { ...d, langs: nextLangs, langProficiency: nextProficiency };
+    });
   }
 
   function validate(): string[] {
@@ -626,20 +661,21 @@ function PersonDrawer({
             ))}
           </div>
           <div className="fld">
-            <label>Languages</label>
-            <div>
-              {langs.map((l) => (
-                <label key={l.id} style={{ display: "inline-flex", alignItems: "center", gap: 5, margin: "0 12px 6px 0", fontSize: 12.5 }}>
-                  <input
-                    type="checkbox"
-                    checked={draft.langs.includes(l.name)}
-                    onChange={(e) => toggleLang(l.name, e.target.checked)}
-                    style={{ width: "auto" }}
-                  />
-                  {l.name}
-                </label>
-              ))}
-            </div>
+            <label>Languages &amp; proficiency</label>
+            {langs.map((l) => (
+              <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0" }}>
+                <span style={{ flex: 1, fontSize: 12.5 }}>{l.name}</span>
+                <select
+                  style={{ width: 130, height: 28, border: "1px solid #ccd4e0", borderRadius: 4 }}
+                  value={draft.langProficiency[l.name] ?? 0}
+                  onChange={(e) => setLangProficiency(l.name, Number(e.target.value))}
+                >
+                  {[0, 1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>{n === 0 ? "Not assigned" : `Proficiency ${n}`}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
           </div>
           <div className="fld">
             <label>Station type</label>
@@ -667,18 +703,21 @@ function PersonDrawer({
                     Send invite
                   </LegacyBtn>
                 )}
-                <LegacyBtn
-                  secondary
-                  onClick={() => (window as unknown as { toast?: (m: string) => void }).toast?.(`Password reset email sent to ${draft.email}`)}
-                >
+                <LegacyBtn secondary onClick={() => toast(`Password reset email sent to ${draft.email}`)}>
                   Reset password
                 </LegacyBtn>
                 {onDelete && (
                   <LegacyBtn
                     style={{ background: "transparent", color: "#c9401a" }}
                     onClick={() => {
-                      onDelete();
-                      onClose();
+                      if (
+                        window.confirm(
+                          `Delete ${draft.name}? They are removed from the directory; interaction history is retained. Users in a custom division fall back to Home.`,
+                        )
+                      ) {
+                        onDelete();
+                        onClose();
+                      }
                     }}
                   >
                     Delete person
