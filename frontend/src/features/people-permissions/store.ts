@@ -6,7 +6,10 @@ import { apiFetch } from "../shared/backend";
 // table via the generic /api/people resource registered in
 // backend/resources.py. roles is users.roles (integer[] of roles.id, cast
 // to strings here to match Role.id elsewhere), skills is users.skills
-// (jsonb {skillName: proficiency}), langs is users.langs (text[]).
+// (jsonb {skillName: proficiency}), langs is users.langs (text[]),
+// langProficiency is users.lang_proficiency (jsonb {langName: proficiency},
+// an addition beyond the UI prototype — see the Person.langProficiency
+// comment in types.ts).
 interface BackendPerson {
   id: number;
   name: string;
@@ -21,6 +24,7 @@ interface BackendPerson {
   roles: number[] | null;
   skills: Record<string, number> | null;
   langs: string[] | null;
+  lang_proficiency: Record<string, number> | null;
 }
 
 function fromBackendPerson(u: BackendPerson): Person {
@@ -35,6 +39,7 @@ function fromBackendPerson(u: BackendPerson): Person {
     license: u.license_code ?? "",
     skills: u.skills ?? {},
     langs: u.langs ?? [],
+    langProficiency: u.lang_proficiency ?? {},
     station: u.station ?? "",
     state: (u.state as Person["state"]) || "Active",
     created: "",
@@ -119,6 +124,7 @@ function toBackendPerson(person: Partial<Person>): Record<string, unknown> {
     ...(person.roles ? { roles: person.roles.map(Number) } : {}),
     ...(person.skills ? { skills: person.skills } : {}),
     ...(person.langs ? { langs: person.langs } : {}),
+    ...(person.langProficiency ? { lang_proficiency: person.langProficiency } : {}),
   };
 }
 
@@ -192,6 +198,7 @@ function defaultDirectory(): DirectoryData {
       license: "CX 3",
       skills: { Billing: 5 },
       langs: ["English"],
+      langProficiency: { English: 5 },
       station: "WebRTC softphone",
       state: "Active",
       created: "04 Jan 2026",
@@ -208,6 +215,7 @@ function defaultDirectory(): DirectoryData {
       license: "CX 2",
       skills: { "Technical Support": 4 },
       langs: ["English"],
+      langProficiency: { English: 4 },
       station: "WebRTC softphone",
       state: "Active",
       created: "12 Jan 2026",
@@ -224,6 +232,7 @@ function defaultDirectory(): DirectoryData {
       license: "CX 2",
       skills: { Billing: 3 },
       langs: ["English", "Hindi"],
+      langProficiency: { English: 3, Hindi: 5 },
       station: "Remote number",
       state: "Active",
       created: "20 Jan 2026",
@@ -240,6 +249,7 @@ function defaultDirectory(): DirectoryData {
       license: "CX 3",
       skills: { "Technical Support": 5, Billing: 2 },
       langs: ["English"],
+      langProficiency: { English: 4 },
       station: "WebRTC softphone",
       state: "Pending invite",
       created: "02 Feb 2026",

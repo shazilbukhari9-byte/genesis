@@ -26,7 +26,7 @@ REGISTRY = {
         order="name",
         fields=[
             "tenant_id", "name", "email", "license_code", "state", "division", "title", "dept", "station", "ext",
-            "roles", "skills", "langs",
+            "roles", "skills", "langs", "lang_proficiency",
         ],
         search=["name", "email"],
         perm=None,

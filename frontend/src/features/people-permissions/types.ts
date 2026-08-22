@@ -9,6 +9,13 @@ export interface Person {
   license: string;
   skills: Record<string, number>;
   langs: string[];
+  // Beyond the UI prototype (which only ever toggles a language on/off):
+  // a 1-5 rating per spoken language, same scale as skill proficiency, so
+  // language-aware routing can prefer the strongest speaker among eligible
+  // agents rather than picking any agent who merely has the language.
+  // langs stays the membership source of truth; this is kept in sync with
+  // it whenever a language is checked/unchecked.
+  langProficiency: Record<string, number>;
   station: string;
   state: "Active" | "Pending invite" | "Inactive";
   created: string;

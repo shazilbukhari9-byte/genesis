@@ -38,6 +38,7 @@ function emptyPerson(employeeRoleId?: string): Omit<Person, "id" | "created"> {
     license: "CX 2",
     skills: {},
     langs: [],
+    langProficiency: {},
     station: "WebRTC softphone",
     state: "Pending invite",
     ext: "",
@@ -496,8 +497,22 @@ function PersonDrawer({
     });
   }
 
-  function toggleLang(name: string, on: boolean) {
-    set("langs", on ? [...draft.langs, name] : draft.langs.filter((l) => l !== name));
+  // Mirrors setSkill's 0-5 rating above, an addition beyond the prototype's
+  // plain on/off checkbox — see the Person.langProficiency comment in
+  // types.ts. langs stays in sync (present iff proficiency > 0) since it's
+  // still what routing eligibility and the legacy engine key off.
+  function setLangProficiency(name: string, proficiency: number) {
+    setDraft((d) => {
+      const nextProficiency = { ...d.langProficiency };
+      const nextLangs = d.langs.filter((l) => l !== name);
+      if (proficiency > 0) {
+        nextProficiency[name] = proficiency;
+        nextLangs.push(name);
+      } else {
+        delete nextProficiency[name];
+      }
+      return { ...d, langs: nextLangs, langProficiency: nextProficiency };
+    });
   }
 
   function validate(): string[] {
@@ -626,20 +641,21 @@ function PersonDrawer({
             ))}
           </div>
           <div className="fld">
-            <label>Languages</label>
-            <div>
-              {langs.map((l) => (
-                <label key={l.id} style={{ display: "inline-flex", alignItems: "center", gap: 5, margin: "0 12px 6px 0", fontSize: 12.5 }}>
-                  <input
-                    type="checkbox"
-                    checked={draft.langs.includes(l.name)}
-                    onChange={(e) => toggleLang(l.name, e.target.checked)}
-                    style={{ width: "auto" }}
-                  />
-                  {l.name}
-                </label>
-              ))}
-            </div>
+            <label>Languages &amp; proficiency</label>
+            {langs.map((l) => (
+              <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0" }}>
+                <span style={{ flex: 1, fontSize: 12.5 }}>{l.name}</span>
+                <select
+                  style={{ width: 130, height: 28, border: "1px solid #ccd4e0", borderRadius: 4 }}
+                  value={draft.langProficiency[l.name] ?? 0}
+                  onChange={(e) => setLangProficiency(l.name, Number(e.target.value))}
+                >
+                  {[0, 1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>{n === 0 ? "Not assigned" : `Proficiency ${n}`}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
           </div>
           <div className="fld">
             <label>Station type</label>

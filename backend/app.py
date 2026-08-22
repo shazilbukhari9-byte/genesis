@@ -785,6 +785,23 @@ def _propagate_simple_entity(cur, tenant_id, kind, old_name, new_name):
             )
         hits += cur.rowcount
 
+        # lang_proficiency is keyed by language name too (see its column
+        # comment in schema.sql) — carry the rating along the same way a
+        # skill's proficiency survives a rename.
+        if new_name is not None:
+            cur.execute(
+                'UPDATE users SET lang_proficiency = (lang_proficiency - %s) || '
+                'jsonb_build_object(%s, lang_proficiency -> %s) '
+                'WHERE tenant_id = %s AND lang_proficiency ? %s',
+                (old_name, new_name, old_name, tenant_id, old_name),
+            )
+        else:
+            cur.execute(
+                'UPDATE users SET lang_proficiency = lang_proficiency - %s '
+                'WHERE tenant_id = %s AND lang_proficiency ? %s',
+                (old_name, tenant_id, old_name),
+            )
+
         if new_name is not None:
             cur.execute(
                 'UPDATE planning_groups SET langs = array_replace(langs, %s, %s) '

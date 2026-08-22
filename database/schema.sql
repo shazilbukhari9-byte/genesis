@@ -42,6 +42,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email) WHERE e
 ALTER TABLE users ADD COLUMN IF NOT EXISTS roles INTEGER[] NOT NULL DEFAULT '{}';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS skills JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS langs TEXT[] NOT NULL DEFAULT '{}';
+-- lang_proficiency is an addition beyond the UI prototype (which only ever
+-- toggles a language on/off, no rating) so agents can be scored 1-5 per
+-- language the same way they already are per skill, for language-aware
+-- preferred-agent routing. langs stays the membership source of truth (the
+-- legacy routing/WFM engine and the propagation cascade in app.py both key
+-- off it as a plain array) — this is enrichment data alongside it, kept in
+-- sync from the People page whenever a language is checked/unchecked.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS lang_proficiency JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS usage_log (
   id SERIAL PRIMARY KEY,
