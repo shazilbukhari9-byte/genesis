@@ -16,7 +16,15 @@ function goToAdminIndex(): void {
 }
 
 function emptyProvider(): Omit<SsoProvider, "id"> {
-  return { name: "", type: "SAML 2.0", status: "Not configured", users: 0 };
+  return {
+    name: "",
+    type: "SAML 2.0",
+    status: "Not configured",
+    users: 0,
+    nameIdFormat: "emailAddress",
+    autoProvisionScim: true,
+    signAuthRequests: true,
+  };
 }
 
 function statusPill(status: SsoProvider["status"]) {
@@ -189,6 +197,85 @@ export function SsoPage() {
                   <option>Not configured</option>
                 </select>
               </div>
+
+              <div className="sect">SAML settings</div>
+              <div className="fld">
+                <label>Issuer URI</label>
+                <input
+                  value={editing.samlIssuerUri ?? ""}
+                  placeholder="https://sts.windows.net/8f14e45f/"
+                  onChange={(e) => setEditing((d) => (d ? { ...d, samlIssuerUri: e.target.value } : d))}
+                />
+              </div>
+              <div className="fld">
+                <label>Target URL (SSO endpoint)</label>
+                <input
+                  value={editing.samlTargetUrl ?? ""}
+                  placeholder="https://login.microsoftonline.com/.../saml2"
+                  onChange={(e) => setEditing((d) => (d ? { ...d, samlTargetUrl: e.target.value } : d))}
+                />
+              </div>
+              <div className="fld">
+                <label>Certificate</label>
+                <input
+                  value={editing.certificate ?? ""}
+                  placeholder="entra-signing-2026.cer"
+                  onChange={(e) => setEditing((d) => (d ? { ...d, certificate: e.target.value } : d))}
+                />
+              </div>
+              <div className="fld">
+                <label>NameID format</label>
+                <select
+                  value={editing.nameIdFormat ?? "emailAddress"}
+                  onChange={(e) => setEditing((d) => (d ? { ...d, nameIdFormat: e.target.value as SsoProvider["nameIdFormat"] } : d))}
+                >
+                  <option value="emailAddress">emailAddress</option>
+                  <option value="persistent">persistent</option>
+                  <option value="unspecified">unspecified</option>
+                </select>
+              </div>
+
+              <div className="sect">Behaviour</div>
+              <div className="tgl">
+                <input
+                  type="checkbox"
+                  checked={!!editing.allowPasswordFallback}
+                  onChange={(e) => setEditing((d) => (d ? { ...d, allowPasswordFallback: e.target.checked } : d))}
+                  style={{ width: "auto", marginRight: 6 }}
+                />
+                Allow MCM password sign-in as fallback
+              </div>
+              <div className="tgl">
+                <input
+                  type="checkbox"
+                  checked={!!editing.autoProvisionScim}
+                  onChange={(e) => setEditing((d) => (d ? { ...d, autoProvisionScim: e.target.checked } : d))}
+                  style={{ width: "auto", marginRight: 6 }}
+                />
+                Auto-provision new users (SCIM)
+              </div>
+              <div className="tgl">
+                <input
+                  type="checkbox"
+                  checked={!!editing.signAuthRequests}
+                  onChange={(e) => setEditing((d) => (d ? { ...d, signAuthRequests: e.target.checked } : d))}
+                  style={{ width: "auto", marginRight: 6 }}
+                />
+                Sign authentication requests
+              </div>
+              <div className="fld">
+                <label>Relying party identifier</label>
+                <input
+                  value={editing.relyingPartyId ?? ""}
+                  placeholder="https://login.mcmcloud.com"
+                  onChange={(e) => setEditing((d) => (d ? { ...d, relyingPartyId: e.target.value } : d))}
+                />
+              </div>
+              <div style={{ fontSize: 11, color: "#8794a8", marginTop: 8 }}>
+                SAML settings and Behaviour above are reference fields — this environment's
+                real sign-in flow is OIDC-based, configured outside this drawer.
+              </div>
+
               {"id" in editing && (
                 <div className="fld">
                   <LegacyBtn secondary onClick={() => { deleteMutation.mutate(editing.id); setEditing(null); }}>
