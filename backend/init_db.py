@@ -570,5 +570,16 @@ def run():
         """
     )
 
+    # audit_log tenant_id backfill: the table predates multi-tenancy, so any
+    # row left over from before this column existed has no tenant recorded.
+    # Attribute those to the current tenant (they can only have come from
+    # actions taken against this deployment) rather than leave them globally
+    # visible to every tenant sharing this database. Idempotent (only touches
+    # rows still missing a tenant) so it's safe to run on every startup.
+    cur.execute('UPDATE audit_log SET tenant_id = %s WHERE tenant_id IS NULL', (tenant_id,))
+
+    # Same backfill for purchases — see its tenant_id comment in schema.sql.
+    cur.execute('UPDATE purchases SET tenant_id = %s WHERE tenant_id IS NULL', (tenant_id,))
+
     conn.commit()
     conn.close()

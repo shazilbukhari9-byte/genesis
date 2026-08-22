@@ -6,12 +6,43 @@ document per tenant (categories of key/value settings), not a normalised
 table, since that's the natural shape of the data itself.
 """
 
+import re
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request, g
 
 from db import get_db
 
 org_settings_bp = Blueprint('org_settings', __name__)
+
+_HEX_COLOUR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
+
+# Mirrors the UI prototype's saveOrgSetting() validation (MCM_Cloud_CX_v15_2.html),
+# which the earlier React port dropped entirely — this is the actual
+# enforcement point since the frontend's own checks are bypassable via a
+# direct PATCH.
+def _validate_setting_value(setting, value):
+    setting_type = setting.get('type')
+    key = setting.get('key')
+
+    if setting_type == 'number':
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return f'{key} must be a number'
+        if key == 'Minimum password length' and value < 8:
+            return f'{key} must be at least 8'
+        if value < 1:
+            return f'{key} must be at least 1'
+    elif setting_type == 'text':
+        if not isinstance(value, str) or not value.strip():
+            return f'{key} cannot be empty'
+        if key == 'Accent colour' and not _HEX_COLOUR_RE.match(value.strip()):
+            return f'{key} must be a hex colour like #FF4F1F'
+    elif setting_type == 'select':
+        if value not in (setting.get('options') or []):
+            return f'{value!r} is not a valid option for {key}'
+    elif setting_type == 'toggle':
+        if not isinstance(value, bool):
+            return f'{key} must be true or false'
+    return None
 
 
 def _default_settings():
@@ -125,12 +156,17 @@ def update_org_setting():
 
     for update in updates:
         index = update.get('index')
-        if index is None or index >= len(settings_list):
+        if not isinstance(index, int) or index < 0 or index >= len(settings_list):
             conn.close()
             return jsonify({'ok': False, 'error': f'unknown index {index}'}), 404
-        if settings_list[index].get('type') == 'locked':
+        setting = settings_list[index]
+        if setting.get('type') == 'locked':
             conn.close()
-            return jsonify({'ok': False, 'error': f"{settings_list[index]['key']} is locked and cannot be changed"}), 409
+            return jsonify({'ok': False, 'error': f"{setting['key']} is locked and cannot be changed"}), 409
+        error = _validate_setting_value(setting, update.get('value'))
+        if error:
+            conn.close()
+            return jsonify({'ok': False, 'error': error}), 400
 
     now_iso = datetime.now(timezone.utc).isoformat()
     for update in updates:
@@ -145,6 +181,11 @@ def update_org_setting():
         ON CONFLICT (tenant_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()
         """,
         (tenant_id, data),
+    )
+    changed_keys = ', '.join(settings_list[u['index']]['key'] for u in updates)
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (changed_by, 'Edit organization settings', f'{category}: {changed_keys}', tenant_id),
     )
     conn.commit()
     conn.close()

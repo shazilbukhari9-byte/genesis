@@ -111,6 +111,30 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- audit_log predates multi-tenancy and was never scoped to a tenant, so every
+-- tenant's entries were mixed together with no isolation. Nullable for now —
+-- init_db.py backfills existing NULL rows to the current tenant on startup,
+-- since there's no way to recover which tenant an old unscoped row belonged to.
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS tenant_id UUID;
+CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id, id DESC);
+DO $$ BEGIN
+  ALTER TABLE audit_log ADD CONSTRAINT audit_log_tenant_id_fkey
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- purchases predates multi-tenancy too — unlike licenses/invoices/usage_log
+-- (see their comment in init_db.py: deliberately global, one shared demo
+-- billing dataset), purchases is a per-admin order history with no rationale
+-- for staying unscoped. Same nullable + startup-backfill treatment as above.
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS tenant_id UUID;
+CREATE INDEX IF NOT EXISTS idx_purchases_tenant ON purchases(tenant_id);
+DO $$ BEGIN
+  ALTER TABLE purchases ADD CONSTRAINT purchases_tenant_id_fkey
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 DROP TRIGGER IF EXISTS trg_tenants_touch ON tenants;
 CREATE TRIGGER trg_tenants_touch BEFORE UPDATE ON tenants
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();

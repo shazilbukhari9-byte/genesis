@@ -109,8 +109,8 @@ def create_action():
     )
     row = cur.fetchone()
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Data action created', name),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Data action created', name, g.tenant_id),
     )
     conn.commit()
     conn.close()
@@ -138,8 +138,8 @@ def update_action(action_id):
     )
     row = cur.fetchone()
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Data action updated', row['name']),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Data action updated', row['name'], g.tenant_id),
     )
     conn.commit()
     conn.close()
@@ -158,8 +158,8 @@ def delete_action(action_id):
 
     cur.execute('DELETE FROM data_actions WHERE id = %s AND tenant_id = %s', (action_id, g.tenant_id))
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Data action deleted', existing['name']),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Data action deleted', existing['name'], g.tenant_id),
     )
     conn.commit()
     conn.close()
@@ -186,8 +186,8 @@ def test_action(action_id):
     )
     row = cur.fetchone()
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Data action tested', f"{row['name']}: {status}"),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Data action tested', f"{row['name']}: {status}", g.tenant_id),
     )
     conn.commit()
     conn.close()

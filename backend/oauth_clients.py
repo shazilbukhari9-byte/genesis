@@ -100,6 +100,10 @@ def create_client():
     row = dict(cur.fetchone())
     if row.get('redirect_uris') is not None:
         row['redirect_uris'] = list(row['redirect_uris'])
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Create OAuth client', name, g.tenant_id),
+    )
     conn.commit()
     conn.close()
 
@@ -168,6 +172,10 @@ def update_client(cid):
     row = dict(cur.fetchone())
     if row.get('redirect_uris') is not None:
         row['redirect_uris'] = list(row['redirect_uris'])
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Edit OAuth client', row['name'], g.tenant_id),
+    )
     conn.commit()
     conn.close()
     return jsonify(row)
@@ -178,14 +186,19 @@ def delete_client(cid):
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        'SELECT id FROM oauth_clients WHERE id = %s AND tenant_id = %s',
+        'SELECT id, name FROM oauth_clients WHERE id = %s AND tenant_id = %s',
         (cid, g.tenant_id),
     )
-    if cur.fetchone() is None:
+    existing = cur.fetchone()
+    if existing is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
 
     cur.execute('DELETE FROM oauth_clients WHERE id = %s', (cid,))
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Delete OAuth client', existing['name'], g.tenant_id),
+    )
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
@@ -215,6 +228,10 @@ def rotate_secret(cid):
     cur.execute(
         'DELETE FROM oauth_tokens WHERE client_id = %s',
         (existing['client_id'],),
+    )
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Rotate OAuth client secret', existing['client_id'], g.tenant_id),
     )
     conn.commit()
     conn.close()

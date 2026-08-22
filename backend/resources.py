@@ -63,7 +63,7 @@ REGISTRY = {
     "purchases": dict(
         table="purchases",
         order="purchased_at DESC, id DESC",
-        fields=["item", "category", "price", "purchased_at"],
+        fields=["tenant_id", "item", "category", "price", "purchased_at"],
         search=["item", "category"],
         perm=None,
     ),

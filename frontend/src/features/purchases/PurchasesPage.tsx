@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
+import { toast } from "../shared/toast";
 import { createPurchase, deletePurchase, fetchPurchases } from "./purchasesService";
 import type { NewPurchase } from "./types";
 
@@ -32,7 +33,8 @@ function NewPurchaseDrawer({
   const [price, setPrice] = useState("");
   const [purchasedAt, setPurchasedAt] = useState(todayIso());
 
-  const canSave = item.trim().length > 0;
+  const priceValid = price.trim() === "" || (Number.isFinite(Number(price)) && Number(price) >= 0);
+  const canSave = item.trim().length > 0 && priceValid;
 
   return (
     <>
@@ -55,7 +57,8 @@ function NewPurchaseDrawer({
           </div>
           <div className="fld">
             <label>Price (£)</label>
-            <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" />
+            <input type="number" min="0" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" />
+            {!priceValid && <div style={{ color: "#b3261e", fontSize: 12, marginTop: 4 }}>Price can't be negative</div>}
           </div>
           <div className="fld">
             <label>Purchased</label>
@@ -97,15 +100,21 @@ export function PurchasesPage() {
 
   const createMutation = useMutation({
     mutationFn: createPurchase,
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       setDrawerOpen(false);
+      toast(`Purchase saved — <b>${variables.item}</b>`);
     },
+    onError: () => toast("Couldn't save purchase — try again."),
   });
 
   const deleteMutation = useMutation({
     mutationFn: deletePurchase,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      toast("Purchase deleted");
+    },
+    onError: () => toast("Couldn't delete purchase — try again."),
   });
 
   const rows = (data ?? []).filter((p) => {

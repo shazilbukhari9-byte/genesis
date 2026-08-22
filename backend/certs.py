@@ -113,8 +113,8 @@ def create_cert():
     )
     row = _with_status(cur.fetchone())
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Certificate uploaded', name),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Certificate uploaded', name, g.tenant_id),
     )
     conn.commit()
     conn.close()
@@ -142,8 +142,8 @@ def update_cert(cert_id):
     )
     row = _with_status(cur.fetchone())
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Certificate updated', row['name']),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Certificate updated', row['name'], g.tenant_id),
     )
     conn.commit()
     conn.close()
@@ -162,8 +162,8 @@ def delete_cert(cert_id):
 
     cur.execute('DELETE FROM certificates WHERE id = %s AND tenant_id = %s', (cert_id, g.tenant_id))
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Certificate deleted', existing['name']),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Certificate deleted', existing['name'], g.tenant_id),
     )
     conn.commit()
     conn.close()

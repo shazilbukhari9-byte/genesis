@@ -241,6 +241,26 @@ export const SUBSCRIPTION_SCRIPT: string = `
   /* Manage Plan / Add Seats modal close button (✕) — subsOpenModal is a
      separate global (used for both), so it needs its own wrap rather
      than being caught by the renderSubsFx post-process above. */
+  /* "Request Additional Seats" reads like a request (same wording as its
+     sibling "Request a Plan Change" modal) but SubsAPI.requestSeats actually
+     posts straight through to the backend and permanently raises the real
+     purchased seat count immediately, with no confirmation step — unlike
+     Manage Plan, which only logs an audit entry and changes nothing. Wrapping
+     the actual mutating call (rather than re-building subsAddSeats' modal
+     HTML) adds the missing "are you sure" at the one place it matters; a
+     cancel leaves the modal exactly as it was, no request sent. */
+  function wrapRequestSeats() {
+    if (typeof window.SubsAPI !== 'object' || !window.SubsAPI || typeof window.SubsAPI.requestSeats !== 'function' || window.SubsAPI.requestSeats.__mcmSubsPolished) return;
+    var originalRequestSeats = window.SubsAPI.requestSeats;
+    var polished = function(lic, qty) {
+      var confirmed = window.confirm('Add ' + qty + ' ' + lic + ' seat(s)? This takes effect immediately and increases your monthly cost.');
+      if (!confirmed) return new Promise(function() {});
+      return originalRequestSeats.call(window.SubsAPI, lic, qty);
+    };
+    polished.__mcmSubsPolished = true;
+    window.SubsAPI.requestSeats = polished;
+  }
+
   function wrapSubsOpenModal() {
     if (typeof window.subsOpenModal !== 'function' || window.subsOpenModal.__mcmSubsPolished) return;
     var originalSubsOpenModal = window.subsOpenModal;
@@ -259,6 +279,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
     wrapRenderSubsFx();
     wrapSubsOpenModal();
     wrapSubsExportCsv();
+    wrapRequestSeats();
   }
 
   applySubsPolish();

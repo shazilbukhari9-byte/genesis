@@ -5,7 +5,7 @@ import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
 import { toast } from "../shared/toast";
 import { fetchOrgSettings, updateOrgSetting, updateOrgSettingsBulk } from "./orgSettingsService";
-import { ORG_SETTINGS_CATEGORIES, type OrgSetting, type OrgSettingsCategory } from "./types";
+import { ORG_SETTINGS_CATEGORIES, validateSettingValue, type OrgSetting, type OrgSettingsCategory } from "./types";
 
 const QUERY_KEY = ["org-settings"];
 
@@ -68,6 +68,7 @@ function EditDrawer({
 }) {
   const [draft, setDraft] = useState<OrgSetting["value"]>(setting.value);
   const locked = setting.type === "locked";
+  const error = locked ? null : validateSettingValue(setting, draft);
 
   return (
     <>
@@ -93,6 +94,7 @@ function EditDrawer({
             ) : (
               <SettingField setting={setting} value={draft} onChange={setDraft} />
             )}
+            {error && <div style={{ color: "#b3261e", fontSize: 12, marginTop: 4 }}>{error}</div>}
           </div>
         </div>
         <div className="df">
@@ -100,7 +102,7 @@ function EditDrawer({
             {locked ? "Close" : "Cancel"}
           </LegacyBtn>
           {!locked && (
-            <LegacyBtn onClick={() => onSave(draft)} disabled={saving}>
+            <LegacyBtn onClick={() => onSave(draft)} disabled={saving || Boolean(error)}>
               {saving ? "Saving…" : "Save changes"}
             </LegacyBtn>
           )}
@@ -135,6 +137,12 @@ function BulkEditDrawer({
     () => Object.fromEntries(editable.map((e) => [e.index, e.s.value])),
   );
 
+  const errors = useMemo(
+    () => Object.fromEntries(editable.map((e) => [e.index, validateSettingValue(e.s, drafts[e.index] ?? e.s.value)])),
+    [editable, drafts],
+  );
+  const hasErrors = Object.values(errors).some(Boolean);
+
   function handleSave() {
     const updates = editable
       .filter((e) => (drafts[e.index] ?? e.s.value) !== e.s.value)
@@ -165,6 +173,7 @@ function BulkEditDrawer({
                 <label>{s.key}</label>
                 {s.hint && <div style={{ fontSize: 11, color: "#8794a8", marginBottom: 4 }}>{s.hint}</div>}
                 <SettingField setting={s} value={drafts[index] ?? s.value} onChange={(v) => setDrafts((d) => ({ ...d, [index]: v }))} />
+                {errors[index] && <div style={{ color: "#b3261e", fontSize: 12, marginTop: 4 }}>{errors[index]}</div>}
               </div>
             ))
           )}
@@ -173,7 +182,7 @@ function BulkEditDrawer({
           <LegacyBtn secondary onClick={onClose} disabled={saving}>
             Cancel
           </LegacyBtn>
-          <LegacyBtn onClick={handleSave} disabled={saving || editable.length === 0}>
+          <LegacyBtn onClick={handleSave} disabled={saving || editable.length === 0 || hasErrors}>
             {saving ? "Saving…" : "Save changes"}
           </LegacyBtn>
         </div>
@@ -189,7 +198,7 @@ export function OrganizationSettingsPage() {
   const [bulkEditing, setBulkEditing] = useState(false);
   const [search, setSearch] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: QUERY_KEY,
     queryFn: fetchOrgSettings,
   });
@@ -202,6 +211,7 @@ export function OrganizationSettingsPage() {
       toast(`Saved — <b>${updated[activeTab][index]?.key}</b>`);
       setEditingIndex(null);
     },
+    onError: () => toast("Couldn't save changes — try again."),
   });
 
   const bulkMutation = useMutation({
@@ -311,7 +321,16 @@ export function OrganizationSettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {isLoading || !data ? (
+              {isError ? (
+                <tr>
+                  <td colSpan={5} style={{ color: "#b3261e", padding: 18, textAlign: "center" }}>
+                    Couldn't load organization settings.{" "}
+                    <a onClick={() => refetch()} className="lnk">
+                      Retry
+                    </a>
+                  </td>
+                </tr>
+              ) : isLoading || !data ? (
                 <tr>
                   <td colSpan={5} style={{ color: "#8794a8" }}>
                     Loading…

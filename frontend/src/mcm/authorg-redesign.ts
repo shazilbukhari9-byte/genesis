@@ -736,15 +736,28 @@ export const AUTHORG_SCRIPT: string = `
       '<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #f1f5f9"><span style="color:#64748b;min-width:130px">14 Jun 2026</span><b style="color:#0f172a;min-width:160px">Cloudline Partners</b><span style="color:#2563eb;font-weight:600">Scope Modified</span><span style="color:#64748b">Scoped down to Read-only Admin for UK Digital Division</span></div>';
   }
 
+  // The real audit trail (backend/authorg.py now logs every create/edit/
+  // revoke/delete of a trust into the same audit_log table every other
+  // module writes to) lives at /api/subscription/audit, not under this
+  // file's own /api/v2/authorization base — derive the real API origin from
+  // it rather than hardcoding a second base URL.
+  var AUDIT_API = API_BASE.replace('/api/v2/authorization', '/api/subscription/audit');
+  var TRUST_AUDIT_ACTIONS = ['Authorize organization', 'Edit authorized organization',
+    'Revoke authorized organization', 'Delete authorized organization'];
+
   function apiAuditRows(logs) {
-    return logs.map(function(a) {
-      var when = new Date(a.timestamp);
-      var whenLabel = isNaN(when.getTime()) ? a.timestamp : (fmtDMY(when) + ' ' + when.toTimeString().slice(0, 5));
+    var rows = logs.filter(function(a) { return TRUST_AUDIT_ACTIONS.indexOf(a.action) >= 0; });
+    if (!rows.length) {
+      return '<div style="color:#94a3b8">No trust activity recorded yet.</div>';
+    }
+    return rows.map(function(a) {
+      var when = new Date(a.created_at);
+      var whenLabel = isNaN(when.getTime()) ? a.created_at : (fmtDMY(when) + ' ' + when.toTimeString().slice(0, 5));
       return '<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #f1f5f9">' +
         '<span style="color:#64748b;min-width:130px">' + whenLabel + '</span>' +
-        '<b style="color:#0f172a;min-width:160px">' + (a.org_domain || '—') + '</b>' +
-        '<span style="color:#334155">' + a.action_text + '</span>' +
-        '<span style="color:#64748b;margin-left:auto">' + a.actor_name + '</span>' +
+        '<b style="color:#0f172a;min-width:160px">' + (a.detail || '—') + '</b>' +
+        '<span style="color:#334155">' + a.action + '</span>' +
+        '<span style="color:#64748b;margin-left:auto">' + a.who + '</span>' +
         '</div>';
     }).join('');
   }
@@ -759,10 +772,10 @@ export const AUTHORG_SCRIPT: string = `
       '</td></tr>';
     };
     tb4.innerHTML = wrap(staticAuditRows());
-    fetch(API_BASE + '/audit-logs')
+    fetch(AUDIT_API, { headers: authHeaders() })
       .then(function(res) { if (!res.ok) throw new Error('bad status'); return res.json(); })
       .then(function(logs) {
-        if (!logs || !logs.length) return;
+        if (!Array.isArray(logs)) return;
         var tb = document.getElementById('authorg_tb');
         if (tb && filtersState.tab === 'audit') tb.innerHTML = wrap(apiAuditRows(logs));
       })

@@ -281,6 +281,7 @@ def divisions_collection():
             (code, g.tenant_id, name, data.get('description', ''), bool(data.get('is_home', False))),
         )
         row = cur.fetchone()
+        _log_resource_audit(cur, 'Create division', name)
         conn.commit()
         conn.close()
         return jsonify(dict(row)), 201
@@ -317,6 +318,7 @@ def divisions_item(code):
                 (home['code'], g.tenant_id, code),
             )
         cur.execute('DELETE FROM divisions WHERE code = %s', (code,))
+        _log_resource_audit(cur, 'Delete division', existing['name'])
         conn.commit()
         conn.close()
         return jsonify({'ok': True})
@@ -327,6 +329,7 @@ def divisions_item(code):
         (data.get('name'), data.get('description'), data.get('is_home'), code),
     )
     row = cur.fetchone()
+    _log_resource_audit(cur, 'Edit division', row['name'])
     conn.commit()
     conn.close()
     return jsonify(dict(row))
@@ -436,8 +439,8 @@ def plan_change():
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s,%s)',
-        (g.user_name, 'Plan change requested', note, datetime.now()),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Plan change requested', note, g.tenant_id, datetime.now()),
     )
     conn.commit()
     conn.close()
@@ -464,8 +467,8 @@ def add_seats():
     cur.execute('SELECT purchased FROM licenses WHERE code = %s', (lic,))
     new_total = cur.fetchone()['purchased']
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s,%s)',
-        (g.user_name, 'Seats requested', f'+{qty} {lic} (pool now {new_total})', datetime.now()),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Seats requested', f'+{qty} {lic} (pool now {new_total})', g.tenant_id, datetime.now()),
     )
     conn.commit()
     conn.close()
@@ -482,8 +485,8 @@ def audit_log():
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
-            'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s,%s) RETURNING *',
-            (g.user_name, action, data.get('detail', ''), datetime.now()),
+            'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s) RETURNING *',
+            (g.user_name, action, data.get('detail', ''), g.tenant_id, datetime.now()),
         )
         row = cur.fetchone()
         conn.commit()
@@ -492,7 +495,7 @@ def audit_log():
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200')
+    cur.execute('SELECT * FROM audit_log WHERE tenant_id = %s ORDER BY id DESC LIMIT 200', (g.tenant_id,))
     rows = cur.fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
@@ -577,6 +580,71 @@ def _tenant_scoped(spec):
     and write below — never to a client-supplied value. A client can't read,
     filter, create-into, or move a row into a tenant that isn't its own."""
     return 'tenant_id' in spec['fields']
+
+
+# Friendlier singular labels for resources whose REGISTRY key wouldn't read
+# well in an audit action ("Create simple-entities") — anything not listed
+# here just gets its key title-cased with hyphens turned to spaces.
+_RESOURCE_LABELS = {
+    'people': 'person',
+    'purchases': 'purchase',
+    'simple-entities': 'ACD entity',
+    'did-assignments': 'DID assignment',
+    'wrapup-codes': 'wrap-up code',
+    'eval-forms': 'evaluation form',
+    'byoc-trunks': 'BYOC trunk',
+    'wfm-schedules': 'WFM schedule',
+    'call-routes': 'call route',
+    'extension-pools': 'extension pool',
+    'emergency-groups': 'emergency group',
+    'email-domains': 'email domain',
+    'email-addresses': 'email address',
+    'base-settings': 'base setting',
+    'phone-base-settings': 'phone base setting',
+    'number-plans': 'number plan',
+    'outbound-routes': 'outbound route',
+    'message-channels': 'message channel',
+    'recording-policies': 'recording policy',
+    'schedule-groups': 'schedule group',
+    'planning-groups': 'planning group',
+    'service-goals': 'service goal',
+    'gamification-profiles': 'gamification profile',
+    'installed-integrations': 'installed integration',
+    'integration-credentials': 'integration credential',
+    'work-plans': 'work plan',
+    'activity-codes': 'activity code',
+    'time-off-requests': 'time-off request',
+    'shift-trades': 'shift trade',
+    'calibrations': 'calibration',
+    'bot-connectors': 'bot connector',
+}
+
+# Tried in order for a human-readable identifier to put in the audit detail —
+# the first one present and non-empty on the row wins, else it falls back to
+# the row's id.
+_DISPLAY_NAME_FIELDS = (
+    'name', 'item', 'customer_name', 'from_name', 'phone_number', 'addr',
+    'domain', 'week', 'agent_ref',
+)
+
+
+def _resource_label(resource):
+    return _RESOURCE_LABELS.get(resource, resource.replace('-', ' '))
+
+
+def _resource_display_name(row):
+    for field in _DISPLAY_NAME_FIELDS:
+        value = row.get(field)
+        if value:
+            return value
+    return f"#{row['id']}"
+
+
+def _log_resource_audit(cur, action, detail):
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, action, detail, g.tenant_id),
+    )
 
 
 def _prep_value(col, value, spec):
@@ -679,6 +747,7 @@ def resource_create(resource):
     sql = f"INSERT INTO {spec['table']} ({', '.join(cols)}) VALUES ({placeholders}) RETURNING *"
     cur.execute(sql, values)
     new_row = cur.fetchone()
+    _log_resource_audit(cur, f'Create {_resource_label(resource)}', _resource_display_name(dict(new_row)))
     conn.commit()
     conn.close()
     return jsonify(dict(new_row)), 201
@@ -879,17 +948,19 @@ def resource_update(resource, row_id):
     update_sql += ' RETURNING *'
     cur.execute(update_sql, update_params)
     row = cur.fetchone()
+    _log_resource_audit(cur, f'Edit {_resource_label(resource)}', _resource_display_name(dict(row)))
 
     rename_hits = 0
     if rename_from is not None:
         rename_hits = _propagate_simple_entity(cur, g.tenant_id, rename_kind, rename_from, row['name'])
         if rename_hits:
             cur.execute(
-                'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
+                'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
                 (
                     g.user_name,
                     f'{rename_kind.capitalize()} rename propagated',
                     f'{rename_from} → {row["name"]} ({rename_hits} reference(s))',
+                    g.tenant_id,
                 ),
             )
 
@@ -909,15 +980,17 @@ def resource_delete(resource, row_id):
 
     conn = get_db()
     cur = conn.cursor()
-    check_sql = f"SELECT id FROM {spec['table']} WHERE id = %s"
+    check_sql = f"SELECT * FROM {spec['table']} WHERE id = %s"
     check_params = [row_id]
     if _tenant_scoped(spec):
         check_sql += ' AND tenant_id = %s'
         check_params.append(g.tenant_id)
     cur.execute(check_sql, check_params)
-    if cur.fetchone() is None:
+    existing_row = cur.fetchone()
+    if existing_row is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
+    _log_resource_audit(cur, f'Delete {_resource_label(resource)}', _resource_display_name(dict(existing_row)))
 
     # Read the skill/language name before the row goes away — the cascade
     # below needs it (see the rename cascade in resource_update for why the
@@ -955,11 +1028,12 @@ def resource_delete(resource, row_id):
         delete_hits = _propagate_simple_entity(cur, g.tenant_id, removed['kind'], removed['name'], None)
         if delete_hits:
             cur.execute(
-                'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
+                'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
                 (
                     g.user_name,
                     f"{removed['kind'].capitalize()} delete propagated",
                     f"{removed['name']} removed ({delete_hits} reference(s))",
+                    g.tenant_id,
                 ),
             )
 
