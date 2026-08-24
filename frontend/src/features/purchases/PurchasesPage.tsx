@@ -289,6 +289,8 @@ export function PurchasesPage() {
   const queryClient = useQueryClient();
   const [viewing, setViewing] = useState<Purchase | null>(null);
   const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: QUERY_KEY,
@@ -307,10 +309,19 @@ export function PurchasesPage() {
 
   const purchases = data ?? [];
   const rows = purchases.filter((p) => {
-    if (!search) return true;
-    const haystack = `${p.item} ${p.category ?? ""}`.toLowerCase();
-    return haystack.includes(search.toLowerCase());
+    if (search) {
+      const haystack = `${p.item} ${p.category ?? ""}`.toLowerCase();
+      if (!haystack.includes(search.toLowerCase())) return false;
+    }
+    // purchased_at is "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS…" — the first 10
+    // chars always sort/compare correctly against a plain <input type="date">
+    // value without needing to parse either side into a Date.
+    const purchaseDate = (p.purchased_at ?? "").slice(0, 10);
+    if (dateFrom && purchaseDate < dateFrom) return false;
+    if (dateTo && purchaseDate > dateTo) return false;
+    return true;
   });
+  const hasDateFilter = Boolean(dateFrom || dateTo);
 
   return (
     <>
@@ -321,7 +332,7 @@ export function PurchasesPage() {
         <div className="tt">
           <h1>Purchases</h1>
           <span className="sp" />
-          <LegacyBtn secondary disabled={!purchases.length} onClick={() => exportPurchasesCsv(purchases)}>
+          <LegacyBtn secondary disabled={!rows.length} onClick={() => exportPurchasesCsv(rows)}>
             Export CSV
           </LegacyBtn>
         </div>
@@ -335,8 +346,46 @@ export function PurchasesPage() {
           </>
         )}
 
-        <div className="tbar">
-          <input className="s" placeholder="Search purchases" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="tbar" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            className="s"
+            placeholder="Search purchases"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ maxWidth: "100%", flex: "1 1 220px" }}
+          />
+          <label style={{ fontSize: 12, color: "#5b6a7d", display: "flex", alignItems: "center", gap: 6 }}>
+            From
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(e) => setDateFrom(e.target.value)}
+              style={{ height: 32, border: "1px solid #ccd4e0", borderRadius: 4, padding: "0 8px", fontSize: 12.5 }}
+            />
+          </label>
+          <label style={{ fontSize: 12, color: "#5b6a7d", display: "flex", alignItems: "center", gap: 6 }}>
+            To
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(e) => setDateTo(e.target.value)}
+              style={{ height: 32, border: "1px solid #ccd4e0", borderRadius: 4, padding: "0 8px", fontSize: 12.5 }}
+            />
+          </label>
+          {hasDateFilter && (
+            <LegacyBtn
+              secondary
+              style={{ fontSize: 11.5, height: 30, padding: "0 10px" }}
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+              }}
+            >
+              Clear dates
+            </LegacyBtn>
+          )}
         </div>
         <div className="tblw">
           <table className="dt">
@@ -379,7 +428,9 @@ export function PurchasesPage() {
               ) : (
                 <tr>
                   <td colSpan={5} style={{ textAlign: "center", color: "#8794a8", padding: 18 }}>
-                    No purchases yet — seat purchases from the Subscription page will appear here.
+                    {purchases.length
+                      ? "No purchases match your filters."
+                      : "No purchases yet — seat purchases from the Subscription page will appear here."}
                   </td>
                 </tr>
               )}

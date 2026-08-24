@@ -437,7 +437,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
       'Continue to Payment',
       function() {
         var n = parseInt(document.getElementById('smQty').value, 10);
-        if (!n || n <= 0) return;
+        if (!n || n <= 0) { if (window.toast) window.toast('Enter a seat quantity of 1 or more.'); return; }
         showSeatPaymentStep(lic, label, unitPrice, n);
       }
     );
@@ -467,7 +467,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
       'Remove Seats',
       function() {
         var n = parseInt(document.getElementById('smRemoveQty').value, 10);
-        if (!n || n <= 0) return;
+        if (!n || n <= 0) { if (window.toast) window.toast('Enter a seat quantity of 1 or more.'); return; }
         if (n > maxRemovable) { if (window.toast) window.toast('Only ' + maxRemovable + ' seat(s) are free to remove.'); return; }
         var submitBtn = document.getElementById('smSubmit');
         if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Removing\\u2026'; }
