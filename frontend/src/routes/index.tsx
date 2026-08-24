@@ -102,7 +102,17 @@ function mountLegacyReactPage(containerId: string, element: ReactNode) {
     if (cnt) cnt.style.display = "none";
     if (!container) return;
     container.style.display = "";
-    if (!root) root = createRoot(container);
+    if (!root) {
+      root = createRoot(container);
+    } else {
+      // The page never actually unmounts between visits (it's toggled with
+      // display:none, not removed), so useQuery's own refetch-on-mount only
+      // ever fires once. Without this, a page whose data changed elsewhere
+      // — e.g. Purchases, populated by the Subscription buy flow rather than
+      // anything on this page itself — keeps showing whatever it first
+      // fetched, forever, until a full page reload.
+      queryClient.invalidateQueries();
+    }
     root.render(<QueryClientProvider client={queryClient}>{element}</QueryClientProvider>);
   };
 
