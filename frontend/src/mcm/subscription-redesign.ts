@@ -109,6 +109,33 @@ export const SUBSCRIPTION_SCRIPT: string = `
     return { ok: true, name: name, digits: digits, expMonth: expMonth, expYear: expYear, cvv: cvv };
   }
 
+  // As-you-type formatting for whichever card form is currently open:
+  // groups the card number in 4s, auto-inserts the "/" in MM/YY after the
+  // second digit, and keeps the CVV digits-only. Purely cosmetic — the
+  // fields still pass through validateCardInput exactly as before.
+  function attachCardFormatting() {
+    var cardInput = document.getElementById('pmCard');
+    if (cardInput) {
+      cardInput.oninput = function() {
+        var digits = cardInput.value.replace(/\\D/g, '').slice(0, 19);
+        cardInput.value = digits.replace(/(.{4})/g, '$1 ').trim();
+      };
+    }
+    var expInput = document.getElementById('pmExp');
+    if (expInput) {
+      expInput.oninput = function() {
+        var digits = expInput.value.replace(/\\D/g, '').slice(0, 4);
+        expInput.value = digits.length > 2 ? digits.slice(0, 2) + '/' + digits.slice(2) : digits;
+      };
+    }
+    var cvvInput = document.getElementById('pmCvv');
+    if (cvvInput) {
+      cvvInput.oninput = function() {
+        cvvInput.value = cvvInput.value.replace(/\\D/g, '').slice(0, 4);
+      };
+    }
+  }
+
   var ICONS = {
     phone: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>',
     chat: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>',
@@ -428,7 +455,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
       'Payment',
       '<div style="font-size:12.5px;color:#5b6a7d;margin-bottom:12px">' + qty + ' \\u00d7 ' + label + ' \\u2014 <b style="color:#152550">\\u00a3' + total + '</b>/month</div>' +
         '<div class="fld"><label>Cardholder name</label><input id="pmName" placeholder="Faisal Khan" value="' + (existingPm ? existingPm.cardholder_name : '') + '"></div>' +
-        '<div class="fld"><label>Card number</label><input id="pmCard" placeholder="4242 4242 4242 4242" maxlength="19"></div>' +
+        '<div class="fld"><label>Card number</label><input id="pmCard" placeholder="4242 4242 4242 4242" maxlength="23"></div>' +
         '<div class="frow"><div class="fld"><label>Expiry</label><input id="pmExp" placeholder="MM/YY" maxlength="5"></div><div class="fld"><label>CVV</label><input id="pmCvv" placeholder="123" maxlength="4"></div></div>' +
         '<div class="tgl"><input type="checkbox" id="pmSave" checked style="width:auto;margin-right:6px"> Save this card for future purchases</div>' +
         '<div style="font-size:11px;color:#8a94a6;margin-top:6px">Demo checkout \\u2014 no real card is charged.</div>',
@@ -463,6 +490,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
         });
       }
     );
+    attachCardFormatting();
   }
 
   /* Standalone "change payment method" — reachable from Manage Subscription
@@ -473,7 +501,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
     window.subsOpenModal(
       existingPm ? 'Change Payment Method' : 'Add Payment Method',
       '<div class="fld"><label>Cardholder name</label><input id="pmName" placeholder="Faisal Khan" value="' + (existingPm ? existingPm.cardholder_name : '') + '"></div>' +
-        '<div class="fld"><label>Card number</label><input id="pmCard" placeholder="4242 4242 4242 4242" maxlength="19"></div>' +
+        '<div class="fld"><label>Card number</label><input id="pmCard" placeholder="4242 4242 4242 4242" maxlength="23"></div>' +
         '<div class="frow"><div class="fld"><label>Expiry</label><input id="pmExp" placeholder="MM/YY" maxlength="5"></div><div class="fld"><label>CVV</label><input id="pmCvv" placeholder="123" maxlength="4"></div></div>' +
         '<div style="font-size:11px;color:#8a94a6;margin-top:6px">Demo checkout \\u2014 no real card is charged.</div>',
       'Save Card',
@@ -504,6 +532,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
         });
       }
     );
+    attachCardFormatting();
   }
 
   /* "Request a Plan Change" opened a free-text box that only logged an
