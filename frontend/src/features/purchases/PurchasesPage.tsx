@@ -5,7 +5,7 @@ import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
 import { toast } from "../shared/toast";
 import { createPurchase, deletePurchase, fetchPurchases } from "./purchasesService";
-import type { NewPurchase } from "./types";
+import type { NewPurchase, Purchase } from "./types";
 
 const QUERY_KEY = ["purchases"];
 
@@ -88,9 +88,65 @@ function NewPurchaseDrawer({
   );
 }
 
+// Purchase history is a record of what was bought, not an editable form —
+// no field here is ever writable after the fact. Clicking a row shows
+// every detail read-only instead of silently doing nothing.
+function PurchaseDetailDrawer({
+  purchase,
+  onClose,
+  onDelete,
+}: {
+  purchase: Purchase;
+  onClose: () => void;
+  onDelete: () => void;
+}) {
+  const rows: [string, string][] = [
+    ["Item", purchase.item],
+    ["Category", purchase.category ?? "—"],
+    ["Price", purchase.price != null ? `£${purchase.price.toFixed(2)}` : "—"],
+    ["Purchased", purchase.purchased_at ?? "—"],
+  ];
+
+  return (
+    <>
+      <div id="scrim" onClick={onClose} />
+      <div id="drw" style={{ height: "auto", top: "20%", bottom: "auto", borderRadius: "8px 0 0 8px" }}>
+        <div className="dh">
+          <h2>{purchase.item}</h2>
+          <div className="x" onClick={onClose}>
+            ×
+          </div>
+        </div>
+        <div className="db">
+          {rows.map(([label, value]) => (
+            <div className="kv" key={label}>
+              <span>{label}</span>
+              <b>{value}</b>
+            </div>
+          ))}
+        </div>
+        <div className="df">
+          <LegacyBtn
+            secondary
+            onClick={() => {
+              if (confirm(`Delete "${purchase.item}"?`)) onDelete();
+            }}
+          >
+            Delete purchase
+          </LegacyBtn>
+          <LegacyBtn secondary onClick={onClose}>
+            Close
+          </LegacyBtn>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function PurchasesPage() {
   const queryClient = useQueryClient();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [viewing, setViewing] = useState<Purchase | null>(null);
   const [search, setSearch] = useState("");
 
   const { data, isLoading } = useQuery({
@@ -112,6 +168,7 @@ export function PurchasesPage() {
     mutationFn: deletePurchase,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      setViewing(null);
       toast("Purchase deleted");
     },
     onError: () => toast("Couldn't delete purchase — try again."),
@@ -161,7 +218,7 @@ export function PurchasesPage() {
                 </tr>
               ) : rows.length ? (
                 rows.map((p) => (
-                  <tr key={p.id}>
+                  <tr key={p.id} onClick={() => setViewing(p)} style={{ cursor: "pointer" }}>
                     <td>
                       <b className="lnk">{p.item}</b>
                     </td>
@@ -170,7 +227,8 @@ export function PurchasesPage() {
                     <td>{p.purchased_at ?? "—"}</td>
                     <td
                       style={{ color: "#a9b3c2", cursor: "pointer" }}
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         if (confirm(`Delete "${p.item}"?`)) deleteMutation.mutate(p.id);
                       }}
                     >
@@ -197,6 +255,14 @@ export function PurchasesPage() {
           onClose={() => setDrawerOpen(false)}
           saving={createMutation.isPending}
           onSave={(purchase) => createMutation.mutate(purchase)}
+        />
+      )}
+
+      {viewing && (
+        <PurchaseDetailDrawer
+          purchase={viewing}
+          onClose={() => setViewing(null)}
+          onDelete={() => deleteMutation.mutate(viewing.id)}
         />
       )}
     </>
