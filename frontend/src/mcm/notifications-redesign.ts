@@ -61,7 +61,7 @@ export const NOTIFICATIONS_SCRIPT: string = `
               '<br><span style="color:#8794a8;font-size:11px">' + escHtml(fmtWhen(a.created_at)) + ' \\u00b7 ' + escHtml(a.who) + '</span></div>';
           }).join('')
         : '<div style="padding:10px 16px;font-size:12px;color:#8794a8">No notifications</div>') +
-      '<div class="ddi" style="' + ITEM_STYLE + 'color:#c9401a" onclick="window.dd(\'notifddm\');window.openPage(\'auditlog\')">Open full audit log</div>';
+      '<div class="ddi" style="' + ITEM_STYLE + 'color:#c9401a" onclick="window.dd(\\'notifddm\\');window.openPage(\\'auditlog\\')">Open full audit log</div>';
   }
 
   function wrapNotifOpen() {
