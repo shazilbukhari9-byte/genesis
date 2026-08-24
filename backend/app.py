@@ -608,6 +608,54 @@ def add_seats():
     return jsonify({'ok': True, 'total': new_total, 'cost': cost})
 
 
+@app.route('/api/subscription/seats/remove', methods=['POST'])
+def remove_seats():
+    """Symmetric to add_seats() — lets a tenant shed licence seats they no
+    longer need. Blocked from dropping the pool below however many are
+    currently assigned (the same 'active users on this licence' count
+    overview()'s usedMap reports), so a removal can never orphan an
+    assigned agent. Records a credit (negative-price) row in `purchases`,
+    same table add_seats() writes to, so the reduction shows up in spend
+    history/the expense tracker instead of being invisible."""
+    data = request.get_json(force=True) or {}
+    lic = data.get('licence')
+    qty = int(data.get('qty', 0))
+    if not lic or qty <= 0:
+        return jsonify({'ok': False, 'error': 'licence and positive qty required'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT label, purchased, unit_price FROM licenses WHERE code = %s', (lic,))
+    existing = cur.fetchone()
+    if existing is None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'unknown licence code'}), 404
+
+    cur.execute("SELECT COUNT(*) AS n FROM users WHERE license_code = %s AND state = 'Active'", (lic,))
+    assigned = cur.fetchone()['n']
+    free = existing['purchased'] - assigned
+    if qty > free:
+        conn.close()
+        return jsonify({
+            'ok': False,
+            'error': f'Only {free} seat(s) are free to remove — {assigned} of {existing["purchased"]} are currently assigned',
+        }), 409
+
+    cur.execute('UPDATE licenses SET purchased = purchased - %s WHERE code = %s', (qty, lic))
+    credit = round(qty * existing['unit_price'], 2)
+    cur.execute(
+        'INSERT INTO purchases (tenant_id, item, category, price, purchased_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.tenant_id, f"{existing['label']} — {qty} seat(s) removed", 'Licence', -credit, datetime.now().isoformat()),
+    )
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Seats removed', f'-{qty} {lic}, pool now {existing["purchased"] - qty}', g.tenant_id, datetime.now()),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'total': existing['purchased'] - qty, 'credit': credit})
+
+
 @app.route('/api/subscription/cancel', methods=['POST'])
 def cancel_subscription():
     conn = get_db()

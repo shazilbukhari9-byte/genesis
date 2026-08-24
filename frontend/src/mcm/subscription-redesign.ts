@@ -145,6 +145,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
     alertTriangle: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
     download: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
     plus: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>',
+    minus: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><line x1="5" y1="12" x2="19" y2="12"></line></svg>',
     x: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
   };
 
@@ -240,6 +241,33 @@ export const SUBSCRIPTION_SCRIPT: string = `
       btn.className = 'sc-add';
       btn.onclick = function() { window.subsAddSeats(code); };
       btn.innerHTML = '<span style="display:inline-flex;align-items:center;vertical-align:middle;margin-right:4px">' + ICONS.plus + '</span>Add Seats';
+      foot.appendChild(btn);
+    });
+  }
+
+  /* No equivalent existed anywhere in scripts.ts — Add Seats only ever
+     went up, so a tenant that over-bought (or no longer needs as many
+     seats) had no way to bring the pool back down. Only shown when a
+     tier actually has spare (unassigned) seats to remove; the backend
+     independently re-checks this at request time. */
+  function ensureRemoveSeatsButtons() {
+    var overview = window.SUBS_LAST_OVERVIEW;
+    if (!overview || !overview.label) return;
+    var labelToCode = {};
+    Object.keys(overview.label).forEach(function(code) { labelToCode[overview.label[code]] = code; });
+    document.querySelectorAll('.subs-card').forEach(function(card) {
+      var foot = card.querySelector('.sc-foot');
+      if (!foot || foot.querySelector('.sc-remove')) return;
+      var nameEl = card.querySelector('.sc-name');
+      var code = nameEl && labelToCode[nameEl.textContent];
+      if (!code) return;
+      var purchased = (overview.pool && overview.pool[code]) || 0;
+      var assigned = (overview.usedMap && overview.usedMap[code]) || 0;
+      if (purchased <= assigned) return;
+      var btn = document.createElement('button');
+      btn.className = 'sc-remove';
+      btn.onclick = function() { showRemoveSeatsStep(code, overview.label[code], overview.unitPrice[code], purchased, assigned); };
+      btn.innerHTML = '<span style="display:inline-flex;align-items:center;vertical-align:middle;margin-right:4px">' + ICONS.minus + '</span>Remove';
       foot.appendChild(btn);
     });
   }
@@ -351,6 +379,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
         stripDuplicateManagePlanButton();
         modernizeSubsIcons();
         ensureAddSeatsButtons();
+        ensureRemoveSeatsButtons();
         renderSubStatusBanner();
         return result;
       } catch (e) {
@@ -420,6 +449,54 @@ export const SUBSCRIPTION_SCRIPT: string = `
         if (preview) preview.textContent = 'Total: \\u00a3' + (n * unitPrice).toFixed(2) + '/month';
       };
     }
+  }
+
+  /* No payment step — removing seats is a credit, not a charge, so
+     there's nothing to collect a card for. maxRemovable mirrors the
+     backend's own floor (purchased - assigned) so the input's own min/max
+     catch the common case client-side; the backend re-checks it
+     regardless since the count can change between render and submit. */
+  function showRemoveSeatsStep(lic, label, unitPrice, purchased, assigned) {
+    var maxRemovable = purchased - assigned;
+    window.subsOpenModal(
+      'Remove ' + label + ' Seats',
+      '<div style="font-size:12.5px;color:#5b6a7d;margin-bottom:12px">' + purchased + ' purchased \\u2014 ' + assigned + ' assigned \\u2014 up to <b style="color:#152550">' + maxRemovable + '</b> can be removed.</div>' +
+        '<div class="fld"><label>How many seats to remove?</label><input id="smRemoveQty" type="number" min="1" max="' + maxRemovable + '" value="1"></div>' +
+        '<div id="smCreditPreview" style="font-size:13px;color:#152550;font-weight:600;margin-top:10px">Credit: \\u00a3' + unitPrice.toFixed(2) + '/month</div>' +
+        '<div style="font-size:11px;color:#8a94a6;margin-top:8px">Reduces next month\\u2019s bill \\u2014 recorded as a credit in Purchases.</div>',
+      'Remove Seats',
+      function() {
+        var n = parseInt(document.getElementById('smRemoveQty').value, 10);
+        if (!n || n <= 0) return;
+        if (n > maxRemovable) { if (window.toast) window.toast('Only ' + maxRemovable + ' seat(s) are free to remove.'); return; }
+        var submitBtn = document.getElementById('smSubmit');
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Removing\\u2026'; }
+        finishSeatRemoval(lic, label, n, submitBtn);
+      }
+    );
+    var qtyInput = document.getElementById('smRemoveQty');
+    if (qtyInput) {
+      qtyInput.oninput = function() {
+        var n = parseInt(qtyInput.value, 10) || 0;
+        var preview = document.getElementById('smCreditPreview');
+        if (preview) preview.textContent = 'Credit: \\u00a3' + (n * unitPrice).toFixed(2) + '/month';
+      };
+    }
+  }
+
+  function finishSeatRemoval(lic, label, qty, submitBtn) {
+    subsApiPost('/api/subscription/seats/remove', { licence: lic, qty: qty }).then(function(r) {
+      if (r && r.ok === false) {
+        if (window.toast) window.toast('\\u2717 ' + (r.error || 'Could not remove seats'));
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Remove Seats'; }
+        return;
+      }
+      document.querySelector('#subsModal .sm-b').innerHTML = '<div class="sm-ok">\\u2713 Removed ' + qty + ' ' + label + ' seat(s) \\u2014 pool now shows ' + r.total + ' purchased.</div>';
+      document.querySelector('#subsModal .sm-f').innerHTML = '<button class="btn" onclick="closeSubsModal();renderSubsFx();">Done</button>';
+    }).catch(function() {
+      if (window.toast) window.toast('\\u2717 Could not remove seats \\u2014 please try again.');
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Remove Seats'; }
+    });
   }
 
   function cardSummaryLine(pm) {
