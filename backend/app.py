@@ -597,7 +597,7 @@ def add_seats():
     cost = round(qty * existing['unit_price'], 2)
     cur.execute(
         'INSERT INTO purchases (tenant_id, item, category, price, purchased_at) VALUES (%s,%s,%s,%s,%s)',
-        (g.tenant_id, f"{existing['label']} — {qty} seat(s)", 'Licence', cost, datetime.now().date().isoformat()),
+        (g.tenant_id, f"{existing['label']} — {qty} seat(s)", 'Licence', cost, datetime.now().isoformat()),
     )
     cur.execute(
         'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',

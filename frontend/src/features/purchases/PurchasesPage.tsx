@@ -24,6 +24,19 @@ function fmtMoney(n: number): string {
   return `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Older rows (written before purchased_at stored a time) are a bare
+// "YYYY-MM-DD" — Date parses that as UTC midnight, which is fine to fall
+// back to date-only display for; anything with a time component renders it.
+function fmtPurchasedAt(purchasedAt: string | null): string {
+  if (!purchasedAt) return "—";
+  const date = new Date(purchasedAt);
+  if (Number.isNaN(date.getTime())) return purchasedAt;
+  const datePart = date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  if (!purchasedAt.includes("T")) return datePart;
+  const timePart = date.toTimeString().slice(0, 5);
+  return `${datePart}, ${timePart}`;
+}
+
 // Purchase history is a record, not something anyone should be able to
 // rewrite after the fact. Rows open this read-only view instead of an
 // edit form; delete (with confirmation) is the only other action here.
@@ -40,7 +53,7 @@ function PurchaseDetailDrawer({
     ["Item", purchase.item],
     ["Category", purchase.category ?? "—"],
     ["Price", purchase.price != null ? fmtMoney(purchase.price) : "—"],
-    ["Purchased", purchase.purchased_at ?? "—"],
+    ["Purchased", fmtPurchasedAt(purchase.purchased_at)],
   ];
 
   return (
@@ -324,7 +337,7 @@ export function PurchasesPage() {
                     </td>
                     <td>{p.category ?? "—"}</td>
                     <td>{p.price != null ? fmtMoney(p.price) : "—"}</td>
-                    <td>{p.purchased_at ?? "—"}</td>
+                    <td>{fmtPurchasedAt(p.purchased_at)}</td>
                     <td
                       style={{ color: "#a9b3c2", cursor: "pointer" }}
                       onClick={(e) => {
