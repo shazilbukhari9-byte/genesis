@@ -146,6 +146,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
     download: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
     plus: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>',
     minus: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><line x1="5" y1="12" x2="19" y2="12"></line></svg>',
+    creditCard: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>',
     x: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
   };
 
@@ -272,6 +273,23 @@ export const SUBSCRIPTION_SCRIPT: string = `
     });
   }
 
+  /* "Manage Subscription" used to also be where you'd view/change/remove
+     the card on file, which buried payment-method management inside a
+     modal primarily about cancelling/reactivating and autopay. Split out
+     into its own button, inserted right after Export CSV in the page
+     header, so card management reads as its own action rather than a
+     side-effect of managing the subscription's lifecycle. */
+  function ensureManageCardsButton() {
+    var exportBtn = document.querySelector('button[onclick="subsExportCsv()"]');
+    if (!exportBtn || !exportBtn.parentElement) return;
+    if (exportBtn.parentElement.querySelector('.mcm-manage-cards-btn')) return;
+    var btn = document.createElement('button');
+    btn.className = exportBtn.className + ' mcm-manage-cards-btn';
+    btn.innerHTML = '<span style="display:inline-flex;align-items:center;vertical-align:middle;margin-right:6px">' + ICONS.creditCard + '</span>Manage Cards';
+    btn.onclick = function() { showManageCardsModal(); };
+    exportBtn.parentElement.insertBefore(btn, exportBtn.nextSibling);
+  }
+
   /* Visible on the page itself (not just inside the Manage Subscription
      modal) so a cancelled subscription is obvious without opening
      anything. */
@@ -380,6 +398,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
         modernizeSubsIcons();
         ensureAddSeatsButtons();
         ensureRemoveSeatsButtons();
+        ensureManageCardsButton();
         renderSubStatusBanner();
         return result;
       } catch (e) {
@@ -462,8 +481,8 @@ export const SUBSCRIPTION_SCRIPT: string = `
       'Remove ' + label + ' Seats',
       '<div style="font-size:12.5px;color:#5b6a7d;margin-bottom:12px">' + purchased + ' purchased \\u2014 ' + assigned + ' assigned \\u2014 up to <b style="color:#152550">' + maxRemovable + '</b> can be removed.</div>' +
         '<div class="fld"><label>How many seats to remove?</label><input id="smRemoveQty" type="number" min="1" max="' + maxRemovable + '" value="1"></div>' +
-        '<div id="smCreditPreview" style="font-size:13px;color:#152550;font-weight:600;margin-top:10px">Credit: \\u00a3' + unitPrice.toFixed(2) + '/month</div>' +
-        '<div style="font-size:11px;color:#8a94a6;margin-top:8px">Reduces next month\\u2019s bill \\u2014 recorded as a credit in Purchases.</div>',
+        '<div id="smCreditPreview" style="font-size:13px;color:#1a7a4a;font-weight:600;margin-top:10px">You\\u2019ll save \\u00a3' + unitPrice.toFixed(2) + '/month</div>' +
+        '<div style="font-size:11px;color:#8a94a6;margin-top:8px">Reduces next month\\u2019s bill \\u2014 logged as a credit in Purchases history.</div>',
       'Remove Seats',
       function() {
         var n = parseInt(document.getElementById('smRemoveQty').value, 10);
@@ -479,7 +498,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
       qtyInput.oninput = function() {
         var n = parseInt(qtyInput.value, 10) || 0;
         var preview = document.getElementById('smCreditPreview');
-        if (preview) preview.textContent = 'Credit: \\u00a3' + (n * unitPrice).toFixed(2) + '/month';
+        if (preview) preview.textContent = 'You\\u2019ll save \\u00a3' + (n * unitPrice).toFixed(2) + '/month';
       };
     }
   }
@@ -597,11 +616,11 @@ export const SUBSCRIPTION_SCRIPT: string = `
     attachCardFormatting();
   }
 
-  /* Standalone "change payment method" — reachable from Manage Subscription
+  /* Standalone "change payment method" — reachable from Manage Cards
      without buying anything. Always saves (no checkbox: the entire point of
      opening this form here is to update the card on file) and returns to
-     the Manage Subscription modal afterward so status/autopay stay visible. */
-  function renderStandaloneCardForm(existingPm) {
+     whichever modal opened it (onSaved) afterward. */
+  function renderStandaloneCardForm(existingPm, onSaved) {
     window.subsOpenModal(
       existingPm ? 'Change Payment Method' : 'Add Payment Method',
       '<div class="fld"><label>Cardholder name</label><input id="pmName" placeholder="Faisal Khan" value="' + (existingPm ? existingPm.cardholder_name : '') + '"></div>' +
@@ -632,17 +651,53 @@ export const SUBSCRIPTION_SCRIPT: string = `
             return;
           }
           if (window.toast) window.toast('\\u2713 Payment method saved');
-          window.subsManagePlan();
+          (onSaved || showManageCardsModal)();
         });
       }
     );
     attachCardFormatting();
   }
 
+  /* Payment method view/change/remove, split out of Manage Subscription
+     into its own entry point (see ensureManageCardsButton) so it isn't a
+     side-effect of managing the subscription's cancel/autopay state. */
+  function showManageCardsModal() {
+    subsApiGet('/api/subscription/payment-method').then(function(pm) {
+      window.subsOpenModal(
+        'Manage Cards',
+        '<div class="kv" style="margin-bottom:14px"><span>Payment method</span><b>' + (pm && pm.last4 ? cardSummaryLine(pm) : 'No card on file') + '</b></div>' +
+          '<div style="font-size:12.5px;color:#5b6a7d">Used when buying seats from Subscription. Demo checkout \\u2014 no real card is ever charged.</div>',
+        pm && pm.last4 ? 'Change Card' : 'Add Card',
+        function() { renderStandaloneCardForm(pm, showManageCardsModal); }
+      );
+      if (pm && pm.last4) {
+        var footer = document.querySelector('#subsModal .sm-f');
+        if (footer) {
+          var removeLink = document.createElement('a');
+          removeLink.textContent = 'Remove card';
+          removeLink.style.cssText = 'font-size:12px;color:#5b6a7d;cursor:pointer;margin-right:auto;align-self:center';
+          removeLink.onclick = function() {
+            if (!window.confirm('Remove the saved card? You\\u2019ll need to add one again before buying more seats.')) return;
+            subsApiPost('/api/subscription/payment-method', {}, 'DELETE').then(function() {
+              if (window.toast) window.toast('Payment method removed');
+              showManageCardsModal();
+            }).catch(function() {
+              if (window.toast) window.toast('\\u2717 Could not remove card \\u2014 please try again.');
+            });
+          };
+          footer.insertBefore(removeLink, footer.firstChild);
+        }
+      }
+    });
+  }
+
   /* "Request a Plan Change" opened a free-text box that only logged an
      audit entry — nothing anyone typed there ever did anything. Replaced
      with the subscription's actual account-level controls: current
-     status, the card on file, an autopay toggle, and cancel/reactivate. */
+     status, an autopay toggle, and cancel/reactivate. Payment-method
+     view/change/remove lives in its own "Manage Cards" modal instead (see
+     showManageCardsModal) — this one is scoped to the subscription's
+     lifecycle only. */
   function wrapManagePlan() {
     if (typeof window.subsManagePlan !== 'function' || window.subsManagePlan.__mcmSubsPolished) return;
     var polished = function() {
@@ -650,72 +705,53 @@ export const SUBSCRIPTION_SCRIPT: string = `
       var status = overview.subStatus || 'Active';
       var autopay = overview.autopay !== false;
       var cancelled = status === 'Cancelled';
-      subsApiGet('/api/subscription/payment-method').then(function(pm) {
-        window.subsOpenModal(
-          'Manage Subscription',
-          '<div class="kv" style="margin-bottom:6px"><span>Status</span><b style="color:' + (cancelled ? '#b3261e' : '#1a7a4a') + '">' + status + '</b></div>' +
-            '<div class="kv" style="margin-bottom:14px"><span>Payment method</span><b>' + (pm && pm.last4 ? cardSummaryLine(pm) : 'No card on file') + '</b></div>' +
-            '<div style="margin-bottom:16px;display:flex;gap:12px"><a id="pmChangeCard" style="font-size:12px;color:#c9401a;cursor:pointer">' + (pm && pm.last4 ? 'Change payment method' : 'Add payment method') + '</a>' +
-            (pm && pm.last4 ? '<a id="pmRemoveCard" style="font-size:12px;color:#5b6a7d;cursor:pointer">Remove card</a>' : '') + '</div>' +
-            '<div class="tgl" style="margin-bottom:16px"><input type="checkbox" id="pmAutopay" style="width:auto;margin-right:6px"' + (autopay ? ' checked' : '') + '> Autopay (charge automatically each month)</div>' +
-            (cancelled
-              ? '<div style="font-size:12.5px;color:#5b6a7d">Your subscription is cancelled. Reactivate to buy more seats or resume autopay.</div>'
-              : '<div style="font-size:12.5px;color:#5b6a7d">Cancelling stops future automatic charges. Your current seats stay active until the end of this billing period.</div>'),
-          cancelled ? 'Reactivate Subscription' : 'Cancel Subscription',
-          function() {
-            if (!cancelled && !window.confirm('Cancel your subscription? This stops future automatic billing.')) return;
-            var endpoint = cancelled ? '/api/subscription/reactivate' : '/api/subscription/cancel';
-            var submitBtn = document.getElementById('smSubmit');
-            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Processing\\u2026'; }
-            subsApiPost(endpoint, {}).then(function(r) {
-              if (r && r.ok === false) {
-                if (window.toast) window.toast('\\u2717 ' + (r.error || 'Could not update subscription'));
-                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = cancelled ? 'Reactivate Subscription' : 'Cancel Subscription'; }
-                return;
-              }
-              document.querySelector('#subsModal .sm-b').innerHTML = '<div class="sm-ok">\\u2713 ' + (cancelled ? 'Subscription reactivated.' : 'Subscription cancelled.') + '</div>';
-              document.querySelector('#subsModal .sm-f').innerHTML = '<button class="btn" onclick="closeSubsModal();renderSubsFx();">Done</button>';
-            }).catch(function() {
-              if (window.toast) window.toast('\\u2717 Could not update subscription \\u2014 please try again.');
+      window.subsOpenModal(
+        'Manage Subscription',
+        '<div class="kv" style="margin-bottom:14px"><span>Status</span><b style="color:' + (cancelled ? '#b3261e' : '#1a7a4a') + '">' + status + '</b></div>' +
+          '<div class="tgl" style="margin-bottom:16px"><input type="checkbox" id="pmAutopay" style="width:auto;margin-right:6px"' + (autopay ? ' checked' : '') + '> Autopay (charge automatically each month)</div>' +
+          (cancelled
+            ? '<div style="font-size:12.5px;color:#5b6a7d">Your subscription is cancelled. Reactivate to buy more seats or resume autopay.</div>'
+            : '<div style="font-size:12.5px;color:#5b6a7d">Cancelling stops future automatic charges. Your current seats stay active until the end of this billing period.</div>'),
+        cancelled ? 'Reactivate Subscription' : 'Cancel Subscription',
+        function() {
+          if (!cancelled && !window.confirm('Cancel your subscription? This stops future automatic billing.')) return;
+          var endpoint = cancelled ? '/api/subscription/reactivate' : '/api/subscription/cancel';
+          var submitBtn = document.getElementById('smSubmit');
+          if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Processing\\u2026'; }
+          subsApiPost(endpoint, {}).then(function(r) {
+            if (r && r.ok === false) {
+              if (window.toast) window.toast('\\u2717 ' + (r.error || 'Could not update subscription'));
               if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = cancelled ? 'Reactivate Subscription' : 'Cancel Subscription'; }
-            });
-          }
-        );
-        var changeCard = document.getElementById('pmChangeCard');
-        if (changeCard) changeCard.onclick = function() { renderStandaloneCardForm(pm); };
-        var removeCard = document.getElementById('pmRemoveCard');
-        if (removeCard) {
-          removeCard.onclick = function() {
-            if (!window.confirm('Remove the saved card? You\\u2019ll need to add one again before buying more seats.')) return;
-            subsApiPost('/api/subscription/payment-method', {}, 'DELETE').then(function() {
-              if (window.toast) window.toast('Payment method removed');
-              window.subsManagePlan();
-            }).catch(function() {
-              if (window.toast) window.toast('\\u2717 Could not remove card \\u2014 please try again.');
-            });
-          };
+              return;
+            }
+            document.querySelector('#subsModal .sm-b').innerHTML = '<div class="sm-ok">\\u2713 ' + (cancelled ? 'Subscription reactivated.' : 'Subscription cancelled.') + '</div>';
+            document.querySelector('#subsModal .sm-f').innerHTML = '<button class="btn" onclick="closeSubsModal();renderSubsFx();">Done</button>';
+          }).catch(function() {
+            if (window.toast) window.toast('\\u2717 Could not update subscription \\u2014 please try again.');
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = cancelled ? 'Reactivate Subscription' : 'Cancel Subscription'; }
+          });
         }
-        var autopayBox = document.getElementById('pmAutopay');
-        if (autopayBox) {
-          autopayBox.onchange = function() {
-            var next = autopayBox.checked;
-            autopayBox.disabled = true;
-            subsApiPost('/api/subscription/autopay', { enabled: next }).then(function(r) {
-              autopayBox.disabled = false;
-              if (r && r.ok === false) {
-                autopayBox.checked = !next;
-                if (window.toast) window.toast('\\u2717 ' + (r.error || 'Could not save autopay setting'));
-                return;
-              }
-              if (window.toast) window.toast(next ? 'Autopay enabled' : 'Autopay disabled');
-            }).catch(function() {
-              autopayBox.disabled = false;
+      );
+      var autopayBox = document.getElementById('pmAutopay');
+      if (autopayBox) {
+        autopayBox.onchange = function() {
+          var next = autopayBox.checked;
+          autopayBox.disabled = true;
+          subsApiPost('/api/subscription/autopay', { enabled: next }).then(function(r) {
+            autopayBox.disabled = false;
+            if (r && r.ok === false) {
               autopayBox.checked = !next;
-              if (window.toast) window.toast('\\u2717 Could not save autopay setting \\u2014 please try again.');
-            });
-          };
-        }
-      });
+              if (window.toast) window.toast('\\u2717 ' + (r.error || 'Could not save autopay setting'));
+              return;
+            }
+            if (window.toast) window.toast(next ? 'Autopay enabled' : 'Autopay disabled');
+          }).catch(function() {
+            autopayBox.disabled = false;
+            autopayBox.checked = !next;
+            if (window.toast) window.toast('\\u2717 Could not save autopay setting \\u2014 please try again.');
+          });
+        };
+      }
     };
     polished.__mcmSubsPolished = true;
     window.subsManagePlan = polished;

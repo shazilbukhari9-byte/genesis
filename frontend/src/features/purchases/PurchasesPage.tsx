@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
 import { toast } from "../shared/toast";
-import { deletePurchase, fetchBudget, fetchPurchases, updateBudget } from "./purchasesService";
+import { fetchBudget, fetchPurchases, updateBudget } from "./purchasesService";
 import type { Purchase } from "./types";
 
 const QUERY_KEY = ["purchases"];
@@ -61,17 +61,8 @@ function exportPurchasesCsv(purchases: Purchase[]): void {
 }
 
 // Purchase history is a record, not something anyone should be able to
-// rewrite after the fact. Rows open this read-only view instead of an
-// edit form; delete (with confirmation) is the only other action here.
-function PurchaseDetailDrawer({
-  purchase,
-  onClose,
-  onDelete,
-}: {
-  purchase: Purchase;
-  onClose: () => void;
-  onDelete: () => void;
-}) {
+// rewrite — or remove — after the fact. Rows just open this read-only view.
+function PurchaseDetailDrawer({ purchase, onClose }: { purchase: Purchase; onClose: () => void }) {
   const rows: [string, string][] = [
     ["Item", purchase.item],
     ["Category", purchase.category ?? "—"],
@@ -98,14 +89,6 @@ function PurchaseDetailDrawer({
           ))}
         </div>
         <div className="df">
-          <LegacyBtn
-            secondary
-            onClick={() => {
-              if (confirm(`Delete "${purchase.item}"? This only removes it from your spend history — it won't undo a related seat change.`)) onDelete();
-            }}
-          >
-            Delete purchase
-          </LegacyBtn>
           <LegacyBtn secondary onClick={onClose}>
             Close
           </LegacyBtn>
@@ -286,7 +269,6 @@ function ExpenseTracker({ purchases }: { purchases: Purchase[] }) {
 }
 
 export function PurchasesPage() {
-  const queryClient = useQueryClient();
   const [viewing, setViewing] = useState<Purchase | null>(null);
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -295,16 +277,6 @@ export function PurchasesPage() {
   const { data, isLoading } = useQuery({
     queryKey: QUERY_KEY,
     queryFn: fetchPurchases,
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: deletePurchase,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-      setViewing(null);
-      toast("Purchase deleted");
-    },
-    onError: () => toast("Couldn't delete purchase — try again."),
   });
 
   const purchases = data ?? [];
@@ -395,13 +367,12 @@ export function PurchasesPage() {
                 <th>Category</th>
                 <th>Price</th>
                 <th>Purchased</th>
-                <th style={{ width: 40 }}></th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", color: "#8794a8", padding: 18 }}>
+                  <td colSpan={4} style={{ textAlign: "center", color: "#8794a8", padding: 18 }}>
                     Loading…
                   </td>
                 </tr>
@@ -414,20 +385,11 @@ export function PurchasesPage() {
                     <td>{p.category ?? "—"}</td>
                     <td>{p.price != null ? fmtMoney(p.price) : "—"}</td>
                     <td>{fmtPurchasedAt(p.purchased_at)}</td>
-                    <td
-                      style={{ color: "#a9b3c2", cursor: "pointer" }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm(`Delete "${p.item}"? This only removes it from your spend history — it won't undo a related seat change.`)) deleteMutation.mutate(p.id);
-                      }}
-                    >
-                      ⋮
-                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", color: "#8794a8", padding: 18 }}>
+                  <td colSpan={4} style={{ textAlign: "center", color: "#8794a8", padding: 18 }}>
                     {purchases.length
                       ? "No purchases match your filters."
                       : "No purchases yet — seat purchases from the Subscription page will appear here."}
@@ -441,13 +403,7 @@ export function PurchasesPage() {
         <LegacyHelpPanel topicKey="purch" />
       </div>
 
-      {viewing && (
-        <PurchaseDetailDrawer
-          purchase={viewing}
-          onClose={() => setViewing(null)}
-          onDelete={() => deleteMutation.mutate(viewing.id)}
-        />
-      )}
+      {viewing && <PurchaseDetailDrawer purchase={viewing} onClose={() => setViewing(null)} />}
     </>
   );
 }
