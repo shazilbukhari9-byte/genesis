@@ -675,6 +675,50 @@ def _guess_card_brand(number):
     return {'4': 'Visa', '5': 'Mastercard', '3': 'Amex', '6': 'Discover'}.get(first, 'Card')
 
 
+def _luhn_valid(number):
+    """Standard mod-10 checksum every real card number (and every
+    well-known test number, including 4242 4242 4242 4242) satisfies —
+    catches an obvious typo without needing a real payment processor."""
+    total = 0
+    for i, ch in enumerate(reversed(number)):
+        n = int(ch)
+        if i % 2 == 1:
+            n *= 2
+            if n > 9:
+                n -= 9
+        total += n
+    return total % 10 == 0
+
+
+def _validate_card(data):
+    """Returns an error string, or None if every field is acceptable.
+    Frontend runs the same checks first (see subscription-redesign.ts's
+    validateCardInput) so this is the real enforcement point, not the only
+    one — a direct API call bypassing the UI still can't save garbage."""
+    name = (data.get('cardholder_name') or '').strip()
+    number = re.sub(r'\D', '', data.get('card_number') or '')
+    exp_month = data.get('exp_month')
+    exp_year = data.get('exp_year')
+    cvv = re.sub(r'\D', '', str(data.get('cvv') or ''))
+
+    if not name:
+        return 'Cardholder name is required'
+    if not (13 <= len(number) <= 19):
+        return 'Card number must be 13–19 digits'
+    if not _luhn_valid(number):
+        return 'Card number is invalid — check for a typo'
+    if not isinstance(exp_month, int) or not (1 <= exp_month <= 12):
+        return 'Expiry month must be 1–12'
+    if not isinstance(exp_year, int):
+        return 'Expiry year is required'
+    now = datetime.now()
+    if (exp_year, exp_month) < (now.year, now.month):
+        return 'Card has expired'
+    if not (3 <= len(cvv) <= 4):
+        return 'CVV must be 3 or 4 digits'
+    return None
+
+
 @app.route('/api/subscription/payment-method', methods=['GET', 'PUT'])
 def payment_method():
     """The dummy card on file for Subscription's checkout — see
@@ -684,13 +728,14 @@ def payment_method():
     cur = conn.cursor()
     if request.method == 'PUT':
         data = request.get_json(force=True) or {}
-        name = (data.get('cardholder_name') or '').strip()
-        number = re.sub(r'\D', '', data.get('card_number') or '')
-        exp_month = data.get('exp_month')
-        exp_year = data.get('exp_year')
-        if not name or len(number) < 12 or not isinstance(exp_month, int) or not isinstance(exp_year, int):
+        error = _validate_card(data)
+        if error:
             conn.close()
-            return jsonify({'ok': False, 'error': 'cardholder_name, a valid card_number, exp_month and exp_year are required'}), 400
+            return jsonify({'ok': False, 'error': error}), 400
+        name = data['cardholder_name'].strip()
+        number = re.sub(r'\D', '', data.get('card_number') or '')
+        exp_month = data['exp_month']
+        exp_year = data['exp_year']
         brand = _guess_card_brand(number)
         last4 = number[-4:]
         cur.execute(

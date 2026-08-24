@@ -67,6 +67,48 @@ export const SUBSCRIPTION_SCRIPT: string = `
     return fetch(API_BASE + path, { headers: window.__mcmAuthHeaders ? window.__mcmAuthHeaders() : {} }).then(function(r) { return r.json(); });
   }
 
+  // Standard mod-10 checksum every real card number (and every well-known
+  // test number, including 4242 4242 4242 4242) satisfies — catches an
+  // obvious typo before it ever reaches the network. Mirrored server-side
+  // in backend/app.py's _validate_card as the real enforcement point.
+  function luhnValid(digits) {
+    var sum = 0, alt = false;
+    for (var i = digits.length - 1; i >= 0; i--) {
+      var n = parseInt(digits.charAt(i), 10);
+      if (alt) { n *= 2; if (n > 9) n -= 9; }
+      sum += n;
+      alt = !alt;
+    }
+    return sum % 10 === 0;
+  }
+
+  // Shared by both the buy-flow card form and the standalone Manage
+  // Subscription one — used to just check "is every field non-empty"
+  // (length >= 12, no real number check, no expiry-in-the-future check,
+  // no CVV length check), so obviously-wrong input like an already-expired
+  // card or a mistyped number was silently accepted.
+  function validateCardInput(name, cardRaw, expRaw, cvvRaw) {
+    name = (name || '').trim();
+    var digits = (cardRaw || '').replace(/\\D/g, '');
+    var cvv = (cvvRaw || '').replace(/\\D/g, '');
+    if (!name) return { ok: false, error: 'Cardholder name is required' };
+    if (digits.length < 13 || digits.length > 19) return { ok: false, error: 'Card number must be 13\\u201319 digits' };
+    if (!luhnValid(digits)) return { ok: false, error: 'Card number is invalid \\u2014 check for a typo' };
+    var expParts = (expRaw || '').trim().split('/');
+    var expMonth = parseInt(expParts[0], 10);
+    var expYearRaw = parseInt(expParts[1], 10);
+    if (expParts.length !== 2 || !expMonth || expMonth < 1 || expMonth > 12 || !expYearRaw) {
+      return { ok: false, error: 'Expiry must be MM/YY' };
+    }
+    var expYear = expYearRaw < 100 ? 2000 + expYearRaw : expYearRaw;
+    var now = new Date();
+    if (expYear < now.getFullYear() || (expYear === now.getFullYear() && expMonth < now.getMonth() + 1)) {
+      return { ok: false, error: 'Card has expired' };
+    }
+    if (cvv.length < 3 || cvv.length > 4) return { ok: false, error: 'CVV must be 3 or 4 digits' };
+    return { ok: true, name: name, digits: digits, expMonth: expMonth, expYear: expYear, cvv: cvv };
+  }
+
   var ICONS = {
     phone: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>',
     chat: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>',
@@ -392,15 +434,14 @@ export const SUBSCRIPTION_SCRIPT: string = `
         '<div style="font-size:11px;color:#8a94a6;margin-top:6px">Demo checkout \\u2014 no real card is charged.</div>',
       'Pay \\u00a3' + total,
       function() {
-        var name = (document.getElementById('pmName').value || '').trim();
-        var card = (document.getElementById('pmCard').value || '').trim();
-        var exp = (document.getElementById('pmExp').value || '').trim();
-        var cvv = (document.getElementById('pmCvv').value || '').trim();
-        var expParts = exp.split('/');
-        var expMonth = parseInt(expParts[0], 10);
-        var expYear = parseInt(expParts[1], 10);
-        if (!name || card.replace(/\\s/g, '').length < 12 || expParts.length !== 2 || !expMonth || !expYear || !cvv) {
-          if (window.toast) window.toast('\\u2717 Fill in all payment fields (expiry as MM/YY)');
+        var v = validateCardInput(
+          document.getElementById('pmName').value,
+          document.getElementById('pmCard').value,
+          document.getElementById('pmExp').value,
+          document.getElementById('pmCvv').value
+        );
+        if (!v.ok) {
+          if (window.toast) window.toast('\\u2717 ' + v.error);
           return;
         }
         var submitBtn = document.getElementById('smSubmit');
@@ -408,11 +449,18 @@ export const SUBSCRIPTION_SCRIPT: string = `
         var saveCard = document.getElementById('pmSave').checked;
         var proceed = saveCard
           ? subsApiPost('/api/subscription/payment-method', {
-              cardholder_name: name, card_number: card,
-              exp_month: expMonth, exp_year: expYear < 100 ? 2000 + expYear : expYear
+              cardholder_name: v.name, card_number: v.digits,
+              exp_month: v.expMonth, exp_year: v.expYear, cvv: v.cvv
             }, 'PUT')
           : Promise.resolve();
-        proceed.then(function() { finishSeatPurchase(lic, label, qty, total, submitBtn); });
+        proceed.then(function(r) {
+          if (r && r.ok === false) {
+            if (window.toast) window.toast('\\u2717 ' + (r.error || 'Could not save card'));
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay \\u00a3' + total; }
+            return;
+          }
+          finishSeatPurchase(lic, label, qty, total, submitBtn);
+        });
       }
     );
   }
@@ -430,23 +478,27 @@ export const SUBSCRIPTION_SCRIPT: string = `
         '<div style="font-size:11px;color:#8a94a6;margin-top:6px">Demo checkout \\u2014 no real card is charged.</div>',
       'Save Card',
       function() {
-        var name = (document.getElementById('pmName').value || '').trim();
-        var card = (document.getElementById('pmCard').value || '').trim();
-        var exp = (document.getElementById('pmExp').value || '').trim();
-        var cvv = (document.getElementById('pmCvv').value || '').trim();
-        var expParts = exp.split('/');
-        var expMonth = parseInt(expParts[0], 10);
-        var expYear = parseInt(expParts[1], 10);
-        if (!name || card.replace(/\\s/g, '').length < 12 || expParts.length !== 2 || !expMonth || !expYear || !cvv) {
-          if (window.toast) window.toast('\\u2717 Fill in all payment fields (expiry as MM/YY)');
+        var v = validateCardInput(
+          document.getElementById('pmName').value,
+          document.getElementById('pmCard').value,
+          document.getElementById('pmExp').value,
+          document.getElementById('pmCvv').value
+        );
+        if (!v.ok) {
+          if (window.toast) window.toast('\\u2717 ' + v.error);
           return;
         }
         var submitBtn = document.getElementById('smSubmit');
         if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving\\u2026'; }
         subsApiPost('/api/subscription/payment-method', {
-          cardholder_name: name, card_number: card,
-          exp_month: expMonth, exp_year: expYear < 100 ? 2000 + expYear : expYear
-        }, 'PUT').then(function() {
+          cardholder_name: v.name, card_number: v.digits,
+          exp_month: v.expMonth, exp_year: v.expYear, cvv: v.cvv
+        }, 'PUT').then(function(r) {
+          if (r && r.ok === false) {
+            if (window.toast) window.toast('\\u2717 ' + (r.error || 'Could not save card'));
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Save Card'; }
+            return;
+          }
           if (window.toast) window.toast('\\u2713 Payment method saved');
           window.subsManagePlan();
         });
