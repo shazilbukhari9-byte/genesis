@@ -218,6 +218,32 @@ export const SUBSCRIPTION_SCRIPT: string = `
     document.querySelectorAll('.sc-add, .sa-btn').forEach(function(el) { swapLeadingGlyph(el, ICONS.plus); });
   }
 
+  /* scripts.ts only ever renders a licence card's own "+ Add Seats" button
+     when that tier has 2 or fewer seats left (avail<=2) — every other card
+     (the overwhelming majority, in practice) has no buy affordance on it at
+     all, which is what made the whole checkout flow above unreachable under
+     normal conditions. Adds the button to every card that doesn't already
+     have one, using the same window.subsAddSeats(code) the scarce-seats
+     case already calls. */
+  function ensureAddSeatsButtons() {
+    var overview = window.SUBS_LAST_OVERVIEW;
+    if (!overview || !overview.label) return;
+    var labelToCode = {};
+    Object.keys(overview.label).forEach(function(code) { labelToCode[overview.label[code]] = code; });
+    document.querySelectorAll('.subs-card').forEach(function(card) {
+      var foot = card.querySelector('.sc-foot');
+      if (!foot || foot.querySelector('.sc-add')) return;
+      var nameEl = card.querySelector('.sc-name');
+      var code = nameEl && labelToCode[nameEl.textContent];
+      if (!code) return;
+      var btn = document.createElement('button');
+      btn.className = 'sc-add';
+      btn.onclick = function() { window.subsAddSeats(code); };
+      btn.innerHTML = '<span style="display:inline-flex;align-items:center;vertical-align:middle;margin-right:4px">' + ICONS.plus + '</span>Add Seats';
+      foot.appendChild(btn);
+    });
+  }
+
   /* Visible on the page itself (not just inside the Manage Subscription
      modal) so a cancelled subscription is obvious without opening
      anything. */
@@ -324,6 +350,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
         var result = await originalRenderSubsFx.apply(this, arguments);
         stripDuplicateManagePlanButton();
         modernizeSubsIcons();
+        ensureAddSeatsButtons();
         renderSubStatusBanner();
         return result;
       } catch (e) {
