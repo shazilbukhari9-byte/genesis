@@ -3,9 +3,12 @@ from datetime import datetime
 from calendar import monthrange
 from flask import Flask, jsonify, request, g
 from flask_cors import CORS
+import psycopg2
+from psycopg2 import errors as pg_errors
 from psycopg2.extras import Json as PgJson
+from werkzeug.exceptions import HTTPException
 
-from db import get_db
+from db import get_db, close_request_connections
 from resources import REGISTRY
 from interactions import interactions_bp
 from acd import acd_bp
@@ -28,6 +31,9 @@ from certs import certs_bp
 from contactlists import contactlists_bp
 from dataact import dataact_bp
 from dnclists import dnclists_bp
+from catalogue import catalogue_bp
+from client_apps import client_apps_bp
+from botconnectors import botconnectors_bp
 import config
 import init_db
 
@@ -37,7 +43,76 @@ _SAFE_IDENTIFIER = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
-CORS(app, origins=['http://localhost:8080', 'https://genesis-eta-six.vercel.app'], supports_credentials=True)
+# Every error handler below must win over Flask's interactive HTML debugger
+# even when running locally with debug=True (see bottom of this file) — an
+# API has no business ever returning an HTML page, in dev or prod.
+app.config['PROPAGATE_EXCEPTIONS'] = False
+CORS(app, origins=config.CORS_ORIGINS, supports_credentials=True)
+
+# Routes open connections with `conn = get_db()` and close them inline. Any
+# exception in between skips that close(), so this teardown rolls back and
+# closes whatever the request left open. Connections closed normally are
+# skipped, so the happy path is untouched.
+app.teardown_appcontext(close_request_connections)
+
+
+# --- Global error handling (Section: production-readiness) ---
+# psycopg2 raises these directly from cur.execute() with no application code
+# in between — rather than duplicating the schema's own NOT NULL/UNIQUE/FK
+# rules as a second, hand-maintained validation layer in Python (which
+# would just drift out of sync with schema.sql over time), every write
+# route lets Postgres be the single source of truth for those constraints
+# and these handlers translate its errors into the same {'ok': False,
+# 'error': ...} JSON shape every route already returns on the happy-path
+# failure branches (see resource_create/update/delete above).
+# Friendlier text for the unique constraints/indexes a client is actually
+# likely to hit — falls back to the raw constraint name for everything else
+# rather than guessing at a message for one nobody has hit yet.
+_UNIQUE_VIOLATION_MESSAGES = {
+    'integration_catalogue_tenant_id_name_key': 'a catalogue entry with this name already exists',
+    'idx_installed_integrations_tenant_name': 'this integration is already installed',
+    'client_applications_installed_integration_id_key': 'this integration is already registered as a client application',
+    'idx_users_email_unique': 'a user with this email already exists',
+    'idx_data_actions_tenant_name_ci': 'a data action with this name already exists',
+}
+
+
+@app.errorhandler(pg_errors.UniqueViolation)
+def _handle_unique_violation(exc):
+    constraint = exc.diag.constraint_name or ''
+    message = _UNIQUE_VIOLATION_MESSAGES.get(constraint, f'a record with this {constraint or "value"} already exists')
+    return jsonify({'ok': False, 'error': message}), 409
+
+
+@app.errorhandler(pg_errors.ForeignKeyViolation)
+def _handle_fk_violation(exc):
+    return jsonify({'ok': False, 'error': 'referenced record does not exist'}), 400
+
+
+@app.errorhandler(pg_errors.NotNullViolation)
+def _handle_not_null_violation(exc):
+    column = exc.diag.column_name or 'a required field'
+    return jsonify({'ok': False, 'error': f'{column} is required'}), 400
+
+
+@app.errorhandler(psycopg2.DataError)
+def _handle_data_error(exc):
+    return jsonify({'ok': False, 'error': 'invalid field value'}), 400
+
+
+@app.errorhandler(Exception)
+def _handle_unexpected_error(exc):
+    # Real HTTP errors Flask/Werkzeug already knows how to raise (malformed
+    # JSON body, 404 on an unmatched route, 405 on a wrong method, ...) keep
+    # their own status code and message, just re-shaped into the same JSON
+    # envelope every other route already returns — this is a JSON API, it
+    # has no business ever sending an HTML error page back, in dev or prod.
+    if isinstance(exc, HTTPException):
+        return jsonify({'ok': False, 'error': exc.description or exc.name}), exc.code
+    app.logger.exception('unhandled error')
+    return jsonify({'ok': False, 'error': 'internal server error'}), 500
+
+
 app.register_blueprint(interactions_bp)
 app.register_blueprint(acd_bp)
 app.register_blueprint(carrier_bp)
@@ -59,6 +134,9 @@ app.register_blueprint(certs_bp)
 app.register_blueprint(contactlists_bp)
 app.register_blueprint(dataact_bp)
 app.register_blueprint(dnclists_bp)
+app.register_blueprint(catalogue_bp)
+app.register_blueprint(client_apps_bp)
+app.register_blueprint(botconnectors_bp)
 register_auth_guard(app)
 
 
@@ -230,8 +308,27 @@ def index():
             'DELETE /api/contactlists/<id>/contacts/<contact_id>',
             'PATCH  /api/contactlists/<id>/contacts/<contact_id>/dnc',
         ],
+        'bot_connectors': [
+            'GET    /api/bot-connectors  (optional ?q=, ?status=, ?platform=, ?lifecycle=, ?division=)',
+            'GET    /api/bot-connectors/<id>',
+            'POST   /api/bot-connectors',
+            'PUT    /api/bot-connectors/<id>',
+            'DELETE /api/bot-connectors/<id>',
+            'POST   /api/bot-connectors/<id>/connect',
+            'POST   /api/bot-connectors/<id>/disconnect',
+            'POST   /api/bot-connectors/<id>/test',
+            'GET    /api/bot-connectors/intents  (optional ?bot_connector_id=)',
+            'POST   /api/bot-connectors/<id>/intents',
+            'DELETE /api/bot-connectors/intents/<intent_id>',
+            'POST   /api/bot-connectors/match-intent',
+        ],
         'dataact': [
             'GET    /api/dataact  (optional ?integration=, ?division=, ?status=, ?q=)',
+            'GET    /api/dataact/runs  (Run History tab, optional ?limit=)',
+            'GET    /api/dataact/contracts  (optional ?data_action_id=)',
+            'GET    /api/dataact/<id>',
+            'GET    /api/dataact/<id>/contract',
+            'PUT    /api/dataact/<id>/contract',
             'POST   /api/dataact',
             'PUT    /api/dataact/<id>',
             'DELETE /api/dataact/<id>',
@@ -593,7 +690,13 @@ def audit_log():
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('SELECT * FROM audit_log WHERE tenant_id = %s ORDER BY id DESC LIMIT 200', (g.tenant_id,))
+    # Tenant-scoped: this used to return the newest 200 rows across every
+    # tenant, exposing other tenants' integration installs, data-action names
+    # and bot-connector names to any signed-in user.
+    cur.execute(
+        'SELECT * FROM audit_log WHERE tenant_id = %s ORDER BY id DESC LIMIT 200',
+        (g.tenant_id,),
+    )
     rows = cur.fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
@@ -817,8 +920,14 @@ def resource_list(resource):
         where.append('tenant_id = %s')
         params.append(g.tenant_id)
 
-    limit = min(int(request.args.get('limit', 100)), 2000)
-    offset = int(request.args.get('offset', 0))
+    # A non-numeric or negative ?limit=/?offset= used to raise straight out of
+    # int() and surface as a generic 500; a malformed query string is the
+    # caller's mistake, so it gets a 400 that says which parameter was wrong.
+    try:
+        limit = min(max(int(request.args.get('limit', 100)), 0), 2000)
+        offset = max(int(request.args.get('offset', 0)), 0)
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'limit and offset must be integers'}), 400
     order = _safe_order(request.args.get('order'), spec)
 
     sql = f"SELECT * FROM {spec['table']}"

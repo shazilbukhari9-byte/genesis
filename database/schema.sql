@@ -74,6 +74,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TIMESTAMP NOT NULL
 );
 
+-- audit_log's tenant_id column is added further down, immediately after the
+-- tenants table it references exists (see "audit_log predates multi-tenancy"
+-- below). It cannot be declared here: this file creates audit_log before
+-- tenants, so an inline REFERENCES at this point fails on a fresh database.
+
 -- Generic resource-registry entities (see resources.py) live below this line.
 CREATE TABLE IF NOT EXISTS purchases (
   id SERIAL PRIMARY KEY,
@@ -460,6 +465,43 @@ CREATE TABLE IF NOT EXISTS gamification_profiles (
 -- Admin > Integrations > Integrations page's "Installed" tab. Scoped to
 -- just that tab for now — Catalogue/Client Applications/Credentials stay
 -- static display, no table needed for them yet.
+-- Admin > Integrations > Integrations page's "Catalogue" tab — the
+-- marketplace of integrations available to install. Previously a
+-- hardcoded CATALOGUE_ITEMS array in the frontend (frontend/src/mcm/
+-- scripts.ts); now real, admin-manageable rows. Same field set as
+-- installed_integrations below (name/category/type/credentials/used_by)
+-- since installing just copies those into a new installed_integrations
+-- row — no description/icon/provider columns, since nothing in the
+-- Catalogue UI displays or needs them. status supports retiring a
+-- catalogue entry (PUT status='Deprecated') without losing the row's
+-- history; UNIQUE(tenant_id, name) keeps the catalogue itself from
+-- accumulating duplicate entries.
+CREATE TABLE IF NOT EXISTS integration_catalogue (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category TEXT,
+  type TEXT,
+  credentials TEXT,
+  used_by TEXT,
+  status TEXT NOT NULL DEFAULT 'Active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, name)
+);
+
+DROP TRIGGER IF EXISTS trg_integration_catalogue_touch ON integration_catalogue;
+CREATE TRIGGER trg_integration_catalogue_touch BEFORE UPDATE ON integration_catalogue
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- Admin > Integrations > Integrations page's "Installed" tab. Client
+-- Applications derives from here (see client_applications below);
+-- Catalogue has its own table (integration_catalogue, above).
+-- catalogue_id records which catalogue entry an install came from, when
+-- it came from one — nullable + ON DELETE SET NULL so retiring a
+-- catalogue entry never breaks an integration a tenant already installed
+-- from it (manually-added installs, from the "+ Install Integration"
+-- button rather than the Catalogue tab, simply have no catalogue_id).
 CREATE TABLE IF NOT EXISTS installed_integrations (
   id SERIAL PRIMARY KEY,
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -471,6 +513,12 @@ CREATE TABLE IF NOT EXISTS installed_integrations (
   division TEXT,
   status TEXT NOT NULL DEFAULT 'Active'
 );
+ALTER TABLE installed_integrations ADD COLUMN IF NOT EXISTS catalogue_id INTEGER REFERENCES integration_catalogue(id) ON DELETE SET NULL;
+-- Duplicate prevention: the same integration can't be installed twice for
+-- one tenant. A unique index (not a table-level UNIQUE(...) clause) so it
+-- can be added idempotently to a table that may already exist — Postgres
+-- has no ADD CONSTRAINT IF NOT EXISTS for this.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_installed_integrations_tenant_name ON installed_integrations(tenant_id, name);
 
 -- Admin > Integrations > Integrations page's "Credentials" tab. No secret
 -- value column on purpose — the page's own text says credentials are
@@ -483,6 +531,40 @@ CREATE TABLE IF NOT EXISTS integration_credentials (
   integration_name TEXT,
   rotated_at DATE
 );
+-- Every read of this table filters by tenant_id (see auth.py's guard +
+-- the generic registry), but unlike its sibling tables it had no index
+-- covering that column — fine at demo scale, a sequential scan per
+-- request in production.
+CREATE INDEX IF NOT EXISTS idx_integration_credentials_tenant ON integration_credentials(tenant_id);
+
+-- Admin > Integrations > Integrations page's "Client Applications" tab.
+-- Previously computed purely in the browser by filtering installed
+-- integrations whose free-text `type` column contained "client
+-- application" — fragile, since any edit/typo to that column silently
+-- changed which rows appeared here with no record of the fact. This
+-- makes membership an explicit, queryable relationship instead of a
+-- string match: one row per installed_integrations row that currently
+-- qualifies, kept in sync by backend/client_apps.py's reconcile step on
+-- every read rather than duplicating name/type/status data that already
+-- lives on installed_integrations.
+-- source distinguishes how a row got here: 'auto' rows are pure derived
+-- state from installed_integrations.type and can be pruned by the
+-- reconcile step the moment that type stops matching; 'manual' rows came
+-- from POST /api/client-applications registering an integration as a
+-- client application "independent of what its free-text type says" (see
+-- client_apps.py's register_client_app) and must survive reconcile even
+-- though nothing about the parent row's type says so.
+CREATE TABLE IF NOT EXISTS client_applications (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  installed_integration_id INTEGER NOT NULL REFERENCES installed_integrations(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (installed_integration_id)
+);
+ALTER TABLE client_applications ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'auto';
+-- Same reasoning as idx_integration_credentials_tenant: every query here
+-- is tenant-filtered (list + both reconcile statements in client_apps.py).
+CREATE INDEX IF NOT EXISTS idx_client_applications_tenant ON client_applications(tenant_id);
 
 -- Edge Groups (Admin > Telephony > Edge Groups) are plain named-list
 -- entities like ACD Skills/Languages, so they reuse simple_entities with
@@ -1414,6 +1496,86 @@ CREATE TABLE IF NOT EXISTS bot_connectors (
   webhook_url TEXT,
   notes TEXT
 );
+-- status is written only by the connect/disconnect/test endpoints in
+-- backend/botconnectors.py, never accepted from the client, so these
+-- columns record the outcome of those actions.
+ALTER TABLE bot_connectors ADD COLUMN IF NOT EXISTS last_connected_at TIMESTAMPTZ;
+ALTER TABLE bot_connectors ADD COLUMN IF NOT EXISTS last_error TEXT NOT NULL DEFAULT '';
+ALTER TABLE bot_connectors ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE bot_connectors ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+-- Duplicate prevention at the database level, case-insensitive to match
+-- the app-level pre-check — same pattern as idx_data_actions_tenant_name_ci.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_connectors_tenant_name_ci ON bot_connectors(tenant_id, LOWER(name));
+CREATE INDEX IF NOT EXISTS idx_bot_connectors_tenant ON bot_connectors(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_bot_connectors_touch ON bot_connectors;
+CREATE TRIGGER trg_bot_connectors_touch BEFORE UPDATE ON bot_connectors
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- bot_connector_events (removed). It logged connect/disconnect/test
+-- attempts to back a "Connection History" tab. That tab does not exist in
+-- the Bot Connectors prototype — the page has exactly three sections
+-- (Bots, Intents, Test Utterances) — so once the page was aligned to the
+-- prototype nothing read the table any more: it was written on every
+-- action and never displayed. The durable outcome of an attempt is
+-- already on the connector row itself (status / last_connected_at /
+-- last_error), which is what the Status column actually shows, so the log
+-- was redundant rather than merely unused. Dropped here (idempotently, so
+-- both a fresh database and an already-migrated one converge on the same
+-- schema) rather than left as a table nothing maintains.
+DROP TABLE IF EXISTS bot_connector_events;
+
+-- Columns the Bot Connectors list actually displays (Bot / Provider /
+-- Language / Intents / Channels / Confidence threshold / Status). Only
+-- `platform` ("Provider") and `name` existed before, so the rest of the
+-- page's columns had nothing behind them. `lifecycle` is the Live /
+-- Training / Retired value shown in the Status column and driven by the
+-- Status filter; it is distinct from `status`, which tracks whether the
+-- connector is currently Connected (owned by the connect/disconnect/test
+-- endpoints) — a bot can be Live but momentarily Disconnected.
+ALTER TABLE bot_connectors ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'en-GB';
+ALTER TABLE bot_connectors ADD COLUMN IF NOT EXISTS channels TEXT NOT NULL DEFAULT '';
+ALTER TABLE bot_connectors ADD COLUMN IF NOT EXISTS confidence_threshold NUMERIC(3,2) NOT NULL DEFAULT 0.70
+  CHECK (confidence_threshold >= 0 AND confidence_threshold <= 1);
+ALTER TABLE bot_connectors ADD COLUMN IF NOT EXISTS division TEXT NOT NULL DEFAULT '';
+ALTER TABLE bot_connectors ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAULT 'Training';
+
+-- Intents tab. One row per intent a connector recognises; the tab's
+-- "Utterances" column is a COUNT over bot_intent_utterances rather than a
+-- stored number, so it can never disagree with the utterances actually
+-- held. Intents belong to their connector (CASCADE): an intent has no
+-- meaning once the bot it belongs to is gone.
+CREATE TABLE IF NOT EXISTS bot_intents (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  bot_connector_id INTEGER NOT NULL REFERENCES bot_connectors(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  confidence NUMERIC(3,2) NOT NULL DEFAULT 0.90
+    CHECK (confidence >= 0 AND confidence <= 1),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (bot_connector_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_bot_intents_tenant ON bot_intents(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_bot_intents_connector ON bot_intents(bot_connector_id, name);
+
+DROP TRIGGER IF EXISTS trg_bot_intents_touch ON bot_intents;
+CREATE TRIGGER trg_bot_intents_touch BEFORE UPDATE ON bot_intents
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- Training phrases behind each intent. These are what the Test Utterances
+-- tab's "Match intent" actually matches against server-side — without
+-- them that tab could only ever be a frontend simulation.
+CREATE TABLE IF NOT EXISTS bot_intent_utterances (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  bot_intent_id INTEGER NOT NULL REFERENCES bot_intents(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (bot_intent_id, text)
+);
+CREATE INDEX IF NOT EXISTS idx_bot_intent_utterances_intent ON bot_intent_utterances(bot_intent_id);
+CREATE INDEX IF NOT EXISTS idx_bot_intent_utterances_tenant ON bot_intent_utterances(tenant_id);
 
 -- Contact Lists Module — backs frontend/src/mcm/contactlists-redesign.ts's
 -- Outbound > Contact Lists page (see backend/contactlists.py for the
@@ -1480,9 +1642,69 @@ CREATE TABLE IF NOT EXISTS data_actions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_data_actions_tenant ON data_actions(tenant_id);
+-- Duplicate prevention at the DB level, not just the app's SELECT-then-
+-- INSERT pre-check in dataact.py (which is still kept, for a fast/friendly
+-- message — this index is the race-condition-proof backstop, same pattern
+-- as installed_integrations' idx_installed_integrations_tenant_name).
+-- Case-insensitive to match that pre-check's LOWER(name) comparison.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_data_actions_tenant_name_ci ON data_actions(tenant_id, LOWER(name));
 
 DROP TRIGGER IF EXISTS trg_data_actions_touch ON data_actions;
 CREATE TRIGGER trg_data_actions_touch BEFORE UPDATE ON data_actions
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- Data Actions page's "Run History" tab — previously two hardcoded example
+-- rows in scripts.ts's static TT.dataact['Run History'], unrelated to any
+-- real data_actions row. One row per real Test Action invocation (see
+-- dataact.py's test_action), so the tab reflects what was actually run
+-- instead of two permanently-fake log lines. Deliberately NOT a FK-only
+-- table with no snapshot: data_action_id is nullable + ON DELETE SET NULL
+-- so a run's history survives its parent action being deleted (matching
+-- installed_integrations.catalogue_id's same reasoning) — action_name is
+-- captured at run time for exactly that case, so the log line still reads
+-- sensibly after the action is gone.
+CREATE TABLE IF NOT EXISTS data_action_runs (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  data_action_id TEXT REFERENCES data_actions(id) ON DELETE SET NULL,
+  action_name TEXT NOT NULL,
+  duration_ms INTEGER,
+  result TEXT NOT NULL,               -- e.g. '200 OK', 'Timeout retry', 'Connection refused (503)'
+  ran_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_data_action_runs_tenant ON data_action_runs(tenant_id, ran_at DESC);
+-- Run History also records *why* a run happened, so a run triggered by the
+-- Actions drawer's "Test Action" and one triggered from the Test tab are
+-- distinguishable in the log rather than being indistinguishable rows.
+ALTER TABLE data_action_runs ADD COLUMN IF NOT EXISTS trigger_source TEXT NOT NULL DEFAULT 'test';
+
+-- Data Actions page's "Contracts" tab. The freeform data_actions.contract
+-- column ('subject, desc → caseId') is what the Create/Edit drawer lets a
+-- user type, but the Contracts tab needs it *structured* — one row per
+-- field, with its direction — and that structure was previously computed
+-- in the browser and never persisted, so the contract breakdown existed
+-- only in the DOM. These rows are the persisted structured form, derived
+-- server-side by dataact.py's _sync_contract_fields() on every data-action
+-- create/update, so the string a user types and the structured rows can
+-- never drift apart. Contracts belong to their action (ON DELETE CASCADE):
+-- unlike run history, a contract has no meaning once its action is gone.
+CREATE TABLE IF NOT EXISTS data_action_contracts (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  data_action_id TEXT NOT NULL REFERENCES data_actions(id) ON DELETE CASCADE,
+  direction TEXT NOT NULL CHECK (direction IN ('input', 'output')),
+  field_name TEXT NOT NULL,
+  field_type TEXT NOT NULL DEFAULT 'string',
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (data_action_id, direction, field_name)
+);
+CREATE INDEX IF NOT EXISTS idx_data_action_contracts_tenant ON data_action_contracts(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_data_action_contracts_action ON data_action_contracts(data_action_id, direction, position);
+
+DROP TRIGGER IF EXISTS trg_data_action_contracts_touch ON data_action_contracts;
+CREATE TRIGGER trg_data_action_contracts_touch BEFORE UPDATE ON data_action_contracts
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
 -- ============================================================

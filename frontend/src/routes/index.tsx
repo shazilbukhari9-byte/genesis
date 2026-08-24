@@ -17,7 +17,9 @@ import { CONTACTLISTS_SCRIPT } from "../mcm/contactlists-redesign";
 import { DATAACT_SCRIPT } from "../mcm/dataact-redesign";
 import { DNCLISTS_SCRIPT } from "../mcm/dnclists-redesign";
 import { SUBSCRIPTION_SCRIPT } from "../mcm/subscription-redesign";
+import { INTEGRATIONS_THEME_SCRIPT } from "../mcm/integrations-theme";
 import { RESPONSIVE_NAV_SCRIPT } from "../mcm/responsive-nav";
+import { SESSION_GUARD_SCRIPT } from "../mcm/session-guard";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
@@ -34,6 +36,7 @@ import { OAuthClientsPage } from "../features/oauth-clients/OAuthClientsPage";
 
 declare global {
   interface Window {
+    __GENESIS_API_BASE?: string;
     __showOrgSettings?: () => void;
     __hideOrgSettings?: () => void;
     __showPurchases?: () => void;
@@ -119,6 +122,22 @@ function McmCloudCx() {
   useEffect(() => {
     if (ranRef.current) return;
     ranRef.current = true;
+
+    // The legacy scripts below (MCM_SCRIPT, BACKEND_SYNC_SCRIPT,
+    // AUTHORG_SCRIPT, DIRECTORY_SCRIPT) run as classic <script> tags, not ES
+    // modules — `import.meta.env` is a syntax error in that context, so
+    // they can't read VITE_API_BASE directly the way features/shared/
+    // backend.ts's real ES-module code does. This bridges the same
+    // environment-configured value onto a global they can read instead,
+    // so no legacy script ever hardcodes an API host.
+    //
+    // Default (when VITE_API_BASE is unset) is this app's real production
+    // backend, matching features/shared/backend.ts's default — never
+    // localhost. This is what every legacy Integrations/Data Actions/Bot
+    // Connectors call ultimately falls back to via backend-sync.ts's
+    // SUBS_API_BASE, authorg-redesign.ts and directory-redesign.ts's own
+    // API_BASE vars, all of which chain through window.__GENESIS_API_BASE.
+    window.__GENESIS_API_BASE = import.meta.env.VITE_API_BASE || "https://genesis-yysv.onrender.com";
 
     const orgSettings = mountLegacyReactPage("orgsetRoot", <OrganizationSettingsPage />);
     window.__showOrgSettings = orgSettings.show;
@@ -258,6 +277,27 @@ function McmCloudCx() {
     subscriptionScript.type = "text/javascript";
     subscriptionScript.textContent = SUBSCRIPTION_SCRIPT;
     document.body.appendChild(subscriptionScript);
+
+    // Must be appended LAST: it wraps window.openPage, so every other
+    // module's own openPage wrapper has to already be installed for the
+    // chain to stay intact. Purely presentational — it only stamps a
+    // data attribute on <body> so the Integrations enterprise styles in
+    // mcm.css can scope themselves. See mcm/integrations-theme.ts.
+    const integrationsThemeScript = document.createElement("script");
+    integrationsThemeScript.type = "text/javascript";
+    integrationsThemeScript.textContent = INTEGRATIONS_THEME_SCRIPT;
+    document.body.appendChild(integrationsThemeScript);
+
+    // After MCM_SCRIPT, so the session it restores from localStorage exists
+    // to be checked, and after every module that issues API calls, so the
+    // fetch wrapper it installs sees all of them. Validates a restored token
+    // against the backend once on boot and ends the session on any later
+    // 401, instead of leaving a rejected token in place while the UI still
+    // looks signed in. See mcm/session-guard.ts.
+    const sessionGuardScript = document.createElement("script");
+    sessionGuardScript.type = "text/javascript";
+    sessionGuardScript.textContent = SESSION_GUARD_SCRIPT;
+    document.body.appendChild(sessionGuardScript);
 
     // Re-assert the toast bridge (see lib/global-toast.tsx) now that
     // MCM_SCRIPT has run and defined its own window.toast — this call is
