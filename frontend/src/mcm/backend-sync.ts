@@ -8,7 +8,7 @@ export const BACKEND_SYNC_SCRIPT: string = `
 (function() {
   'use strict';
 
-  var SUBS_API_BASE = window.SUBS_API_BASE || window.__GENESIS_API_BASE || 'https://genesis-yysv.onrender.com';
+  var SUBS_API_BASE = window.SUBS_API_BASE || 'https://genesis-yysv.onrender.com';
   var DB = window.DB;
   if (!DB) return;
 
@@ -758,6 +758,38 @@ export const BACKEND_SYNC_SCRIPT: string = `
       }
     };
   })();
+
+  /* ================= Hydrate-on-navigate fix ==================
+     Alert Rules, Prompts, Base Settings, and Phone Management above each
+     wrap their own window.renderXxxFx to fetch real data the first time
+     it's called. That never actually happens through normal navigation:
+     scripts.ts's DYN9 router table (var DYN9={...,alerts:window.
+     renderAlertsFx,...}) is built once, while MCM_SCRIPT still owns
+     window.renderAlertsFx — this file's wrapping above only reassigns the
+     *window property* afterwards, so DYN9.alerts keeps pointing at the
+     original, pre-wrap function forever. Clicking "Alert Rules" in the
+     nav calls openPage('alerts') -> DYN9.alerts() -> that stale original,
+     which never fetches anything: DB.alertRules stays whatever the local
+     demo seed was, silently overwriting real backend rows created earlier
+     in the same session the moment a fresh page load re-seeds it. This
+     is why a rule that was really saved looks deleted after a refresh —
+     it's still in the database, the page just never asked for it.
+
+     Fixed by wrapping window.openPage itself (the actual entry point
+     every nav link calls) to re-invoke the *current* window.renderXxxFx
+     — which by this point in the file is the correctly hydrate-wrapped
+     version — right after routing. Each hydrate still only fetches once
+     per session (its own loaded flag), so this is a no-op extra local
+     re-render on every subsequent visit, not a repeated fetch. */
+  var origOpenPageForHydrate = window.openPage;
+  window.openPage = function(id) {
+    var ret = origOpenPageForHydrate(id);
+    if (id === 'alerts' && window.renderAlertsFx) window.renderAlertsFx();
+    else if (id === 'prompts' && window.renderPromptsFx) window.renderPromptsFx();
+    else if (id === 'basesets' && window.renderBasesetsFx) window.renderBasesetsFx();
+    else if (id === 'phones' && window.renderPhonesFx) window.renderPhonesFx();
+    return ret;
+  };
 
 })();
 `;
