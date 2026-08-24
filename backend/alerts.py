@@ -173,7 +173,12 @@ def notify_alert():
     cur = conn.cursor()
     cur.execute(
         'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
-        (g.user_name, title, detail, g.tenant_id),
+        # 'System', not g.user_name: an Alert Rule threshold firing isn't
+        # something the signed-in user did -- it's whoever's browser tab
+        # happened to be open and polling when the check ran. Logging it
+        # under their name made the audit trail falsely read as if every
+        # queue-backlog/away-too-long alert was a manual action by them.
+        ('System', title, detail, g.tenant_id),
     )
     conn.commit()
     conn.close()
