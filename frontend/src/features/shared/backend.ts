@@ -11,7 +11,7 @@
 // own computer instead of the backend, surfacing as a 401 "invalid or
 // expired token" (or a network error) for everyone. Local dev overrides
 // this via frontend/.env (see frontend/.env.example).
-export const API_BASE = import.meta.env.VITE_API_BASE || "https://genesis-yysv.onrender.com";
+export const API_BASE = import.meta.env["VITE_API_BASE"] || "https://genesis-yysv.onrender.com";
 export const TENANT_ID = "38bfdb29-8845-46e0-ab92-b0b5b43cfd6e";
 
 declare global {

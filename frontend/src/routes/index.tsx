@@ -137,7 +137,7 @@ function McmCloudCx() {
     // Connectors call ultimately falls back to via backend-sync.ts's
     // SUBS_API_BASE, authorg-redesign.ts and directory-redesign.ts's own
     // API_BASE vars, all of which chain through window.__GENESIS_API_BASE.
-    window.__GENESIS_API_BASE = import.meta.env.VITE_API_BASE || "https://genesis-yysv.onrender.com";
+    window.__GENESIS_API_BASE = import.meta.env["VITE_API_BASE"] || "https://genesis-yysv.onrender.com";
 
     const orgSettings = mountLegacyReactPage("orgsetRoot", <OrganizationSettingsPage />);
     window.__showOrgSettings = orgSettings.show;
