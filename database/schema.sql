@@ -404,6 +404,18 @@ CREATE TABLE IF NOT EXISTS did_assignments (
 -- for the label the UI actually edits, same pattern as trunks' extra columns.
 ALTER TABLE did_assignments ADD COLUMN IF NOT EXISTS assignment_type TEXT;
 
+-- Admin > Telephony > DID Numbers page's DID block/range catalogue —
+-- the ranges DID assignments must fall inside.
+CREATE TABLE IF NOT EXISTS did_ranges (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  country TEXT,
+  start_number TEXT NOT NULL,
+  end_number TEXT NOT NULL,
+  provider TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_did_ranges_tenant ON did_ranges(tenant_id);
+
 -- Admin > Telephony > Extensions page's pool ranges (e.g. 7000-7999). Per-
 -- extension assignment to a user stays on the frontend's local DB.users for
 -- now — same known gap as roles/skills-per-person, not fixed here.

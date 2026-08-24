@@ -71,12 +71,10 @@ REGISTRY = {
     # tenant-scoped" — but app.py never lets a client set or filter it
     # directly: create forces it from g.tenant_id, list/get/update/delete all
     # scope by it automatically. See _tenant_scoped() in app.py.
-    # plans/routes aren't exposed here — the Sites create/edit form never
-    # sets them directly (they're auto-defaulted on create and managed via
-    # the separate Number Plans / Outbound Routes admin pages, which this
-    # entity doesn't cover yet); leaving them out avoids sending a Python
-    # list through the generic JSONB path, which psycopg2 doesn't adapt to
-    # JSON array syntax by default (see the DEFAULT '[]' on the column).
+    # plans/routes aren't exposed here — Number Plans and Outbound Routes
+    # are synced through their own dedicated tables/endpoints instead (see
+    # "number-plans" and "outbound-routes" below), not through this JSONB
+    # column on sites.
     "sites": dict(
         table="sites",
         order="name",
@@ -145,6 +143,13 @@ REGISTRY = {
         fields=["tenant_id", "phone_number", "destination_type", "flow_id", "queue_id",
                  "assignment_type", "target_label"],
         search=["phone_number"],
+        perm=None,
+    ),
+    "did-ranges": dict(
+        table="did_ranges",
+        order="start_number",
+        fields=["tenant_id", "country", "start_number", "end_number", "provider"],
+        search=["start_number", "end_number", "provider"],
         perm=None,
     ),
     "extension-pools": dict(

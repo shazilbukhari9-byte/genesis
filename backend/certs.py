@@ -40,6 +40,13 @@ def _status_and_days(expires_at, alert_before_days):
 def _with_status(row):
     row = dict(row)
     row['status'], row['days_left'] = _status_and_days(row['expires_at'], row['alert_before_days'])
+    # Flask's default JSON encoder renders date objects as RFC 822 strings
+    # (e.g. "Fri, 01 Jan 2027 00:00:00 GMT"), which <input type="date">
+    # silently rejects — it only accepts YYYY-MM-DD. Send ISO strings so
+    # the edit drawer's Valid from / Expires fields actually pre-fill.
+    for field in ('valid_from', 'expires_at'):
+        if isinstance(row.get(field), date):
+            row[field] = row[field].isoformat()
     return row
 
 
