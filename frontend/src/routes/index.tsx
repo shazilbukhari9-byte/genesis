@@ -20,6 +20,7 @@ import { SUBSCRIPTION_SCRIPT } from "../mcm/subscription-redesign";
 import { INTEGRATIONS_THEME_SCRIPT } from "../mcm/integrations-theme";
 import { INTEGRATIONS_RESPONSIVE_SCRIPT } from "../mcm/integrations-responsive";
 import { RESPONSIVE_NAV_SCRIPT } from "../mcm/responsive-nav";
+import { NOTIFICATIONS_SCRIPT } from "../mcm/notifications-redesign";
 import { SESSION_GUARD_SCRIPT } from "../mcm/session-guard";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
@@ -209,6 +210,14 @@ function McmCloudCx() {
     responsiveNavScript.type = "text/javascript";
     responsiveNavScript.textContent = RESPONSIVE_NAV_SCRIPT;
     document.body.appendChild(responsiveNavScript);
+
+    // Points the notifications bell at real audit_log data instead of the
+    // legacy in-memory-only DB.audit list — no dependency on MCM_SCRIPT
+    // having run first (retries internally), safe to inject anywhere.
+    const notificationsScript = document.createElement("script");
+    notificationsScript.type = "text/javascript";
+    notificationsScript.textContent = NOTIFICATIONS_SCRIPT;
+    document.body.appendChild(notificationsScript);
 
     // Runs after MCM_SCRIPT so window.SNAP already exists — it patches in
     // window.SNAP.authorg (the Authorized Organizations page content) the
