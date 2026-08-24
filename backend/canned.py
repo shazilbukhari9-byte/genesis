@@ -96,8 +96,8 @@ def create_canned():
     )
     row = cur.fetchone()
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Canned response created', name),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Canned response created', name, g.tenant_id),
     )
     conn.commit()
     conn.close()
@@ -135,8 +135,8 @@ def update_canned(canned_id):
     )
     row = cur.fetchone()
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Canned response updated', name),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Canned response updated', name, g.tenant_id),
     )
     conn.commit()
     conn.close()
@@ -155,8 +155,8 @@ def delete_canned(canned_id):
 
     cur.execute('DELETE FROM canned_responses WHERE id = %s AND tenant_id = %s', (canned_id, g.tenant_id))
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'Canned response deleted', existing['name']),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Canned response deleted', existing['name'], g.tenant_id),
     )
     conn.commit()
     conn.close()

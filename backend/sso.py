@@ -83,6 +83,10 @@ def create_provider():
         ),
     )
     row = dict(cur.fetchone())
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Create SSO provider', name, g.tenant_id),
+    )
     conn.commit()
     conn.close()
     row.pop('client_secret', None)
@@ -139,6 +143,10 @@ def update_provider(pid):
     sql = f"UPDATE sso_providers SET {', '.join(sets)} WHERE id = %s AND tenant_id = %s RETURNING *"
     cur.execute(sql, vals)
     row = dict(cur.fetchone())
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Edit SSO provider', row['name'], g.tenant_id),
+    )
     conn.commit()
     conn.close()
     row.pop('client_secret', None)
@@ -150,14 +158,19 @@ def delete_provider(pid):
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        'SELECT id FROM sso_providers WHERE id = %s AND tenant_id = %s',
+        'SELECT id, name FROM sso_providers WHERE id = %s AND tenant_id = %s',
         (pid, g.tenant_id),
     )
-    if cur.fetchone() is None:
+    existing = cur.fetchone()
+    if existing is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
 
     cur.execute('DELETE FROM sso_providers WHERE id = %s', (pid,))
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Delete SSO provider', existing['name'], g.tenant_id),
+    )
     conn.commit()
     conn.close()
     return jsonify({'ok': True})

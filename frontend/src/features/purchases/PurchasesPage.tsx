@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
-import { createPurchase, deletePurchase, fetchPurchases } from "./purchasesService";
-import type { NewPurchase } from "./types";
+import { toast } from "../shared/toast";
+import { fetchBudget, fetchPurchases, updateBudget } from "./purchasesService";
+import type { Purchase } from "./types";
 
 const QUERY_KEY = ["purchases"];
+const BUDGET_KEY = ["purchases-budget"];
 
 function goToAdminIndex(): void {
   const win = window as unknown as { adminIndex?: () => void; __hidePurchases?: () => void };
@@ -14,70 +16,81 @@ function goToAdminIndex(): void {
   win.adminIndex?.();
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+function currentMonthKey(): string {
+  return new Date().toISOString().slice(0, 7); // "YYYY-MM"
 }
 
-function NewPurchaseDrawer({
-  onClose,
-  onSave,
-  saving,
-}: {
-  onClose: () => void;
-  onSave: (purchase: NewPurchase) => void;
-  saving: boolean;
-}) {
-  const [item, setItem] = useState("");
-  const [category, setCategory] = useState("");
-  const [price, setPrice] = useState("");
-  const [purchasedAt, setPurchasedAt] = useState(todayIso());
+function fmtMoney(n: number): string {
+  const sign = n < 0 ? "-" : "";
+  return `${sign}£${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
-  const canSave = item.trim().length > 0;
+// Older rows (written before purchased_at stored a time) are a bare
+// "YYYY-MM-DD" — Date parses that as UTC midnight, which is fine to fall
+// back to date-only display for; anything with a time component renders it.
+function fmtPurchasedAt(purchasedAt: string | null): string {
+  if (!purchasedAt) return "—";
+  const date = new Date(purchasedAt);
+  if (Number.isNaN(date.getTime())) return purchasedAt;
+  const datePart = date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  if (!purchasedAt.includes("T")) return datePart;
+  const timePart = date.toTimeString().slice(0, 5);
+  return `${datePart}, ${timePart}`;
+}
+
+function csvField(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+function exportPurchasesCsv(purchases: Purchase[]): void {
+  const header = ["Item", "Category", "Price", "Purchased"];
+  const rows = purchases.map((p) => [
+    p.item,
+    p.category ?? "",
+    p.price != null ? p.price.toFixed(2) : "",
+    p.purchased_at ?? "",
+  ]);
+  const csv = [header, ...rows].map((r) => r.map((cell) => csvField(String(cell))).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "purchases_export.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("Purchase history exported as CSV");
+}
+
+// Purchase history is a record, not something anyone should be able to
+// rewrite — or remove — after the fact. Rows just open this read-only view.
+function PurchaseDetailDrawer({ purchase, onClose }: { purchase: Purchase; onClose: () => void }) {
+  const rows: [string, string][] = [
+    ["Item", purchase.item],
+    ["Category", purchase.category ?? "—"],
+    ["Price", purchase.price != null ? fmtMoney(purchase.price) : "—"],
+    ["Purchased", fmtPurchasedAt(purchase.purchased_at)],
+  ];
 
   return (
     <>
       <div id="scrim" onClick={onClose} />
       <div id="drw" style={{ height: "auto", top: "20%", bottom: "auto", borderRadius: "8px 0 0 8px" }}>
         <div className="dh">
-          <h2>New Purchase</h2>
+          <h2>{purchase.item}</h2>
           <div className="x" onClick={onClose}>
             ×
           </div>
         </div>
         <div className="db">
-          <div className="fld">
-            <label>Item</label>
-            <input value={item} onChange={(e) => setItem(e.target.value)} placeholder="e.g. CX 3 — WEM (Named)" />
-          </div>
-          <div className="fld">
-            <label>Category</label>
-            <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Licence, Add-on" />
-          </div>
-          <div className="fld">
-            <label>Price</label>
-            <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" />
-          </div>
-          <div className="fld">
-            <label>Purchased</label>
-            <input type="date" value={purchasedAt} onChange={(e) => setPurchasedAt(e.target.value)} />
-          </div>
+          {rows.map(([label, value]) => (
+            <div className="kv" key={label}>
+              <span>{label}</span>
+              <b>{value}</b>
+            </div>
+          ))}
         </div>
         <div className="df">
-          <LegacyBtn secondary onClick={onClose} disabled={saving}>
-            Cancel
-          </LegacyBtn>
-          <LegacyBtn
-            disabled={saving || !canSave}
-            onClick={() =>
-              onSave({
-                item: item.trim(),
-                category: category.trim() || undefined,
-                price: price ? Number(price) : undefined,
-                purchased_at: purchasedAt || undefined,
-              })
-            }
-          >
-            {saving ? "Saving…" : "Create purchase"}
+          <LegacyBtn secondary onClick={onClose}>
+            Close
           </LegacyBtn>
         </div>
       </div>
@@ -85,34 +98,202 @@ function NewPurchaseDrawer({
   );
 }
 
-export function PurchasesPage() {
+function BudgetPanel({ purchases }: { purchases: Purchase[] }) {
   const queryClient = useQueryClient();
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const { data: budget } = useQuery({ queryKey: BUDGET_KEY, queryFn: fetchBudget });
+
+  const saveMutation = useMutation({
+    mutationFn: (value: number | null) => updateBudget(value),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(BUDGET_KEY, updated);
+      setEditing(false);
+      toast(updated.monthly_limit != null ? `Monthly budget set to ${fmtMoney(updated.monthly_limit)}` : "Budget removed");
+    },
+    onError: () => toast("Couldn't save budget — try again."),
+  });
+
+  const monthKey = currentMonthKey();
+  const monthSpend = purchases
+    .filter((p) => (p.purchased_at ?? "").slice(0, 7) === monthKey)
+    .reduce((sum, p) => sum + (p.price ?? 0), 0);
+
+  const limit = budget?.monthly_limit ?? null;
+  const pct = limit ? Math.min(100, Math.round((100 * monthSpend) / limit)) : 0;
+  const barClass = limit == null ? "ok" : monthSpend > limit ? "full" : pct >= 80 ? "warn" : "ok";
+
+  function startEdit() {
+    setDraft(limit != null ? String(limit) : "");
+    setEditing(true);
+  }
+
+  return (
+    <div className="panel" style={{ marginBottom: 16 }}>
+      <h3>
+        Monthly Budget
+        <span className="sp" />
+        {!editing && (
+          <LegacyBtn secondary style={{ fontSize: 11.5, height: 26, padding: "0 10px" }} onClick={startEdit}>
+            {limit != null ? "Edit" : "Set budget"}
+          </LegacyBtn>
+        )}
+      </h3>
+      <div style={{ padding: "14px 16px" }}>
+        {editing ? (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12.5, color: "#5b6a7d" }}>£</span>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="No limit"
+              style={{
+                width: 120,
+                height: 30,
+                border: "1px solid #ccd4e0",
+                borderRadius: 4,
+                padding: "0 8px",
+                fontSize: 12.5,
+              }}
+            />
+            <LegacyBtn
+              disabled={saveMutation.isPending}
+              onClick={() => saveMutation.mutate(draft.trim() === "" ? null : Number(draft))}
+            >
+              Save
+            </LegacyBtn>
+            <LegacyBtn secondary onClick={() => setEditing(false)} disabled={saveMutation.isPending}>
+              Cancel
+            </LegacyBtn>
+            {limit != null && (
+              <LegacyBtn secondary onClick={() => saveMutation.mutate(null)} disabled={saveMutation.isPending}>
+                Remove budget
+              </LegacyBtn>
+            )}
+          </div>
+        ) : limit == null ? (
+          <div style={{ fontSize: 12.5, color: "#8794a8" }}>
+            No monthly budget set. This month so far: <b>{fmtMoney(monthSpend)}</b>.
+          </div>
+        ) : (
+          <>
+            <div className="sc-bar-wrap" style={{ marginBottom: 6 }}>
+              <div className="sc-bar-label">
+                <span>
+                  {fmtMoney(monthSpend)} of {fmtMoney(limit)}
+                </span>
+                <span>{pct}%</span>
+              </div>
+              <div className="sc-bar-track">
+                <div className={`sc-bar-fill ${barClass}`} style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+            {monthSpend > limit ? (
+              <div style={{ fontSize: 12, color: "#b3261e", fontWeight: 600 }}>
+                Over budget by {fmtMoney(monthSpend - limit)} this month.
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: "#5b6a7d" }}>{fmtMoney(limit - monthSpend)} remaining this month.</div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExpenseTracker({ purchases }: { purchases: Purchase[] }) {
+  const monthKey = currentMonthKey();
+
+  const { totalAllTime, monthSpend, byCategory } = useMemo(() => {
+    const totals = new Map<string, number>();
+    let all = 0;
+    let month = 0;
+    for (const p of purchases) {
+      const price = p.price ?? 0;
+      all += price;
+      if ((p.purchased_at ?? "").slice(0, 7) === monthKey) month += price;
+      const cat = p.category?.trim() || "Uncategorized";
+      totals.set(cat, (totals.get(cat) ?? 0) + price);
+    }
+    const sorted = Array.from(totals.entries()).sort((a, b) => b[1] - a[1]);
+    return { totalAllTime: all, monthSpend: month, byCategory: sorted };
+  }, [purchases, monthKey]);
+
+  const maxCategory = byCategory[0]?.[1] ?? 0;
+
+  return (
+    <>
+      <div className="kpis" style={{ marginBottom: 16 }}>
+        <div className="kpi">
+          <span>Total Spend</span>
+          <b>{fmtMoney(totalAllTime)}</b>
+        </div>
+        <div className="kpi">
+          <span>This Month</span>
+          <b>{fmtMoney(monthSpend)}</b>
+        </div>
+        <div className="kpi">
+          <span>Purchases</span>
+          <b>{purchases.length}</b>
+        </div>
+        <div className="kpi">
+          <span>Categories</span>
+          <b>{byCategory.length}</b>
+        </div>
+      </div>
+
+      {byCategory.length > 0 && (
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <h3>Spend by Category</h3>
+          <div className="bars">
+            {byCategory.map(([cat, total]) => (
+              <div className="brow" key={cat}>
+                <div className="lb">{cat}</div>
+                <div className="tr">
+                  <i style={{ width: `${maxCategory ? Math.round((100 * total) / maxCategory) : 0}%` }} />
+                </div>
+                <div className="vl">{fmtMoney(total)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function PurchasesPage() {
+  const [viewing, setViewing] = useState<Purchase | null>(null);
   const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: QUERY_KEY,
     queryFn: fetchPurchases,
   });
 
-  const createMutation = useMutation({
-    mutationFn: createPurchase,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-      setDrawerOpen(false);
-    },
+  const purchases = data ?? [];
+  const rows = purchases.filter((p) => {
+    if (search) {
+      const haystack = `${p.item} ${p.category ?? ""}`.toLowerCase();
+      if (!haystack.includes(search.toLowerCase())) return false;
+    }
+    // purchased_at is "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM:SS…" — the first 10
+    // chars always sort/compare correctly against a plain <input type="date">
+    // value without needing to parse either side into a Date.
+    const purchaseDate = (p.purchased_at ?? "").slice(0, 10);
+    if (dateFrom && purchaseDate < dateFrom) return false;
+    if (dateTo && purchaseDate > dateTo) return false;
+    return true;
   });
-
-  const deleteMutation = useMutation({
-    mutationFn: deletePurchase,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY }),
-  });
-
-  const rows = (data ?? []).filter((p) => {
-    if (!search) return true;
-    const haystack = `${p.item} ${p.category ?? ""}`.toLowerCase();
-    return haystack.includes(search.toLowerCase());
-  });
+  const hasDateFilter = Boolean(dateFrom || dateTo);
 
   return (
     <>
@@ -122,15 +303,61 @@ export function PurchasesPage() {
         </div>
         <div className="tt">
           <h1>Purchases</h1>
-          <div className="rt">
-            <LegacyBtn onClick={() => setDrawerOpen(true)}>+ New Purchase</LegacyBtn>
-          </div>
+          <span className="sp" />
+          <LegacyBtn secondary disabled={!rows.length} onClick={() => exportPurchasesCsv(rows)}>
+            Export CSV
+          </LegacyBtn>
         </div>
       </div>
 
       <div className="pbody">
-        <div className="tbar">
-          <input className="s" placeholder="Search purchases" value={search} onChange={(e) => setSearch(e.target.value)} />
+        {!isLoading && (
+          <>
+            <ExpenseTracker purchases={purchases} />
+            <BudgetPanel purchases={purchases} />
+          </>
+        )}
+
+        <div className="tbar" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            className="s"
+            placeholder="Search purchases"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ maxWidth: "100%", flex: "1 1 220px" }}
+          />
+          <label style={{ fontSize: 12, color: "#5b6a7d", display: "flex", alignItems: "center", gap: 6 }}>
+            From
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(e) => setDateFrom(e.target.value)}
+              style={{ height: 32, border: "1px solid #ccd4e0", borderRadius: 4, padding: "0 8px", fontSize: 12.5 }}
+            />
+          </label>
+          <label style={{ fontSize: 12, color: "#5b6a7d", display: "flex", alignItems: "center", gap: 6 }}>
+            To
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(e) => setDateTo(e.target.value)}
+              style={{ height: 32, border: "1px solid #ccd4e0", borderRadius: 4, padding: "0 8px", fontSize: 12.5 }}
+            />
+          </label>
+          {hasDateFilter && (
+            <LegacyBtn
+              secondary
+              style={{ fontSize: 11.5, height: 30, padding: "0 10px" }}
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+              }}
+            >
+              Clear dates
+            </LegacyBtn>
+          )}
         </div>
         <div className="tblw">
           <table className="dt">
@@ -140,39 +367,32 @@ export function PurchasesPage() {
                 <th>Category</th>
                 <th>Price</th>
                 <th>Purchased</th>
-                <th style={{ width: 40 }}></th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", color: "#8794a8", padding: 18 }}>
+                  <td colSpan={4} style={{ textAlign: "center", color: "#8794a8", padding: 18 }}>
                     Loading…
                   </td>
                 </tr>
               ) : rows.length ? (
                 rows.map((p) => (
-                  <tr key={p.id}>
+                  <tr key={p.id} onClick={() => setViewing(p)} style={{ cursor: "pointer" }}>
                     <td>
                       <b className="lnk">{p.item}</b>
                     </td>
                     <td>{p.category ?? "—"}</td>
-                    <td>{p.price != null ? `$${p.price.toFixed(2)}` : "—"}</td>
-                    <td>{p.purchased_at ?? "—"}</td>
-                    <td
-                      style={{ color: "#a9b3c2", cursor: "pointer" }}
-                      onClick={() => {
-                        if (confirm(`Delete "${p.item}"?`)) deleteMutation.mutate(p.id);
-                      }}
-                    >
-                      ⋮
-                    </td>
+                    <td>{p.price != null ? fmtMoney(p.price) : "—"}</td>
+                    <td>{fmtPurchasedAt(p.purchased_at)}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", color: "#8794a8", padding: 18 }}>
-                    No purchases yet
+                  <td colSpan={4} style={{ textAlign: "center", color: "#8794a8", padding: 18 }}>
+                    {purchases.length
+                      ? "No purchases match your filters."
+                      : "No purchases yet — seat purchases from the Subscription page will appear here."}
                   </td>
                 </tr>
               )}
@@ -183,13 +403,7 @@ export function PurchasesPage() {
         <LegacyHelpPanel topicKey="purch" />
       </div>
 
-      {drawerOpen && (
-        <NewPurchaseDrawer
-          onClose={() => setDrawerOpen(false)}
-          saving={createMutation.isPending}
-          onSave={(purchase) => createMutation.mutate(purchase)}
-        />
-      )}
+      {viewing && <PurchaseDetailDrawer purchase={viewing} onClose={() => setViewing(null)} />}
     </>
   );
 }

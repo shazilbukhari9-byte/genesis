@@ -4,46 +4,115 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
 import { deleteSimpleEntity, fetchDirectory, upsertSimpleEntity, type SimpleEntityKind } from "./store";
-import type { SimpleEntity } from "./types";
+import type { Person, SimpleEntity } from "./types";
 
 const QUERY_KEY = ["people-directory"];
+
+type Draft = SimpleEntity | { name: string; desc: string };
 
 export function SimpleEntityPage({
   kind,
   title,
+  label,
   hideKey,
   helpKey,
 }: {
   kind: SimpleEntityKind;
   title: string;
+  label: string;
   hideKey: "__hideSkills" | "__hideLangs";
   helpKey: "skills" | "langs";
 }) {
   const queryClient = useQueryClient();
-  const [editing, setEditing] = useState<SimpleEntity | { name: string; desc: string } | null>(null);
+  const [editing, setEditing] = useState<Draft | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
 
   const { data, isLoading } = useQuery({ queryKey: QUERY_KEY, queryFn: fetchDirectory });
 
+  function closeDrawer(): void {
+    setEditing(null);
+    setErrors([]);
+  }
+
+  // Matches the prototype's post-propagation toasts from its saveSimple()/
+  // delSimple() wrappers — window.toast is the legacy engine's global toast,
+  // shared across the React and vanilla-JS pages.
+  function toastPropagation(hits: number, verb: "Renamed" | "Removed from"): void {
+    if (!hits) return;
+    const win = window as unknown as { toast?: (m: string) => void };
+    const suffix = verb === "Renamed" ? "updated" : "— planning groups, flows and queue routing stay consistent";
+    win.toast?.(
+      verb === "Renamed"
+        ? `Renamed everywhere — ${hits} linked reference(s) ${suffix} (planning groups, flows, queue routing)`
+        : `${verb} ${hits} linked reference(s) ${suffix}`,
+    );
+  }
+
   const saveMutation = useMutation({
     mutationFn: (entity: Omit<SimpleEntity, "id"> & { id?: string }) => upsertSimpleEntity(kind, entity),
-    onSuccess: (updated) => {
+    onSuccess: ({ data: updated, propagatedHits }) => {
       queryClient.setQueryData(QUERY_KEY, updated);
-      setEditing(null);
+      toastPropagation(propagatedHits, "Renamed");
+      closeDrawer();
     },
   });
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteSimpleEntity(kind, id),
-    onSuccess: (updated) => queryClient.setQueryData(QUERY_KEY, updated),
+    onSuccess: ({ data: updated, propagatedHits }) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      toastPropagation(propagatedHits, "Removed from");
+      // Without this the drawer stayed open over a row that no longer exists.
+      closeDrawer();
+    },
   });
 
   const list = data?.[kind] ?? [];
+  const people: Person[] = data?.people ?? [];
   const assignedCount = (name: string) =>
-    (data?.people ?? []).filter((p) => (kind === "skills" ? name in p.skills : p.langs.includes(name))).length;
+    people.filter((p) => (kind === "skills" ? name in p.skills : p.langs.includes(name))).length;
+
+  function openDrawer(entity: Draft): void {
+    setEditing(entity);
+    setErrors([]);
+  }
 
   function goToAdminIndex(): void {
     const win = window as unknown as { adminIndex?: () => void } & Record<string, (() => void) | undefined>;
     win[hideKey]?.();
     win.adminIndex?.();
+  }
+
+  // Mirrors the prototype's saveSimple(): a unique name of at least two
+  // characters, checked case-insensitively against every other entity of
+  // this kind.
+  function handleSave(draft: Draft): void {
+    const name = draft.name.trim();
+    const existingId = "id" in draft ? draft.id : undefined;
+    const errs: string[] = [];
+    // The duplicate check below reads the loaded list, so saving before the
+    // directory arrives would compare against nothing and let a duplicate
+    // through — refuse rather than check against an empty list.
+    if (isLoading || !data) {
+      setErrors(["Still loading the directory — try again in a moment."]);
+      return;
+    }
+    if (name.length < 2) errs.push(`${label} name must be at least 2 characters.`);
+    if (list.some((e) => e.name.toLowerCase() === name.toLowerCase() && e.id !== existingId)) {
+      errs.push(`A ${label.toLowerCase()} named "${name}" already exists.`);
+    }
+    if (errs.length) {
+      setErrors(errs);
+      return;
+    }
+    saveMutation.mutate({ ...draft, name, desc: (draft.desc ?? "").trim() });
+  }
+
+  function handleDelete(entity: SimpleEntity): void {
+    const count = assignedCount(entity.name);
+    const warning = count
+      ? ` It is assigned to ${count} agent${count === 1 ? "" : "s"}; the assignment will be removed.`
+      : "";
+    if (window.confirm(`Delete ${entity.name}?${warning}`)) deleteMutation.mutate(entity.id);
   }
 
   return (
@@ -55,7 +124,7 @@ export function SimpleEntityPage({
         <div className="tt">
           <h1>{title}</h1>
           <div className="rt">
-            <LegacyBtn onClick={() => setEditing({ name: "", desc: "" })}>+ Add</LegacyBtn>
+            <LegacyBtn onClick={() => openDrawer({ name: "", desc: "" })}>+ Add</LegacyBtn>
           </div>
         </div>
         <div className="tabs">
@@ -79,25 +148,37 @@ export function SimpleEntityPage({
                 <tr>
                   <td colSpan={4} style={{ color: "#8794a8", padding: 18 }}>Loading…</td>
                 </tr>
+              ) : list.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ color: "#8794a8", padding: 18 }}>
+                    No {title.toLowerCase()} yet — use “+ Add” to create one.
+                  </td>
+                </tr>
               ) : (
-                list.map((e) => (
-                  <tr key={e.id} onClick={() => setEditing(e)} style={{ cursor: "pointer" }}>
-                    <td><b className="lnk">{e.name}</b></td>
-                    <td>{e.desc ?? "—"}</td>
-                    <td>{assignedCount(e.name)} people</td>
-                    <td>
-                      <span
-                        style={{ color: "#b3261e", fontSize: 11.5 }}
-                        onClick={(evt) => {
-                          evt.stopPropagation();
-                          deleteMutation.mutate(e.id);
-                        }}
-                      >
-                        Delete
-                      </span>
-                    </td>
-                  </tr>
-                ))
+                list.map((e) => {
+                  const count = assignedCount(e.name);
+                  return (
+                    <tr key={e.id} onClick={() => openDrawer(e)} style={{ cursor: "pointer" }}>
+                      <td><b className="lnk">{e.name}</b></td>
+                      <td>{e.desc || "—"}</td>
+                      <td>
+                        {count} agent{count === 1 ? "" : "s"}
+                      </td>
+                      <td>
+                        <span
+                          className="lnk"
+                          style={{ color: "#b3261e", fontSize: 11.5 }}
+                          onClick={(evt) => {
+                            evt.stopPropagation();
+                            handleDelete(e);
+                          }}
+                        >
+                          Delete
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -108,16 +189,36 @@ export function SimpleEntityPage({
 
       {editing && (
         <div>
-          <div id="scrim" onClick={() => setEditing(null)} />
+          <div id="scrim" onClick={closeDrawer} />
           <div id="drw" style={{ height: "auto", top: "26%", bottom: "auto", borderRadius: "8px 0 0 8px" }}>
             <div className="dh">
-              <h2>{"id" in editing ? "Edit" : "Add"}</h2>
-              <div className="x" onClick={() => setEditing(null)}>×</div>
+              <h2>{"id" in editing ? `Edit ${label}` : `Add ${label}`}</h2>
+              <div className="x" onClick={closeDrawer}>×</div>
             </div>
             <div className="db">
+              {errors.length > 0 && (
+                <div
+                  style={{
+                    background: "#fdecea",
+                    border: "1px solid #f5c6c0",
+                    color: "#b3261e",
+                    borderRadius: 5,
+                    padding: "8px 11px",
+                    fontSize: 12.5,
+                    marginBottom: 10,
+                  }}
+                >
+                  {errors.map((e, i) => (
+                    <div key={i}>{e}</div>
+                  ))}
+                </div>
+              )}
               <div className="fld">
-                <label>Name</label>
-                <input value={editing.name} onChange={(e) => setEditing((d) => (d ? { ...d, name: e.target.value } : d))} />
+                <label>{label} name *</label>
+                <input
+                  value={editing.name}
+                  onChange={(e) => setEditing((d) => (d ? { ...d, name: e.target.value } : d))}
+                />
               </div>
               <div className="fld">
                 <label>Description</label>
@@ -126,10 +227,17 @@ export function SimpleEntityPage({
                   onChange={(e) => setEditing((d) => (d ? { ...d, desc: e.target.value } : d))}
                 />
               </div>
+              {"id" in editing && (
+                <div className="fld" style={{ marginTop: 14 }}>
+                  <LegacyBtn secondary onClick={() => handleDelete(editing)} disabled={deleteMutation.isPending}>
+                    {deleteMutation.isPending ? "Deleting…" : `Delete ${label.toLowerCase()}`}
+                  </LegacyBtn>
+                </div>
+              )}
             </div>
             <div className="df">
-              <LegacyBtn secondary onClick={() => setEditing(null)} disabled={saveMutation.isPending}>Cancel</LegacyBtn>
-              <LegacyBtn onClick={() => saveMutation.mutate(editing)} disabled={saveMutation.isPending || !editing.name}>
+              <LegacyBtn secondary onClick={closeDrawer} disabled={saveMutation.isPending}>Cancel</LegacyBtn>
+              <LegacyBtn onClick={() => handleSave(editing)} disabled={saveMutation.isPending || isLoading}>
                 {saveMutation.isPending ? "Saving…" : "Save"}
               </LegacyBtn>
             </div>

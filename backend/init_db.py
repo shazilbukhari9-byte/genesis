@@ -15,6 +15,10 @@ from datetime import datetime
 from werkzeug.security import generate_password_hash
 from psycopg2.extras import Json
 from db import get_db
+# parse_contract only — a pure string->fields function with no request
+# context, reused here so seeded contracts are derived by exactly the same
+# rule the API uses rather than a second copy that could drift.
+import dataact
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), '..', 'database', 'schema.sql')
 
@@ -81,6 +85,63 @@ LICENSES = [
     ('CX 4', 'CX 4 — AI', 10, 240),
     ('Communicate', 'Communicate', 50, 18),
 ]
+
+# Admin > Integrations > Integrations page's "Catalogue" tab — same 4
+# entries the frontend's now-removed CATALOGUE_ITEMS array used to
+# hardcode (frontend/src/mcm/scripts.ts), seeded once so the tab has real
+# data on first boot instead of starting empty.
+INTEGRATION_CATALOGUE = [
+    ('Salesforce CTI', 'CRM', 'Client application', 'OAuth', 'Agent UI'),
+    ('Microsoft Teams', 'UC', 'Directory presence sync', 'OAuth', 'Directory'),
+    ('Zendesk', 'Ticketing', 'Data actions', 'API key', 'Architect'),
+    ('Power BI Export', 'Analytics', 'Client application', 'OAuth', 'Supervisors'),
+]
+
+# Permission domains (Roles / Permissions page) — must match the frontend's
+# PERMISSION_DOMAINS exactly (frontend/src/features/people-permissions/
+# types.ts), which mirrors the UI prototype's PERMS object one-for-one:
+# {domain: [entity:action, ...]}. A role's perms are 'domain:entity:action'
+# strings, e.g. 'directory:user:view'.
+PERMS = {
+    'directory': ['user:add', 'user:edit', 'user:view', 'user:delete', 'group:add', 'group:edit', 'location:add', 'location:edit'],
+    'authorization': ['role:add', 'role:edit', 'role:view', 'role:delete', 'division:add', 'division:edit', 'division:delete', 'grant:add'],
+    'routing': ['queue:add', 'queue:edit', 'queue:view', 'skill:add', 'skill:edit', 'wrapupCode:add', 'email:manage', 'message:manage'],
+    'conversation': ['call:accept', 'call:record', 'call:monitor', 'call:coach', 'call:barge', 'callback:add', 'email:accept', 'message:accept'],
+    'analytics': ['view:view', 'dashboard:add', 'dashboard:edit', 'alert:add', 'alert:edit', 'export:add'],
+    'quality': ['evaluation:add', 'evaluation:edit', 'calibration:add', 'recording:view', 'recordingPolicy:edit'],
+    'telephony': ['plugin:all', 'trunk:edit', 'site:edit', 'edge:edit', 'phone:add', 'phone:assign', 'did:edit', 'extension:edit'],
+    'architect': ['flow:add', 'flow:edit', 'flow:publish', 'flow:delete', 'prompt:add', 'datatable:edit'],
+    'outbound': ['campaign:add', 'campaign:edit', 'contactList:add', 'dnc:edit', 'ruleSet:edit'],
+    'wem': ['schedule:add', 'schedule:edit', 'forecast:add', 'adherence:view', 'gamification:edit'],
+}
+_ALL_PERMS = [f'{domain}:{action}' for domain, actions in PERMS.items() for action in actions]
+
+# Roles (name, description, base, perms) — the same 7 the prototype seeds.
+# 'Employee' is the one every seeded user gets in addition to their own
+# role(s) — same "base role nobody can remove" behaviour as the prototype.
+ROLES = [
+    ('Master Admin', 'Full organisation control', True, _ALL_PERMS),
+    ('Admin', 'Administer most settings', True,
+     [p for p in _ALL_PERMS if p != 'authorization:division:delete']),
+    ('Employee', 'Base role for every user', True,
+     ['directory:user:view', 'conversation:call:accept', 'conversation:callback:add']),
+    ('Agent', 'Handle ACD interactions', True,
+     ['directory:user:view', 'conversation:call:accept', 'conversation:email:accept', 'conversation:message:accept',
+      'conversation:callback:add', 'routing:queue:view', 'analytics:view:view']),
+    ('Supervisor', 'Queue & agent management', True,
+     ['directory:user:view', 'routing:queue:view', 'routing:queue:edit', 'conversation:call:monitor',
+      'conversation:call:coach', 'conversation:call:barge', 'analytics:view:view', 'analytics:dashboard:add',
+      'analytics:alert:add', 'wem:adherence:view']),
+    ('Telephony Admin', 'Edges, trunks, phones, numbers', True,
+     ['telephony:plugin:all', 'telephony:trunk:edit', 'telephony:site:edit', 'telephony:edge:edit',
+      'telephony:phone:add', 'telephony:phone:assign', 'telephony:did:edit', 'telephony:extension:edit']),
+    ('Quality Evaluator', 'Evaluations & calibration', True,
+     ['quality:evaluation:add', 'quality:evaluation:edit', 'quality:calibration:add', 'quality:recording:view',
+      'analytics:view:view']),
+]
+
+SKILLS = ['Billing', 'Technical', 'Retention', 'Sales', 'Collections']
+LANGS = ['English', 'Spanish', 'Hindi', 'French']
 
 # backend/app.py's GET /api/subscription/overview reads these two tables
 # directly (with no tenant filter — invoices/usage_log are global, not
@@ -312,18 +373,22 @@ USERS = [
     ('Haruto Sato', 'hsato@mcmgroup.com', 'Communicate', 'Active', 'd_ret'),
 ]
 
-# Matches frontend/src/mcm/callrouting-redesign.ts's ensureQueues()/
-# ensureSchedules() shape — queues.division/config and schedule_groups exist
-# for Contact Center admin already, but nothing seeded them, so Call
-# Routing's own division/queue/schedule pickers had nothing to reference
-# until a route was hand-created once. name is unique per tenant (see
-# ux_queues_tenant_name / ux_schedule_groups_tenant_name in schema.sql).
-# config mirrors the shape the Contact Center > Queues admin page itself
-# writes when a queue is created by hand (DB.queues row: desc/routing/evalm/
-# acw/acwSec/members/rings/media/wrapup/music) — a bare {} here (this
-# table's column default) makes that page's own renderQueues() crash with
-# "Cannot read properties of undefined (reading 'Voice')" since it reads
-# q.media.Voice unconditionally, no optional chaining.
+# A handful of representative users get a role beyond the 'Employee'
+# baseline plus a skill/language or two — everyone else just gets
+# 'Employee' with no skills/langs. Deliberately light: this is demo
+# flavour so the People page's Roles/Skills columns aren't all identical,
+# not a full org chart. The last tuple element is lang_proficiency
+# (1-5 per language, an addition beyond the UI prototype — see
+# Person.langProficiency in the frontend) so the demo data actually shows
+# the ratings varying, not just uniform membership.
+USER_EXTRAS = {
+    'fkhan@mcmgroup.com': (['Admin', 'Supervisor'], {'Billing': 4}, ['English'], {'English': 5}),
+    'ashaikh@mcmgroup.com': (['Supervisor'], {'Technical': 3}, ['English'], {'English': 4}),
+    'spetrova@mcmgroup.com': (['Agent'], {'Billing': 3}, ['English', 'Spanish'], {'English': 3, 'Spanish': 5}),
+    'jokafor@mcmgroup.com': (['Agent'], {'Sales': 4}, ['English'], {'English': 4}),
+    'gadeyemi@mcmgroup.com': (['Quality Evaluator'], {}, ['English'], {'English': 3}),
+}
+
 _QUEUE_MEDIA = {
     'Voice': {'alert': 12, 'slaPct': 80, 'slaSec': 20, 'auto': False},
     'Callback': {'alert': 30, 'slaPct': 80, 'slaSec': 60, 'auto': False},
@@ -543,6 +608,30 @@ def run():
         tenant = cur.fetchone()
     tenant_id = tenant['id']
 
+    cur.execute('SELECT COUNT(*) AS n FROM roles WHERE tenant_id = %s', (tenant_id,))
+    if cur.fetchone()['n'] == 0:
+        for name, description, base, perms in ROLES:
+            cur.execute(
+                'INSERT INTO roles (tenant_id, name, description, base, perms) VALUES (%s,%s,%s,%s,%s)',
+                (tenant_id, name, description, base, perms),
+            )
+
+    cur.execute('SELECT COUNT(*) AS n FROM simple_entities WHERE tenant_id = %s AND kind = %s', (tenant_id, 'skill'))
+    if cur.fetchone()['n'] == 0:
+        for name in SKILLS:
+            cur.execute(
+                'INSERT INTO simple_entities (tenant_id, kind, name) VALUES (%s,%s,%s)',
+                (tenant_id, 'skill', name),
+            )
+
+    cur.execute('SELECT COUNT(*) AS n FROM simple_entities WHERE tenant_id = %s AND kind = %s', (tenant_id, 'lang'))
+    if cur.fetchone()['n'] == 0:
+        for name in LANGS:
+            cur.execute(
+                'INSERT INTO simple_entities (tenant_id, kind, name) VALUES (%s,%s,%s)',
+                (tenant_id, 'lang', name),
+            )
+
     for div_code, name, description, is_home in DIVISIONS:
         cur.execute(
             'INSERT INTO divisions (code, tenant_id, name, description, is_home) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (code) DO NOTHING',
@@ -553,6 +642,16 @@ def run():
         cur.execute(
             'INSERT INTO licenses (code, label, purchased, unit_price) VALUES (%s,%s,%s,%s) ON CONFLICT (code) DO NOTHING',
             (code, label, purchased, unit_price),
+        )
+
+    for name, category, itype, credentials, used_by in INTEGRATION_CATALOGUE:
+        cur.execute(
+            """
+            INSERT INTO integration_catalogue (tenant_id, name, category, type, credentials, used_by)
+            VALUES (%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (tenant_id, name) DO NOTHING
+            """,
+            (tenant_id, name, category, itype, credentials, used_by),
         )
 
     for app_id, name, category, category_label, icon, description, permissions, last_sync_label in INSTALLED_APPS:
@@ -622,6 +721,27 @@ def run():
             (da_id, tenant_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error),
         )
 
+    # Structured contract rows for the Contracts tab. Not seed *content* —
+    # every field here is parsed out of the action's own contract string
+    # above by the same backend parser the API uses, so this only
+    # materialises what data_actions.contract already says. Runs on every
+    # boot (cheap, and idempotent via the ON CONFLICT) so actions created
+    # before data_action_contracts existed get backfilled too.
+    cur.execute('SELECT id, contract FROM data_actions WHERE tenant_id = %s', (tenant_id,))
+    for action in cur.fetchall():
+        for field in dataact.parse_contract(action['contract']):
+            cur.execute(
+                """
+                INSERT INTO data_action_contracts
+                    (tenant_id, data_action_id, direction, field_name, field_type, position)
+                VALUES (%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (data_action_id, direction, field_name) DO UPDATE
+                    SET field_type = EXCLUDED.field_type, position = EXCLUDED.position
+                """,
+                (tenant_id, action['id'], field['direction'], field['field_name'],
+                 field['field_type'], field['position']),
+            )
+
     for dnc_id, name, numbers in DNC_LISTS:
         cur.execute(
             'INSERT INTO dnc_lists (id, tenant_id, name) VALUES (%s,%s,%s) ON CONFLICT (id) DO NOTHING',
@@ -685,6 +805,52 @@ def run():
                 'UPDATE users SET password_hash = %s WHERE name = %s AND password_hash IS NULL',
                 (DEMO_PASSWORD_HASH, name),
             )
+
+    # Every seeded user gets the 'Employee' baseline role (can't be
+    # unassigned in the UI — see PersonDrawer); a few also get a second
+    # role plus a skill/language from USER_EXTRAS above. Only touches rows
+    # that still have no roles assigned, so this never clobbers real edits.
+    cur.execute('SELECT id, name FROM roles WHERE tenant_id = %s', (tenant_id,))
+    role_id_by_name = {r['name']: r['id'] for r in cur.fetchall()}
+    employee_role_id = role_id_by_name.get('Employee')
+    if employee_role_id is not None:
+        for _, email, _, _, _ in USERS:
+            extra_roles, skills, langs, lang_proficiency = USER_EXTRAS.get(email, ([], {}, [], {}))
+            role_ids = [employee_role_id] + [role_id_by_name[r] for r in extra_roles if r in role_id_by_name]
+            cur.execute(
+                "UPDATE users SET roles = %s, skills = %s, langs = %s, lang_proficiency = %s "
+                "WHERE email = %s AND array_length(roles, 1) IS NULL",
+                (role_ids, skills, langs, lang_proficiency, email),
+            )
+
+    # lang_proficiency backfill: any user who already speaks a language
+    # (present in langs, from before this column existed, or added directly
+    # some other way) but has no rating for it yet gets a default of 3 —
+    # otherwise the People page would show an assigned language as "Not
+    # assigned" until someone happens to open and re-save that person.
+    # Idempotent (only touches rows genuinely missing an entry) so it's
+    # safe to run on every startup, same as the rest of this function.
+    cur.execute(
+        """
+        UPDATE users SET lang_proficiency = (
+            SELECT jsonb_object_agg(lang, COALESCE(lang_proficiency -> lang, to_jsonb(3)))
+            FROM unnest(langs) AS lang
+        )
+        WHERE array_length(langs, 1) > 0
+          AND EXISTS (SELECT 1 FROM unnest(langs) AS l WHERE NOT lang_proficiency ? l)
+        """
+    )
+
+    # audit_log tenant_id backfill: the table predates multi-tenancy, so any
+    # row left over from before this column existed has no tenant recorded.
+    # Attribute those to the current tenant (they can only have come from
+    # actions taken against this deployment) rather than leave them globally
+    # visible to every tenant sharing this database. Idempotent (only touches
+    # rows still missing a tenant) so it's safe to run on every startup.
+    cur.execute('UPDATE audit_log SET tenant_id = %s WHERE tenant_id IS NULL', (tenant_id,))
+
+    # Same backfill for purchases — see its tenant_id comment in schema.sql.
+    cur.execute('UPDATE purchases SET tenant_id = %s WHERE tenant_id IS NULL', (tenant_id,))
 
     # ── Architect Flows / Prompts / Call Routing / Emergency Groups demo
     # seed. Every insert below targets a table with a (tenant_id, lower(name))

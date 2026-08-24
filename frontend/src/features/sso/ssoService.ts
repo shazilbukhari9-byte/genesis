@@ -5,6 +5,44 @@ import { apiFetch } from "../shared/backend";
 
 const STORAGE_KEY = "mcm_sso_providers_v2";
 
+// The prototype's own provider drawer (SAML settings + Behaviour fields —
+// see the SsoProvider.samlIssuerUri comment in types.ts) isn't backed by
+// real logic anywhere, including in the prototype itself — its own Save
+// button just toasts "Saved — prototype only". Those fields aren't columns
+// on sso_providers, so they're kept in this separate local overlay, keyed
+// by provider id, instead of sent to the real API — visual parity with the
+// prototype without pretending they configure something real.
+const COSMETIC_KEY = "mcm_sso_cosmetic_v1";
+type CosmeticFields = Pick<
+  SsoProvider,
+  "samlIssuerUri" | "samlTargetUrl" | "certificate" | "nameIdFormat" | "allowPasswordFallback" | "autoProvisionScim" | "signAuthRequests" | "relyingPartyId"
+>;
+
+function readCosmeticOverlay(): Record<string, CosmeticFields> {
+  try {
+    return JSON.parse(localStorage.getItem(COSMETIC_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+function writeCosmeticFields(id: string, fields: CosmeticFields): void {
+  const overlay = readCosmeticOverlay();
+  overlay[id] = fields;
+  localStorage.setItem(COSMETIC_KEY, JSON.stringify(overlay));
+}
+
+function removeCosmeticFields(id: string): void {
+  const overlay = readCosmeticOverlay();
+  delete overlay[id];
+  localStorage.setItem(COSMETIC_KEY, JSON.stringify(overlay));
+}
+
+function withCosmeticOverlay(providers: SsoProvider[]): SsoProvider[] {
+  const overlay = readCosmeticOverlay();
+  return providers.map((p) => (overlay[p.id] ? { ...p, ...overlay[p.id] } : p));
+}
+
 /* Map backend row → frontend SsoProvider */
 function mapFromApi(row: any): SsoProvider {
   return {
@@ -18,13 +56,26 @@ function mapFromApi(row: any): SsoProvider {
   };
 }
 
-/* Map frontend SsoProvider → backend write payload */
+/* Map frontend SsoProvider → backend write payload (real, persisted fields only) */
 function mapToApi(p: Partial<SsoProvider> & { id?: string }) {
   const payload: Record<string, any> = {};
   if (p.name !== undefined) payload["name"] = p.name;
   if (p.type !== undefined) payload["protocol"] = p.type === "SAML 2.0" ? "saml" : "oidc";
   if (p.status !== undefined) payload["enabled"] = p.status === "Enabled";
   return payload;
+}
+
+function cosmeticFieldsOf(p: Partial<SsoProvider>): CosmeticFields {
+  return {
+    samlIssuerUri: p.samlIssuerUri,
+    samlTargetUrl: p.samlTargetUrl,
+    certificate: p.certificate,
+    nameIdFormat: p.nameIdFormat,
+    allowPasswordFallback: p.allowPasswordFallback,
+    autoProvisionScim: p.autoProvisionScim,
+    signAuthRequests: p.signAuthRequests,
+    relyingPartyId: p.relyingPartyId,
+  };
 }
 
 /* ── localStorage fallback (same as original) ── */
@@ -62,21 +113,22 @@ export async function fetchSsoProviders(): Promise<SsoProvider[]> {
     const rows = await apiFetch<any[]>("/api/sso/providers");
     const mapped = rows.map(mapFromApi);
     writeStore(mapped);
-    return mapped;
+    return withCosmeticOverlay(mapped);
   } catch {
-    return readStore();
+    return withCosmeticOverlay(readStore());
   }
 }
 
 export async function upsertSsoProvider(provider: Omit<SsoProvider, "id"> & { id?: string }): Promise<SsoProvider[]> {
   try {
-    if (provider.id) {
-      await apiFetch(`/api/sso/providers/${provider.id}`, {
+    let id = provider.id;
+    if (id) {
+      await apiFetch(`/api/sso/providers/${id}`, {
         method: "PUT",
         body: JSON.stringify(mapToApi(provider)),
       });
     } else {
-      await apiFetch("/api/sso/providers", {
+      const created = await apiFetch<{ id: number }>("/api/sso/providers", {
         method: "POST",
         body: JSON.stringify({
           name: provider.name,
@@ -84,29 +136,35 @@ export async function upsertSsoProvider(provider: Omit<SsoProvider, "id"> & { id
           enabled: provider.status === "Enabled",
         }),
       });
+      id = String(created.id);
     }
+    writeCosmeticFields(id, cosmeticFieldsOf(provider));
     return fetchSsoProviders();
   } catch {
     // Fallback to localStorage
     const data = readStore();
-    if (provider.id) {
-      const idx = data.findIndex((p) => p.id === provider.id);
-      if (idx >= 0) data[idx] = { ...data[idx], ...provider, id: provider.id };
+    let id = provider.id;
+    if (id) {
+      const idx = data.findIndex((p) => p.id === id);
+      if (idx >= 0) data[idx] = { ...data[idx], ...provider, id };
     } else {
-      data.push({ ...provider, id: "id" + Math.random().toString(36).slice(2, 10) });
+      id = "id" + Math.random().toString(36).slice(2, 10);
+      data.push({ ...provider, id });
     }
     writeStore(data);
-    return data;
+    writeCosmeticFields(id, cosmeticFieldsOf(provider));
+    return withCosmeticOverlay(data);
   }
 }
 
 export async function deleteSsoProvider(id: string): Promise<SsoProvider[]> {
+  removeCosmeticFields(id);
   try {
     await apiFetch(`/api/sso/providers/${id}`, { method: "DELETE" });
     return fetchSsoProviders();
   } catch {
     const data = readStore().filter((p) => p.id !== id);
     writeStore(data);
-    return data;
+    return withCosmeticOverlay(data);
   }
 }

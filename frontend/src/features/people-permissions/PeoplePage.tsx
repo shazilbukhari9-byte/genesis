@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
+import { toast } from "../shared/toast";
 import {
   bulkImportPeopleCsv,
   bulkUpdatePeople,
@@ -27,17 +28,18 @@ function goToAdminIndex(): void {
   win.adminIndex?.();
 }
 
-function emptyPerson(): Omit<Person, "id" | "created"> {
+function emptyPerson(employeeRoleId?: string): Omit<Person, "id" | "created"> {
   return {
     name: "",
     email: "",
     title: "",
     dept: "",
     division: "d_home",
-    roles: [],
+    roles: employeeRoleId ? [employeeRoleId] : [],
     license: "CX 2",
     skills: {},
     langs: [],
+    langProficiency: {},
     station: "WebRTC softphone",
     state: "Pending invite",
     ext: "",
@@ -60,20 +62,30 @@ export function PeoplePage() {
 
   const saveMutation = useMutation({
     mutationFn: upsertPerson,
-    onSuccess: (updated) => {
+    onSuccess: (updated, variables) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       setEditing(null);
+      toast(
+        "id" in variables && variables.id
+          ? `Changes saved for <b>${variables.name}</b>`
+          : `<b>${variables.name}</b> created — invitation email queued`,
+      );
     },
   });
   const deleteMutation = useMutation({
-    mutationFn: deletePerson,
-    onSuccess: (updated) => queryClient.setQueryData(QUERY_KEY, updated),
+    mutationFn: ({ id, name }: { id: string; name: string }) => deletePerson(id, name),
+    onSuccess: (updated, { name }) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      toast(`${name} deleted`);
+    },
   });
   const bulkMutation = useMutation({
     mutationFn: ({ ids, action }: { ids: string[]; action: "activate" | "deactivate" | "invite" | "delete" }) =>
       bulkUpdatePeople(ids, action === "invite" ? "activate" : action),
-    onSuccess: (updated) => {
+    onSuccess: (updated, { ids, action }) => {
       queryClient.setQueryData(QUERY_KEY, updated);
+      const verb = { activate: "activated", deactivate: "deactivated", invite: "invited", delete: "deleted" }[action];
+      toast(`${ids.length} people ${verb}`);
       setSelected([]);
     },
   });
@@ -89,6 +101,7 @@ export function PeoplePage() {
   const divisionName = (id: string) => data?.divisions.find((d) => d.id === id)?.name ?? id;
   const roleNames = (ids: string[]) =>
     ids.map((id) => data?.roles.find((r) => r.id === id)?.name).filter(Boolean).join(", ") || "Employee";
+  const employeeRoleId = data?.roles.find((r) => r.name === "Employee")?.id;
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -174,7 +187,7 @@ export function PeoplePage() {
         <div className="tt">
           <h1>People</h1>
           <div className="rt" style={{ position: "relative" }}>
-            <LegacyBtn onClick={() => setEditing(emptyPerson())}>+ Add Person</LegacyBtn>
+            <LegacyBtn onClick={() => setEditing(emptyPerson(employeeRoleId))}>+ Add Person</LegacyBtn>
             <LegacyBtn secondary onClick={() => setShowCsvImport(true)}>
               Bulk Import
             </LegacyBtn>
@@ -243,7 +256,14 @@ export function PeoplePage() {
             <LegacyBtn secondary style={{ height: 28 }} onClick={() => bulkMutation.mutate({ ids: selected, action: "invite" })}>
               Send invite
             </LegacyBtn>
-            <LegacyBtn style={{ height: 28 }} onClick={() => bulkMutation.mutate({ ids: selected, action: "delete" })}>
+            <LegacyBtn
+              style={{ height: 28 }}
+              onClick={() => {
+                if (window.confirm(`Delete ${selected.length} selected people? This can't be undone.`)) {
+                  bulkMutation.mutate({ ids: selected, action: "delete" });
+                }
+              }}
+            >
               Delete
             </LegacyBtn>
           </div>
@@ -306,6 +326,12 @@ export function PeoplePage() {
                 <tr>
                   <td colSpan={9} style={{ color: "#8794a8", padding: 18 }}>Loading…</td>
                 </tr>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ textAlign: "center", color: "#8794a8", padding: 26 }}>
+                    No people match the current filters
+                  </td>
+                </tr>
               ) : (
                 filtered.map((p) => {
                   const skillCount = Object.keys(p.skills || {}).length;
@@ -339,6 +365,17 @@ export function PeoplePage() {
               )}
             </tbody>
           </table>
+          <div className="pgr">
+            <span>
+              Showing <b>{filtered.length}</b> of <b>{people.length}</b> people
+            </span>
+            <div className="sp" />
+            <span>
+              {people.filter((p) => p.state === "Active").length} active ·{" "}
+              {people.filter((p) => p.state === "Pending invite").length} pending ·{" "}
+              {people.filter((p) => p.state === "Inactive").length} inactive
+            </span>
+          </div>
         </div>
 
         <LegacyHelpPanel topicKey="people" />
@@ -347,13 +384,18 @@ export function PeoplePage() {
       {editing && (
         <PersonDrawer
           person={editing}
+          people={people}
           divisions={data?.divisions ?? []}
           roles={data?.roles ?? []}
           licenses={Object.keys(data?.licenses ?? {})}
+          skills={data?.skills ?? []}
+          langs={data?.langs ?? []}
           saving={saveMutation.isPending}
           onClose={() => setEditing(null)}
           onSave={(value) => saveMutation.mutate(value)}
-          {...("id" in editing ? { onDelete: () => deleteMutation.mutate((editing as Person).id) } : {})}
+          {...("id" in editing
+            ? { onDelete: () => deleteMutation.mutate({ id: (editing as Person).id, name: (editing as Person).name }) }
+            : {})}
         />
       )}
 
@@ -429,29 +471,91 @@ function CsvImportDrawer({ onClose, onImported }: { onClose: () => void; onImpor
   );
 }
 
+const STATIONS = ["WebRTC softphone", "Physical phone", "Remote station"];
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 function PersonDrawer({
   person,
+  people,
   divisions,
   roles,
   licenses,
+  skills,
+  langs,
   saving,
   onClose,
   onSave,
   onDelete,
 }: {
   person: Person | Omit<Person, "id" | "created">;
+  people: Person[];
   divisions: { id: string; name: string }[];
-  roles: { id: string; name: string }[];
+  roles: { id: string; name: string; desc: string; perms: string[] }[];
   licenses: string[];
+  skills: { id: string; name: string }[];
+  langs: { id: string; name: string }[];
   saving: boolean;
   onClose: () => void;
   onSave: (value: Person | Omit<Person, "id" | "created">) => void;
   onDelete?: () => void;
 }) {
   const [draft, setDraft] = useState(person);
+  const [errors, setErrors] = useState<string[]>([]);
+  const isNew = !("id" in draft);
+  const existingId = "id" in draft ? draft.id : undefined;
 
   function set<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
+  }
+
+  function setSkill(name: string, proficiency: number) {
+    setDraft((d) => {
+      const next = { ...d.skills };
+      if (proficiency > 0) next[name] = proficiency;
+      else delete next[name];
+      return { ...d, skills: next };
+    });
+  }
+
+  // Mirrors setSkill's 0-5 rating above, an addition beyond the prototype's
+  // plain on/off checkbox — see the Person.langProficiency comment in
+  // types.ts. langs stays in sync (present iff proficiency > 0) since it's
+  // still what routing eligibility and the legacy engine key off.
+  function setLangProficiency(name: string, proficiency: number) {
+    setDraft((d) => {
+      const nextProficiency = { ...d.langProficiency };
+      const nextLangs = d.langs.filter((l) => l !== name);
+      if (proficiency > 0) {
+        nextProficiency[name] = proficiency;
+        nextLangs.push(name);
+      } else {
+        delete nextProficiency[name];
+      }
+      return { ...d, langs: nextLangs, langProficiency: nextProficiency };
+    });
+  }
+
+  function validate(): string[] {
+    const errs: string[] = [];
+    if (draft.name.trim().length < 2) errs.push("Full name is required.");
+    const email = draft.email.trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) errs.push("A valid email address is required.");
+    const dup = people.find((p) => p.email.toLowerCase() === email && p.id !== existingId);
+    if (dup) errs.push(`Email is already used by ${dup.name}.`);
+    return errs;
+  }
+
+  function handleSave() {
+    const errs = validate();
+    if (errs.length) {
+      setErrors(errs);
+      return;
+    }
+    onSave({ ...draft, name: draft.name.trim(), email: draft.email.trim().toLowerCase() });
+  }
+
+  function handleSendInvite() {
+    onSave({ ...draft, state: "Pending invite" });
   }
 
   return (
@@ -459,16 +563,35 @@ function PersonDrawer({
       <div id="scrim" onClick={onClose} />
       <div id="drw">
         <div className="dh">
-          <h2>{"id" in draft ? "Edit person" : "Add person"}</h2>
+          <h2>{isNew ? "Add Person" : `Edit — ${draft.name}`}</h2>
           <div className="x" onClick={onClose}>×</div>
         </div>
         <div className="db">
+          {errors.length > 0 && (
+            <div
+              style={{
+                background: "#fdecea",
+                border: "1px solid #f5c6c0",
+                color: "#b3261e",
+                borderRadius: 5,
+                padding: "8px 11px",
+                fontSize: 12.5,
+                marginBottom: 10,
+              }}
+            >
+              {errors.map((e, i) => (
+                <div key={i}>{e}</div>
+              ))}
+            </div>
+          )}
+
+          <div className="sect">Identity</div>
           <div className="fld">
-            <label>Full name</label>
+            <label>Full name *</label>
             <input value={draft.name} onChange={(e) => set("name", e.target.value)} />
           </div>
           <div className="fld">
-            <label>Email</label>
+            <label>Email *</label>
             <input value={draft.email} onChange={(e) => set("email", e.target.value)} />
           </div>
           <div className="fld">
@@ -479,14 +602,8 @@ function PersonDrawer({
             <label>Department</label>
             <input value={draft.dept} onChange={(e) => set("dept", e.target.value)} />
           </div>
-          <div className="fld">
-            <label>Division</label>
-            <select value={draft.division} onChange={(e) => set("division", e.target.value)}>
-              {divisions.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
-          </div>
+
+          <div className="sect">Access</div>
           <div className="fld">
             <label>Licence</label>
             <select value={draft.license} onChange={(e) => set("license", e.target.value)}>
@@ -496,47 +613,124 @@ function PersonDrawer({
             </select>
           </div>
           <div className="fld">
+            <label>Home division</label>
+            <select value={draft.division} onChange={(e) => set("division", e.target.value)}>
+              {divisions.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="fld">
             <label>Roles</label>
-            {roles.map((r) => (
-              <label key={r.id} style={{ display: "block", fontSize: 12.5, marginBottom: 4 }}>
-                <input
-                  type="checkbox"
-                  checked={draft.roles.includes(r.id)}
-                  onChange={(e) =>
-                    set("roles", e.target.checked ? [...draft.roles, r.id] : draft.roles.filter((x) => x !== r.id))
-                  }
-                  style={{ width: "auto", marginRight: 6 }}
-                />
-                {r.name}
-              </label>
+            {roles.map((r) => {
+              const isEmployee = r.name === "Employee";
+              return (
+                <div className="tgl" key={r.id}>
+                  <input
+                    type="checkbox"
+                    checked={draft.roles.includes(r.id)}
+                    disabled={isEmployee}
+                    onChange={(e) =>
+                      set("roles", e.target.checked ? [...draft.roles, r.id] : draft.roles.filter((x) => x !== r.id))
+                    }
+                    style={{ width: "auto" }}
+                  />
+                  {r.name}
+                  <span style={{ color: "#8794a8", fontSize: 11, marginLeft: 6 }}>{r.perms.length} perms</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="sect">Contact Centre</div>
+          <div className="fld">
+            <label>ACD skills &amp; proficiency</label>
+            {skills.map((s) => (
+              <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0" }}>
+                <span style={{ flex: 1, fontSize: 12.5 }}>{s.name}</span>
+                <select
+                  style={{ width: 130, height: 28, border: "1px solid #ccd4e0", borderRadius: 4 }}
+                  value={draft.skills[s.name] ?? 0}
+                  onChange={(e) => setSkill(s.name, Number(e.target.value))}
+                >
+                  {[0, 1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>{n === 0 ? "Not assigned" : `Proficiency ${n}`}</option>
+                  ))}
+                </select>
+              </div>
             ))}
           </div>
           <div className="fld">
-            <label>Status</label>
-            <select value={draft.state} onChange={(e) => set("state", e.target.value as Person["state"])}>
-              <option>Active</option>
-              <option>Pending invite</option>
-              <option>Inactive</option>
+            <label>Languages &amp; proficiency</label>
+            {langs.map((l) => (
+              <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0" }}>
+                <span style={{ flex: 1, fontSize: 12.5 }}>{l.name}</span>
+                <select
+                  style={{ width: 130, height: 28, border: "1px solid #ccd4e0", borderRadius: 4 }}
+                  value={draft.langProficiency[l.name] ?? 0}
+                  onChange={(e) => setLangProficiency(l.name, Number(e.target.value))}
+                >
+                  {[0, 1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>{n === 0 ? "Not assigned" : `Proficiency ${n}`}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+          <div className="fld">
+            <label>Station type</label>
+            <select value={draft.station} onChange={(e) => set("station", e.target.value)}>
+              {STATIONS.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
             </select>
           </div>
-          {onDelete && (
-            <div className="fld">
-              <LegacyBtn
-                secondary
-                onClick={() => {
-                  onDelete();
-                  onClose();
-                }}
-              >
-                Delete person
-              </LegacyBtn>
-            </div>
+
+          {!isNew && (
+            <>
+              <div className="sect">Account</div>
+              <div className="fld">
+                <label>Status</label>
+                <select value={draft.state} onChange={(e) => set("state", e.target.value as Person["state"])}>
+                  <option>Active</option>
+                  <option>Pending invite</option>
+                  <option>Inactive</option>
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                {draft.state !== "Active" && (
+                  <LegacyBtn secondary onClick={handleSendInvite} disabled={saving}>
+                    Send invite
+                  </LegacyBtn>
+                )}
+                <LegacyBtn secondary onClick={() => toast(`Password reset email sent to ${draft.email}`)}>
+                  Reset password
+                </LegacyBtn>
+                {onDelete && (
+                  <LegacyBtn
+                    style={{ background: "transparent", color: "#c9401a" }}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Delete ${draft.name}? They are removed from the directory; interaction history is retained. Users in a custom division fall back to Home.`,
+                        )
+                      ) {
+                        onDelete();
+                        onClose();
+                      }
+                    }}
+                  >
+                    Delete person
+                  </LegacyBtn>
+                )}
+              </div>
+            </>
           )}
         </div>
         <div className="df">
           <LegacyBtn secondary onClick={onClose} disabled={saving}>Cancel</LegacyBtn>
-          <LegacyBtn onClick={() => onSave(draft)} disabled={saving || !draft.name || !draft.email}>
-            {saving ? "Saving…" : "Save"}
+          <LegacyBtn onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : isNew ? "Create & invite" : "Save changes"}
           </LegacyBtn>
         </div>
       </div>
