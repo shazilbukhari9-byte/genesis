@@ -67,33 +67,20 @@ export const SUBSCRIPTION_SCRIPT: string = `
     return fetch(API_BASE + path, { headers: window.__mcmAuthHeaders ? window.__mcmAuthHeaders() : {} }).then(function(r) { return r.json(); });
   }
 
-  // Standard mod-10 checksum every real card number (and every well-known
-  // test number, including 4242 4242 4242 4242) satisfies — catches an
-  // obvious typo before it ever reaches the network. Mirrored server-side
-  // in backend/app.py's _validate_card as the real enforcement point.
-  function luhnValid(digits) {
-    var sum = 0, alt = false;
-    for (var i = digits.length - 1; i >= 0; i--) {
-      var n = parseInt(digits.charAt(i), 10);
-      if (alt) { n *= 2; if (n > 9) n -= 9; }
-      sum += n;
-      alt = !alt;
-    }
-    return sum % 10 === 0;
-  }
-
-  // Shared by both the buy-flow card form and the standalone Manage
-  // Subscription one — used to just check "is every field non-empty"
-  // (length >= 12, no real number check, no expiry-in-the-future check,
-  // no CVV length check), so obviously-wrong input like an already-expired
-  // card or a mistyped number was silently accepted.
+  // Shared by both the buy-flow card form and the standalone Manage Cards
+  // one. No Luhn checksum on purpose — this is a pure demo checkout with
+  // no real payment processor behind it, so requiring a checksum-valid
+  // number just meant a made-up test number kept getting rejected.
+  // Length/expiry/CVV shape checks still catch obviously-wrong input
+  // (an already-expired card, a 3-digit "card number"). Mirrored
+  // server-side in backend/app.py's _validate_card as the real
+  // enforcement point.
   function validateCardInput(name, cardRaw, expRaw, cvvRaw) {
     name = (name || '').trim();
     var digits = (cardRaw || '').replace(/\\D/g, '');
     var cvv = (cvvRaw || '').replace(/\\D/g, '');
     if (!name) return { ok: false, error: 'Cardholder name is required' };
     if (digits.length < 13 || digits.length > 19) return { ok: false, error: 'Card number must be 13\\u201319 digits' };
-    if (!luhnValid(digits)) return { ok: false, error: 'Card number is invalid \\u2014 check for a typo' };
     var expParts = (expRaw || '').trim().split('/');
     var expMonth = parseInt(expParts[0], 10);
     var expYearRaw = parseInt(expParts[1], 10);
