@@ -52,6 +52,20 @@ export const SUBSCRIPTION_SCRIPT: string = `
 (function() {
   'use strict';
 
+  // Same base URL scripts.ts's own SubsAPI uses (SUBS_API_BASE there isn't
+  // exposed on window, so this module keeps its own copy) — matches the
+  // pattern authorg-redesign.ts already uses for the same reason. The
+  // local-testing replaceAll patch in routes/index.tsx rewrites this exact
+  // literal the same way it rewrites every other script tag's copy.
+  var API_BASE = 'https://genesis-yysv.onrender.com';
+  function subsApiPost(path, body) {
+    return fetch(API_BASE + path, {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, window.__mcmAuthHeaders ? window.__mcmAuthHeaders() : {}),
+      body: JSON.stringify(body || {})
+    }).then(function(r) { return r.json(); });
+  }
+
   var ICONS = {
     phone: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>',
     chat: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>',
@@ -120,13 +134,35 @@ export const SUBSCRIPTION_SCRIPT: string = `
       swapLeadingGlyph(el, ICONS.alertTriangle);
     });
 
-    /* Export CSV / Manage Plan (header), Statement (invoice rows,
+    /* Export CSV / Manage Subscription (header), Statement (invoice rows,
        rendered in both the Overview and Invoices tab panes), Add Seats
        (licence cards + at-risk alert rows). */
     document.querySelectorAll('button[onclick="subsExportCsv()"]').forEach(function(el) { swapLeadingGlyph(el, ICONS.download); });
-    document.querySelectorAll('button[onclick="subsManagePlan()"]').forEach(function(el) { swapLeadingGlyph(el, ICONS.plus); });
+    // Also renames the button — "Manage Plan" opened a modal that only
+    // logged a request and changed nothing; it's now real cancel/autopay
+    // controls, so the label is renamed to match what it actually does.
+    document.querySelectorAll('button[onclick="subsManagePlan()"]').forEach(function(el) {
+      el.innerHTML = '<span style="display:inline-flex;align-items:center;vertical-align:middle;margin-right:6px">' + ICONS.plus + '</span>Manage Subscription';
+    });
     document.querySelectorAll('.ic-dl').forEach(function(el) { swapLeadingGlyph(el, ICONS.download); });
     document.querySelectorAll('.sc-add, .sa-btn').forEach(function(el) { swapLeadingGlyph(el, ICONS.plus); });
+  }
+
+  /* Visible on the page itself (not just inside the Manage Subscription
+     modal) so a cancelled subscription is obvious without opening
+     anything. */
+  function renderSubStatusBanner() {
+    var existing = document.getElementById('subCancelledBanner');
+    if (existing) existing.remove();
+    var overview = window.SUBS_LAST_OVERVIEW;
+    if (!overview || overview.subStatus !== 'Cancelled') return;
+    var pbody = document.querySelector('.pbody');
+    if (!pbody) return;
+    var el = document.createElement('div');
+    el.id = 'subCancelledBanner';
+    el.style.cssText = 'background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:12.5px;font-weight:600';
+    el.textContent = 'Subscription cancelled \\u2014 no further automatic charges. Reactivate from Manage Subscription to buy more seats.';
+    pbody.insertBefore(el, pbody.firstChild);
   }
 
   /* Placeholder dataset shaped exactly like SubsAPI.getOverview()'s real
@@ -151,7 +187,8 @@ export const SUBSCRIPTION_SCRIPT: string = `
       daysLeft: Math.max(1, billEnd.getDate() - now.getDate() + 1),
       billPeriod: now.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }),
       nextInvDate: '\\u2014', atRisk: [], inv: [],
-      aiPurchased: 182500, aiPct: 0, aiRemaining: 182500, aiDaysLeft: 99
+      aiPurchased: 182500, aiPct: 0, aiRemaining: 182500, aiDaysLeft: 99,
+      subStatus: 'Active', autopay: true
     };
   }
 
@@ -217,6 +254,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
         var result = await originalRenderSubsFx.apply(this, arguments);
         stripDuplicateManagePlanButton();
         modernizeSubsIcons();
+        renderSubStatusBanner();
         return result;
       } catch (e) {
         // Last-resort net: even with getOverview() now always resolving,
@@ -241,24 +279,130 @@ export const SUBSCRIPTION_SCRIPT: string = `
   /* Manage Plan / Add Seats modal close button (✕) — subsOpenModal is a
      separate global (used for both), so it needs its own wrap rather
      than being caught by the renderSubsFx post-process above. */
-  /* "Request Additional Seats" reads like a request (same wording as its
-     sibling "Request a Plan Change" modal) but SubsAPI.requestSeats actually
-     posts straight through to the backend and permanently raises the real
-     purchased seat count immediately, with no confirmation step — unlike
-     Manage Plan, which only logs an audit entry and changes nothing. Wrapping
-     the actual mutating call (rather than re-building subsAddSeats' modal
-     HTML) adds the missing "are you sure" at the one place it matters; a
-     cancel leaves the modal exactly as it was, no request sent. */
-  function wrapRequestSeats() {
-    if (typeof window.SubsAPI !== 'object' || !window.SubsAPI || typeof window.SubsAPI.requestSeats !== 'function' || window.SubsAPI.requestSeats.__mcmSubsPolished) return;
-    var originalRequestSeats = window.SubsAPI.requestSeats;
-    var polished = function(lic, qty) {
-      var confirmed = window.confirm('Add ' + qty + ' ' + lic + ' seat(s)? This takes effect immediately and increases your monthly cost.');
-      if (!confirmed) return new Promise(function() {});
-      return originalRequestSeats.call(window.SubsAPI, lic, qty);
+
+  /* "Request Additional Seats" used to read like a request (matching its
+     sibling "Request a Plan Change" modal) but actually posted straight to
+     the backend and raised the real seat count immediately, with only a
+     quantity field and a single confirm() as the entire "checkout". This
+     replaces it with an actual two-step buy flow — quantity, then a dummy
+     card-details step — so seat purchases finally look and feel like a
+     purchase. No real payment processing happens anywhere; the card fields
+     are only checked for being non-empty. A confirm() dialog on top of a
+     full payment form would be redundant, so the earlier confirm-only gate
+     is gone — the payment step itself is the confirmation. */
+  function wrapAddSeats() {
+    if (typeof window.subsAddSeats !== 'function' || window.subsAddSeats.__mcmSubsPolished) return;
+    var polished = function(lic) {
+      var overview = window.SUBS_LAST_OVERVIEW || {};
+      var unitPrice = (overview.unitPrice && overview.unitPrice[lic]) || 0;
+      var label = (overview.label && overview.label[lic]) || lic;
+      showBuySeatsStep(lic, label, unitPrice);
     };
     polished.__mcmSubsPolished = true;
-    window.SubsAPI.requestSeats = polished;
+    window.subsAddSeats = polished;
+  }
+
+  function showBuySeatsStep(lic, label, unitPrice) {
+    window.subsOpenModal(
+      'Buy ' + label + ' Seats',
+      '<div class="fld"><label>How many seats?</label><input id="smQty" type="number" min="1" value="5"></div>' +
+        '<div id="smCostPreview" style="font-size:13px;color:#152550;font-weight:600;margin-top:10px">Total: \\u00a3' + (5 * unitPrice).toFixed(2) + '/month</div>' +
+        '<div style="font-size:11.5px;color:#8a94a6;margin-top:4px">\\u00a3' + unitPrice.toFixed(2) + ' per seat / month</div>',
+      'Continue to Payment',
+      function() {
+        var n = parseInt(document.getElementById('smQty').value, 10);
+        if (!n || n <= 0) return;
+        showSeatPaymentStep(lic, label, unitPrice, n);
+      }
+    );
+    var qtyInput = document.getElementById('smQty');
+    if (qtyInput) {
+      qtyInput.oninput = function() {
+        var n = parseInt(qtyInput.value, 10) || 0;
+        var preview = document.getElementById('smCostPreview');
+        if (preview) preview.textContent = 'Total: \\u00a3' + (n * unitPrice).toFixed(2) + '/month';
+      };
+    }
+  }
+
+  function showSeatPaymentStep(lic, label, unitPrice, qty) {
+    var total = (qty * unitPrice).toFixed(2);
+    window.subsOpenModal(
+      'Payment',
+      '<div style="font-size:12.5px;color:#5b6a7d;margin-bottom:12px">' + qty + ' \\u00d7 ' + label + ' \\u2014 <b style="color:#152550">\\u00a3' + total + '</b>/month</div>' +
+        '<div class="fld"><label>Cardholder name</label><input id="pmName" placeholder="Faisal Khan"></div>' +
+        '<div class="fld"><label>Card number</label><input id="pmCard" placeholder="4242 4242 4242 4242" maxlength="19"></div>' +
+        '<div class="frow"><div class="fld"><label>Expiry</label><input id="pmExp" placeholder="MM/YY" maxlength="5"></div><div class="fld"><label>CVV</label><input id="pmCvv" placeholder="123" maxlength="4"></div></div>' +
+        '<div style="font-size:11px;color:#8a94a6;margin-top:2px">Demo checkout \\u2014 no real card is charged.</div>',
+      'Pay \\u00a3' + total,
+      function() {
+        var name = (document.getElementById('pmName').value || '').trim();
+        var card = (document.getElementById('pmCard').value || '').trim();
+        var exp = (document.getElementById('pmExp').value || '').trim();
+        var cvv = (document.getElementById('pmCvv').value || '').trim();
+        if (!name || card.replace(/\\s/g, '').length < 12 || !exp || !cvv) {
+          if (window.toast) window.toast('\\u2717 Fill in all payment fields');
+          return;
+        }
+        var submitBtn = document.getElementById('smSubmit');
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Processing\\u2026'; }
+        window.SubsAPI.requestSeats(lic, qty).then(function(r) {
+          if (r && r.ok === false) {
+            if (window.toast) window.toast('\\u2717 ' + (r.error || 'Payment failed'));
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay \\u00a3' + total; }
+            return;
+          }
+          document.querySelector('#subsModal .sm-b').innerHTML = '<div class="sm-ok">\\u2713 Payment successful \\u2014 +' + qty + ' ' + label + ' seat(s) added, pool now shows ' + r.total + ' purchased.</div>';
+          document.querySelector('#subsModal .sm-f').innerHTML = '<button class="btn" onclick="closeSubsModal();renderSubsFx();">Done</button>';
+        }).catch(function() {
+          if (window.toast) window.toast('\\u2717 Payment failed \\u2014 please try again.');
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay \\u00a3' + total; }
+        });
+      }
+    );
+  }
+
+  /* "Request a Plan Change" opened a free-text box that only logged an
+     audit entry — nothing anyone typed there ever did anything. Replaced
+     with the subscription's actual account-level controls: current
+     status, an autopay toggle, and cancel/reactivate. */
+  function wrapManagePlan() {
+    if (typeof window.subsManagePlan !== 'function' || window.subsManagePlan.__mcmSubsPolished) return;
+    var polished = function() {
+      var overview = window.SUBS_LAST_OVERVIEW || {};
+      var status = overview.subStatus || 'Active';
+      var autopay = overview.autopay !== false;
+      var cancelled = status === 'Cancelled';
+      window.subsOpenModal(
+        'Manage Subscription',
+        '<div class="kv" style="margin-bottom:14px"><span>Status</span><b style="color:' + (cancelled ? '#b3261e' : '#1a7a4a') + '">' + status + '</b></div>' +
+          '<div class="tgl" style="margin-bottom:16px"><input type="checkbox" id="pmAutopay" style="width:auto;margin-right:6px"' + (autopay ? ' checked' : '') + '> Autopay (charge automatically each month)</div>' +
+          (cancelled
+            ? '<div style="font-size:12.5px;color:#5b6a7d">Your subscription is cancelled. Reactivate to buy more seats or resume autopay.</div>'
+            : '<div style="font-size:12.5px;color:#5b6a7d">Cancelling stops future automatic charges. Your current seats stay active until the end of this billing period.</div>'),
+        cancelled ? 'Reactivate Subscription' : 'Cancel Subscription',
+        function() {
+          if (!cancelled && !window.confirm('Cancel your subscription? This stops future automatic billing.')) return;
+          var endpoint = cancelled ? '/api/subscription/reactivate' : '/api/subscription/cancel';
+          var submitBtn = document.getElementById('smSubmit');
+          if (submitBtn) submitBtn.disabled = true;
+          subsApiPost(endpoint, {}).then(function() {
+            document.querySelector('#subsModal .sm-b').innerHTML = '<div class="sm-ok">\\u2713 ' + (cancelled ? 'Subscription reactivated.' : 'Subscription cancelled.') + '</div>';
+            document.querySelector('#subsModal .sm-f').innerHTML = '<button class="btn" onclick="closeSubsModal();renderSubsFx();">Done</button>';
+          });
+        }
+      );
+      var autopayBox = document.getElementById('pmAutopay');
+      if (autopayBox) {
+        autopayBox.onchange = function() {
+          subsApiPost('/api/subscription/autopay', { enabled: autopayBox.checked }).then(function() {
+            if (window.toast) window.toast(autopayBox.checked ? 'Autopay enabled' : 'Autopay disabled');
+          });
+        };
+      }
+    };
+    polished.__mcmSubsPolished = true;
+    window.subsManagePlan = polished;
   }
 
   function wrapSubsOpenModal() {
@@ -279,7 +423,8 @@ export const SUBSCRIPTION_SCRIPT: string = `
     wrapRenderSubsFx();
     wrapSubsOpenModal();
     wrapSubsExportCsv();
-    wrapRequestSeats();
+    wrapAddSeats();
+    wrapManagePlan();
   }
 
   applySubsPolish();

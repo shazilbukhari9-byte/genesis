@@ -139,6 +139,26 @@ DROP TRIGGER IF EXISTS trg_tenants_touch ON tenants;
 CREATE TRIGGER trg_tenants_touch BEFORE UPDATE ON tenants
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
+-- One row per tenant, lazily created on first read (same pattern as
+-- org_settings) — subscription status ('Active' | 'Cancelled') and whether
+-- the next renewal charges automatically. A real billing provider would own
+-- this; this app has none, so cancelling just stops implying future charges
+-- rather than triggering an actual deprovisioning workflow.
+CREATE TABLE IF NOT EXISTS subscription_state (
+  tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'Active',
+  autopay BOOLEAN NOT NULL DEFAULT true,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One row per tenant, lazily created on first read. A single overall
+-- monthly spending limit for the Purchases page's budget tool — not
+-- per-category, matching the simpler of the two shapes this was scoped to.
+CREATE TABLE IF NOT EXISTS purchase_budgets (
+  tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  monthly_limit REAL
+);
+
 CREATE TABLE IF NOT EXISTS interactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

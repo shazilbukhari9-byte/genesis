@@ -6,9 +6,6 @@ export interface Purchase {
   purchased_at: string | null;
 }
 
-export interface NewPurchase {
-  item: string;
-  category?: string | undefined;
-  price?: number | undefined;
-  purchased_at?: string | undefined;
+export interface Budget {
+  monthly_limit: number | null;
 }

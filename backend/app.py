@@ -348,10 +348,26 @@ def list_licenses():
     return jsonify([dict(r) for r in rows])
 
 
+def _get_subscription_state(cur):
+    """Lazily creates the tenant's subscription_state row on first read —
+    same pattern as org_settings.py's fetch_org_settings()."""
+    cur.execute('SELECT status, autopay FROM subscription_state WHERE tenant_id = %s', (g.tenant_id,))
+    row = cur.fetchone()
+    if row is None:
+        cur.execute(
+            'INSERT INTO subscription_state (tenant_id) VALUES (%s) RETURNING status, autopay',
+            (g.tenant_id,),
+        )
+        row = cur.fetchone()
+    return dict(row)
+
+
 @app.route('/api/subscription/overview')
 def overview():
     conn = get_db()
     cur = conn.cursor()
+    sub_state = _get_subscription_state(cur)
+    conn.commit()
     cur.execute('SELECT * FROM licenses')
     licenses = cur.fetchall()
     cur.execute('SELECT * FROM invoices ORDER BY id DESC LIMIT 3')
@@ -429,6 +445,8 @@ def overview():
         'aiPurchased': ai_purchased,
         'aiPct': ai_pct,
         'aiRemaining': ai_remaining,
+        'subStatus': sub_state['status'],
+        'autopay': sub_state['autopay'],
     })
 
 
@@ -449,6 +467,13 @@ def plan_change():
 
 @app.route('/api/subscription/seats', methods=['POST'])
 def add_seats():
+    """The actual purchase action behind Subscription's dummy checkout —
+    the frontend collects fake card details purely for the UI, nothing here
+    validates or charges anything real. A successful buy both raises the
+    real seat pool immediately and writes a real row into `purchases`, so
+    subscription spend shows up in the Purchases history/expense tracker
+    exactly like any other purchase, instead of being a parallel thing the
+    two pages never reconcile."""
     data = request.get_json(force=True) or {}
     lic = data.get('licence')
     qty = int(data.get('qty', 0))
@@ -457,7 +482,13 @@ def add_seats():
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('SELECT purchased FROM licenses WHERE code = %s', (lic,))
+    sub_state = _get_subscription_state(cur)
+    conn.commit()
+    if sub_state['status'] == 'Cancelled':
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Subscription is cancelled — reactivate it before buying seats'}), 409
+
+    cur.execute('SELECT label, purchased, unit_price FROM licenses WHERE code = %s', (lic,))
     existing = cur.fetchone()
     if existing is None:
         conn.close()
@@ -466,13 +497,80 @@ def add_seats():
     cur.execute('UPDATE licenses SET purchased = purchased + %s WHERE code = %s', (qty, lic))
     cur.execute('SELECT purchased FROM licenses WHERE code = %s', (lic,))
     new_total = cur.fetchone()['purchased']
+    cost = round(qty * existing['unit_price'], 2)
+    cur.execute(
+        'INSERT INTO purchases (tenant_id, item, category, price, purchased_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.tenant_id, f"{existing['label']} — {qty} seat(s)", 'Licence', cost, datetime.now().date().isoformat()),
+    )
     cur.execute(
         'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
-        (g.user_name, 'Seats requested', f'+{qty} {lic} (pool now {new_total})', g.tenant_id, datetime.now()),
+        (g.user_name, 'Seats purchased', f'+{qty} {lic} for £{cost:.2f} (pool now {new_total})', g.tenant_id, datetime.now()),
     )
     conn.commit()
     conn.close()
-    return jsonify({'ok': True, 'total': new_total})
+    return jsonify({'ok': True, 'total': new_total, 'cost': cost})
+
+
+@app.route('/api/subscription/cancel', methods=['POST'])
+def cancel_subscription():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO subscription_state (tenant_id, status, updated_at) VALUES (%s, 'Cancelled', now())
+        ON CONFLICT (tenant_id) DO UPDATE SET status = 'Cancelled', updated_at = now()
+        """,
+        (g.tenant_id,),
+    )
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Subscription cancelled', '', g.tenant_id, datetime.now()),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'status': 'Cancelled'})
+
+
+@app.route('/api/subscription/reactivate', methods=['POST'])
+def reactivate_subscription():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO subscription_state (tenant_id, status, updated_at) VALUES (%s, 'Active', now())
+        ON CONFLICT (tenant_id) DO UPDATE SET status = 'Active', updated_at = now()
+        """,
+        (g.tenant_id,),
+    )
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Subscription reactivated', '', g.tenant_id, datetime.now()),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'status': 'Active'})
+
+
+@app.route('/api/subscription/autopay', methods=['POST'])
+def set_autopay():
+    data = request.get_json(force=True) or {}
+    enabled = bool(data.get('enabled'))
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO subscription_state (tenant_id, autopay, updated_at) VALUES (%s, %s, now())
+        ON CONFLICT (tenant_id) DO UPDATE SET autopay = EXCLUDED.autopay, updated_at = now()
+        """,
+        (g.tenant_id, enabled),
+    )
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Autopay ' + ('enabled' if enabled else 'disabled'), '', g.tenant_id, datetime.now()),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'autopay': enabled})
 
 
 @app.route('/api/subscription/audit', methods=['GET', 'POST'])
@@ -499,6 +597,37 @@ def audit_log():
     rows = cur.fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/purchases/budget', methods=['GET', 'PUT'])
+def purchases_budget():
+    """One overall monthly spending limit per tenant, for the Purchases
+    page's budget tool — hand-written GET/PUT rather than a resources.py
+    registry entry since it's a single settings row, not a list of
+    entities (same reasoning as /api/subscription/* and /api/org-settings)."""
+    conn = get_db()
+    cur = conn.cursor()
+    if request.method == 'PUT':
+        data = request.get_json(force=True) or {}
+        limit = data.get('monthly_limit')
+        if limit is not None and (not isinstance(limit, (int, float)) or isinstance(limit, bool) or limit < 0):
+            conn.close()
+            return jsonify({'ok': False, 'error': 'monthly_limit must be a non-negative number or null'}), 400
+        cur.execute(
+            """
+            INSERT INTO purchase_budgets (tenant_id, monthly_limit) VALUES (%s, %s)
+            ON CONFLICT (tenant_id) DO UPDATE SET monthly_limit = EXCLUDED.monthly_limit
+            """,
+            (g.tenant_id, limit),
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({'monthly_limit': limit})
+
+    cur.execute('SELECT monthly_limit FROM purchase_budgets WHERE tenant_id = %s', (g.tenant_id,))
+    row = cur.fetchone()
+    conn.close()
+    return jsonify({'monthly_limit': row['monthly_limit'] if row else None})
 
 
 # ---------------------------------------------------------------------------
