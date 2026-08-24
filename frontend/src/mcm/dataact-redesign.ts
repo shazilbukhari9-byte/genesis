@@ -195,7 +195,6 @@ export const DATAACT_SCRIPT: string = `
   function renderActionRow(a) {
     return '<tr data-div="' + a.division + '" data-status="' + a.status + '"' +
       ' onclick="window.dataactOpenEditor(\\'' + a.id + '\\')">' +
-      '<td><input type="checkbox" onclick="event.stopPropagation()"></td>' +
       '<td><b class="lnk">' + escapeHtml(a.name) + '</b></td>' +
       '<td>' + escapeHtml(a.integration) + '</td>' +
       '<td>' + escapeHtml(a.method) + '</td>' +
@@ -260,12 +259,12 @@ export const DATAACT_SCRIPT: string = `
     if (list.length) {
       rows = list.map(renderActionRow).join('');
     } else {
-      rows = '<tr><td colspan="9" style="text-align:center;color:' + (loadErr ? '#b3261e' : '#8794a8') + ';padding:28px 0">' +
+      rows = '<tr><td colspan="8" style="text-align:center;color:' + (loadErr ? '#b3261e' : '#8794a8') + ';padding:28px 0">' +
         (loadErr ? 'Could not load data actions.'
                  : (DataActService.getAll().length ? 'No data actions match your search.' : 'No data actions yet. Create one to get started.')) +
         '</td></tr>';
     }
-    return banner + '<div class="tblw"><table class="dt"><thead><tr><th style="width:34px"><input type="checkbox"></th>' +
+    return banner + '<div class="tblw"><table class="dt"><thead><tr>' +
       sortableTh('Action', 'name') + sortableTh('Integration', 'integration') +
       sortableTh('Method', 'method') + sortableTh('Endpoint', 'endpoint') +
       sortableTh('Contract', 'contract') + sortableTh('Avg latency', 'avgLatencyMs') +
