@@ -52,18 +52,19 @@ export const SUBSCRIPTION_SCRIPT: string = `
 (function() {
   'use strict';
 
-  // Same base URL scripts.ts's own SubsAPI uses (SUBS_API_BASE there isn't
-  // exposed on window, so this module keeps its own copy) — matches the
-  // pattern authorg-redesign.ts already uses for the same reason. The
-  // local-testing replaceAll patch in routes/index.tsx rewrites this exact
-  // literal the same way it rewrites every other script tag's copy.
-  var API_BASE = 'https://genesis-yysv.onrender.com';
-  function subsApiPost(path, body) {
+  // Same window.__GENESIS_API_BASE bridge authorg-redesign.ts and
+  // directory-redesign.ts read (see routes/index.tsx) — the env-configured
+  // backend host, defaulting to production, never localhost.
+  var API_BASE = window.__GENESIS_API_BASE || 'https://genesis-yysv.onrender.com';
+  function subsApiPost(path, body, method) {
     return fetch(API_BASE + path, {
-      method: 'POST',
+      method: method || 'POST',
       headers: Object.assign({ 'Content-Type': 'application/json' }, window.__mcmAuthHeaders ? window.__mcmAuthHeaders() : {}),
       body: JSON.stringify(body || {})
     }).then(function(r) { return r.json(); });
+  }
+  function subsApiGet(path) {
+    return fetch(API_BASE + path, { headers: window.__mcmAuthHeaders ? window.__mcmAuthHeaders() : {} }).then(function(r) { return r.json(); });
   }
 
   var ICONS = {
@@ -325,38 +326,129 @@ export const SUBSCRIPTION_SCRIPT: string = `
     }
   }
 
+  function cardSummaryLine(pm) {
+    return pm.brand + ' \\u2022\\u2022\\u2022\\u2022 ' + pm.last4 + ' \\u2014 expires ' + (pm.exp_month < 10 ? '0' : '') + pm.exp_month + '/' + String(pm.exp_year).slice(-2) + ' \\u2014 ' + pm.cardholder_name;
+  }
+
+  function finishSeatPurchase(lic, label, qty, total, submitBtn) {
+    window.SubsAPI.requestSeats(lic, qty).then(function(r) {
+      if (r && r.ok === false) {
+        if (window.toast) window.toast('\\u2717 ' + (r.error || 'Payment failed'));
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay \\u00a3' + total; }
+        return;
+      }
+      document.querySelector('#subsModal .sm-b').innerHTML = '<div class="sm-ok">\\u2713 Payment successful \\u2014 +' + qty + ' ' + label + ' seat(s) added, pool now shows ' + r.total + ' purchased.</div>';
+      document.querySelector('#subsModal .sm-f').innerHTML = '<button class="btn" onclick="closeSubsModal();renderSubsFx();">Done</button>';
+    }).catch(function() {
+      if (window.toast) window.toast('\\u2717 Payment failed \\u2014 please try again.');
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay \\u00a3' + total; }
+    });
+  }
+
+  /* Two payment paths, matching how a real checkout behaves once a card is
+     on file: with a saved method, "Pay" is a single click against it; the
+     full card form only reappears via "Use a different card" (or the first
+     time ever, with nothing saved yet). Either way the card details
+     themselves are never sent to /api/subscription/seats — only
+     /api/subscription/payment-method sees them, and only brand/last4/expiry
+     ever get stored (see its schema.sql comment). */
   function showSeatPaymentStep(lic, label, unitPrice, qty) {
     var total = (qty * unitPrice).toFixed(2);
+    subsApiGet('/api/subscription/payment-method').then(function(pm) {
+      if (pm && pm.last4) {
+        renderPayWithSavedCard(lic, label, unitPrice, qty, total, pm);
+      } else {
+        renderCardEntryForm(lic, label, unitPrice, qty, total, null);
+      }
+    });
+  }
+
+  function renderPayWithSavedCard(lic, label, unitPrice, qty, total, pm) {
     window.subsOpenModal(
       'Payment',
       '<div style="font-size:12.5px;color:#5b6a7d;margin-bottom:12px">' + qty + ' \\u00d7 ' + label + ' \\u2014 <b style="color:#152550">\\u00a3' + total + '</b>/month</div>' +
-        '<div class="fld"><label>Cardholder name</label><input id="pmName" placeholder="Faisal Khan"></div>' +
+        '<div class="kv"><span>Pay with</span><b>' + cardSummaryLine(pm) + '</b></div>' +
+        '<div style="margin-top:10px"><a id="pmUseOther" style="font-size:12px;color:#c9401a;cursor:pointer">Use a different card</a></div>' +
+        '<div style="font-size:11px;color:#8a94a6;margin-top:10px">Demo checkout \\u2014 no real card is charged.</div>',
+      'Pay \\u00a3' + total,
+      function() {
+        var submitBtn = document.getElementById('smSubmit');
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Processing\\u2026'; }
+        finishSeatPurchase(lic, label, qty, total, submitBtn);
+      }
+    );
+    var useOther = document.getElementById('pmUseOther');
+    if (useOther) useOther.onclick = function() { renderCardEntryForm(lic, label, unitPrice, qty, total, pm); };
+  }
+
+  function renderCardEntryForm(lic, label, unitPrice, qty, total, existingPm) {
+    window.subsOpenModal(
+      'Payment',
+      '<div style="font-size:12.5px;color:#5b6a7d;margin-bottom:12px">' + qty + ' \\u00d7 ' + label + ' \\u2014 <b style="color:#152550">\\u00a3' + total + '</b>/month</div>' +
+        '<div class="fld"><label>Cardholder name</label><input id="pmName" placeholder="Faisal Khan" value="' + (existingPm ? existingPm.cardholder_name : '') + '"></div>' +
         '<div class="fld"><label>Card number</label><input id="pmCard" placeholder="4242 4242 4242 4242" maxlength="19"></div>' +
         '<div class="frow"><div class="fld"><label>Expiry</label><input id="pmExp" placeholder="MM/YY" maxlength="5"></div><div class="fld"><label>CVV</label><input id="pmCvv" placeholder="123" maxlength="4"></div></div>' +
-        '<div style="font-size:11px;color:#8a94a6;margin-top:2px">Demo checkout \\u2014 no real card is charged.</div>',
+        '<div class="tgl"><input type="checkbox" id="pmSave" checked style="width:auto;margin-right:6px"> Save this card for future purchases</div>' +
+        '<div style="font-size:11px;color:#8a94a6;margin-top:6px">Demo checkout \\u2014 no real card is charged.</div>',
       'Pay \\u00a3' + total,
       function() {
         var name = (document.getElementById('pmName').value || '').trim();
         var card = (document.getElementById('pmCard').value || '').trim();
         var exp = (document.getElementById('pmExp').value || '').trim();
         var cvv = (document.getElementById('pmCvv').value || '').trim();
-        if (!name || card.replace(/\\s/g, '').length < 12 || !exp || !cvv) {
-          if (window.toast) window.toast('\\u2717 Fill in all payment fields');
+        var expParts = exp.split('/');
+        var expMonth = parseInt(expParts[0], 10);
+        var expYear = parseInt(expParts[1], 10);
+        if (!name || card.replace(/\\s/g, '').length < 12 || expParts.length !== 2 || !expMonth || !expYear || !cvv) {
+          if (window.toast) window.toast('\\u2717 Fill in all payment fields (expiry as MM/YY)');
           return;
         }
         var submitBtn = document.getElementById('smSubmit');
         if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Processing\\u2026'; }
-        window.SubsAPI.requestSeats(lic, qty).then(function(r) {
-          if (r && r.ok === false) {
-            if (window.toast) window.toast('\\u2717 ' + (r.error || 'Payment failed'));
-            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay \\u00a3' + total; }
-            return;
-          }
-          document.querySelector('#subsModal .sm-b').innerHTML = '<div class="sm-ok">\\u2713 Payment successful \\u2014 +' + qty + ' ' + label + ' seat(s) added, pool now shows ' + r.total + ' purchased.</div>';
-          document.querySelector('#subsModal .sm-f').innerHTML = '<button class="btn" onclick="closeSubsModal();renderSubsFx();">Done</button>';
-        }).catch(function() {
-          if (window.toast) window.toast('\\u2717 Payment failed \\u2014 please try again.');
-          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Pay \\u00a3' + total; }
+        var saveCard = document.getElementById('pmSave').checked;
+        var proceed = saveCard
+          ? subsApiPost('/api/subscription/payment-method', {
+              cardholder_name: name, card_number: card,
+              exp_month: expMonth, exp_year: expYear < 100 ? 2000 + expYear : expYear
+            }, 'PUT')
+          : Promise.resolve();
+        proceed.then(function() { finishSeatPurchase(lic, label, qty, total, submitBtn); });
+      }
+    );
+  }
+
+  /* Standalone "change payment method" — reachable from Manage Subscription
+     without buying anything. Always saves (no checkbox: the entire point of
+     opening this form here is to update the card on file) and returns to
+     the Manage Subscription modal afterward so status/autopay stay visible. */
+  function renderStandaloneCardForm(existingPm) {
+    window.subsOpenModal(
+      existingPm ? 'Change Payment Method' : 'Add Payment Method',
+      '<div class="fld"><label>Cardholder name</label><input id="pmName" placeholder="Faisal Khan" value="' + (existingPm ? existingPm.cardholder_name : '') + '"></div>' +
+        '<div class="fld"><label>Card number</label><input id="pmCard" placeholder="4242 4242 4242 4242" maxlength="19"></div>' +
+        '<div class="frow"><div class="fld"><label>Expiry</label><input id="pmExp" placeholder="MM/YY" maxlength="5"></div><div class="fld"><label>CVV</label><input id="pmCvv" placeholder="123" maxlength="4"></div></div>' +
+        '<div style="font-size:11px;color:#8a94a6;margin-top:6px">Demo checkout \\u2014 no real card is charged.</div>',
+      'Save Card',
+      function() {
+        var name = (document.getElementById('pmName').value || '').trim();
+        var card = (document.getElementById('pmCard').value || '').trim();
+        var exp = (document.getElementById('pmExp').value || '').trim();
+        var cvv = (document.getElementById('pmCvv').value || '').trim();
+        var expParts = exp.split('/');
+        var expMonth = parseInt(expParts[0], 10);
+        var expYear = parseInt(expParts[1], 10);
+        if (!name || card.replace(/\\s/g, '').length < 12 || expParts.length !== 2 || !expMonth || !expYear || !cvv) {
+          if (window.toast) window.toast('\\u2717 Fill in all payment fields (expiry as MM/YY)');
+          return;
+        }
+        var submitBtn = document.getElementById('smSubmit');
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving\\u2026'; }
+        subsApiPost('/api/subscription/payment-method', {
+          cardholder_name: name, card_number: card,
+          exp_month: expMonth, exp_year: expYear < 100 ? 2000 + expYear : expYear
+        }, 'PUT').then(function() {
+          if (window.toast) window.toast('\\u2713 Payment method saved');
+          window.subsManagePlan();
         });
       }
     );
@@ -365,7 +457,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
   /* "Request a Plan Change" opened a free-text box that only logged an
      audit entry — nothing anyone typed there ever did anything. Replaced
      with the subscription's actual account-level controls: current
-     status, an autopay toggle, and cancel/reactivate. */
+     status, the card on file, an autopay toggle, and cancel/reactivate. */
   function wrapManagePlan() {
     if (typeof window.subsManagePlan !== 'function' || window.subsManagePlan.__mcmSubsPolished) return;
     var polished = function() {
@@ -373,33 +465,39 @@ export const SUBSCRIPTION_SCRIPT: string = `
       var status = overview.subStatus || 'Active';
       var autopay = overview.autopay !== false;
       var cancelled = status === 'Cancelled';
-      window.subsOpenModal(
-        'Manage Subscription',
-        '<div class="kv" style="margin-bottom:14px"><span>Status</span><b style="color:' + (cancelled ? '#b3261e' : '#1a7a4a') + '">' + status + '</b></div>' +
-          '<div class="tgl" style="margin-bottom:16px"><input type="checkbox" id="pmAutopay" style="width:auto;margin-right:6px"' + (autopay ? ' checked' : '') + '> Autopay (charge automatically each month)</div>' +
-          (cancelled
-            ? '<div style="font-size:12.5px;color:#5b6a7d">Your subscription is cancelled. Reactivate to buy more seats or resume autopay.</div>'
-            : '<div style="font-size:12.5px;color:#5b6a7d">Cancelling stops future automatic charges. Your current seats stay active until the end of this billing period.</div>'),
-        cancelled ? 'Reactivate Subscription' : 'Cancel Subscription',
-        function() {
-          if (!cancelled && !window.confirm('Cancel your subscription? This stops future automatic billing.')) return;
-          var endpoint = cancelled ? '/api/subscription/reactivate' : '/api/subscription/cancel';
-          var submitBtn = document.getElementById('smSubmit');
-          if (submitBtn) submitBtn.disabled = true;
-          subsApiPost(endpoint, {}).then(function() {
-            document.querySelector('#subsModal .sm-b').innerHTML = '<div class="sm-ok">\\u2713 ' + (cancelled ? 'Subscription reactivated.' : 'Subscription cancelled.') + '</div>';
-            document.querySelector('#subsModal .sm-f').innerHTML = '<button class="btn" onclick="closeSubsModal();renderSubsFx();">Done</button>';
-          });
+      subsApiGet('/api/subscription/payment-method').then(function(pm) {
+        window.subsOpenModal(
+          'Manage Subscription',
+          '<div class="kv" style="margin-bottom:6px"><span>Status</span><b style="color:' + (cancelled ? '#b3261e' : '#1a7a4a') + '">' + status + '</b></div>' +
+            '<div class="kv" style="margin-bottom:14px"><span>Payment method</span><b>' + (pm && pm.last4 ? cardSummaryLine(pm) : 'No card on file') + '</b></div>' +
+            '<div style="margin-bottom:16px"><a id="pmChangeCard" style="font-size:12px;color:#c9401a;cursor:pointer">' + (pm && pm.last4 ? 'Change payment method' : 'Add payment method') + '</a></div>' +
+            '<div class="tgl" style="margin-bottom:16px"><input type="checkbox" id="pmAutopay" style="width:auto;margin-right:6px"' + (autopay ? ' checked' : '') + '> Autopay (charge automatically each month)</div>' +
+            (cancelled
+              ? '<div style="font-size:12.5px;color:#5b6a7d">Your subscription is cancelled. Reactivate to buy more seats or resume autopay.</div>'
+              : '<div style="font-size:12.5px;color:#5b6a7d">Cancelling stops future automatic charges. Your current seats stay active until the end of this billing period.</div>'),
+          cancelled ? 'Reactivate Subscription' : 'Cancel Subscription',
+          function() {
+            if (!cancelled && !window.confirm('Cancel your subscription? This stops future automatic billing.')) return;
+            var endpoint = cancelled ? '/api/subscription/reactivate' : '/api/subscription/cancel';
+            var submitBtn = document.getElementById('smSubmit');
+            if (submitBtn) submitBtn.disabled = true;
+            subsApiPost(endpoint, {}).then(function() {
+              document.querySelector('#subsModal .sm-b').innerHTML = '<div class="sm-ok">\\u2713 ' + (cancelled ? 'Subscription reactivated.' : 'Subscription cancelled.') + '</div>';
+              document.querySelector('#subsModal .sm-f').innerHTML = '<button class="btn" onclick="closeSubsModal();renderSubsFx();">Done</button>';
+            });
+          }
+        );
+        var changeCard = document.getElementById('pmChangeCard');
+        if (changeCard) changeCard.onclick = function() { renderStandaloneCardForm(pm); };
+        var autopayBox = document.getElementById('pmAutopay');
+        if (autopayBox) {
+          autopayBox.onchange = function() {
+            subsApiPost('/api/subscription/autopay', { enabled: autopayBox.checked }).then(function() {
+              if (window.toast) window.toast(autopayBox.checked ? 'Autopay enabled' : 'Autopay disabled');
+            });
+          };
         }
-      );
-      var autopayBox = document.getElementById('pmAutopay');
-      if (autopayBox) {
-        autopayBox.onchange = function() {
-          subsApiPost('/api/subscription/autopay', { enabled: autopayBox.checked }).then(function() {
-            if (window.toast) window.toast(autopayBox.checked ? 'Autopay enabled' : 'Autopay disabled');
-          });
-        };
-      }
+      });
     };
     polished.__mcmSubsPolished = true;
     window.subsManagePlan = polished;

@@ -670,6 +670,58 @@ def set_autopay():
     return jsonify({'ok': True, 'autopay': enabled})
 
 
+def _guess_card_brand(number):
+    first = number[0] if number else ''
+    return {'4': 'Visa', '5': 'Mastercard', '3': 'Amex', '6': 'Discover'}.get(first, 'Card')
+
+
+@app.route('/api/subscription/payment-method', methods=['GET', 'PUT'])
+def payment_method():
+    """The dummy card on file for Subscription's checkout — see
+    payment_methods' schema.sql comment for why only brand/last4/expiry/name
+    are ever stored, never a full card number, even a fake one."""
+    conn = get_db()
+    cur = conn.cursor()
+    if request.method == 'PUT':
+        data = request.get_json(force=True) or {}
+        name = (data.get('cardholder_name') or '').strip()
+        number = re.sub(r'\D', '', data.get('card_number') or '')
+        exp_month = data.get('exp_month')
+        exp_year = data.get('exp_year')
+        if not name or len(number) < 12 or not isinstance(exp_month, int) or not isinstance(exp_year, int):
+            conn.close()
+            return jsonify({'ok': False, 'error': 'cardholder_name, a valid card_number, exp_month and exp_year are required'}), 400
+        brand = _guess_card_brand(number)
+        last4 = number[-4:]
+        cur.execute(
+            """
+            INSERT INTO payment_methods (tenant_id, brand, last4, exp_month, exp_year, cardholder_name, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s, now())
+            ON CONFLICT (tenant_id) DO UPDATE SET
+              brand = EXCLUDED.brand, last4 = EXCLUDED.last4, exp_month = EXCLUDED.exp_month,
+              exp_year = EXCLUDED.exp_year, cardholder_name = EXCLUDED.cardholder_name, updated_at = now()
+            RETURNING brand, last4, exp_month, exp_year, cardholder_name
+            """,
+            (g.tenant_id, brand, last4, exp_month, exp_year, name),
+        )
+        row = cur.fetchone()
+        cur.execute(
+            'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+            (g.user_name, 'Payment method updated', f'{brand} •••• {last4}', g.tenant_id, datetime.now()),
+        )
+        conn.commit()
+        conn.close()
+        return jsonify(dict(row))
+
+    cur.execute(
+        'SELECT brand, last4, exp_month, exp_year, cardholder_name FROM payment_methods WHERE tenant_id = %s',
+        (g.tenant_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return jsonify(dict(row) if row else None)
+
+
 @app.route('/api/subscription/audit', methods=['GET', 'POST'])
 def audit_log():
     if request.method == 'POST':

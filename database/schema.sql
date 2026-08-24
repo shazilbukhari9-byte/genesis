@@ -164,6 +164,21 @@ CREATE TABLE IF NOT EXISTS purchase_budgets (
   monthly_limit REAL
 );
 
+-- One row per tenant — the dummy card on file for Subscription's checkout.
+-- Deliberately never stores a full card number, even a fake one: only what
+-- a real payment processor would ever hand back after tokenizing a card
+-- (brand, last 4, expiry, cardholder name), the same "never persist the
+-- secret itself" instinct as oauth_clients only ever storing a secret hash.
+CREATE TABLE IF NOT EXISTS payment_methods (
+  tenant_id UUID PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  brand TEXT NOT NULL,
+  last4 TEXT NOT NULL,
+  exp_month INTEGER NOT NULL,
+  exp_year INTEGER NOT NULL,
+  cardholder_name TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS interactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
