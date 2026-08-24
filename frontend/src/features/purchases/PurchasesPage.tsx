@@ -1,0 +1,195 @@
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { LegacyBtn } from "../shared/LegacyBtn";
+import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
+import { createPurchase, deletePurchase, fetchPurchases } from "./purchasesService";
+import type { NewPurchase } from "./types";
+
+const QUERY_KEY = ["purchases"];
+
+function goToAdminIndex(): void {
+  const win = window as unknown as { adminIndex?: () => void; __hidePurchases?: () => void };
+  win.__hidePurchases?.();
+  win.adminIndex?.();
+}
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function NewPurchaseDrawer({
+  onClose,
+  onSave,
+  saving,
+}: {
+  onClose: () => void;
+  onSave: (purchase: NewPurchase) => void;
+  saving: boolean;
+}) {
+  const [item, setItem] = useState("");
+  const [category, setCategory] = useState("");
+  const [price, setPrice] = useState("");
+  const [purchasedAt, setPurchasedAt] = useState(todayIso());
+
+  const canSave = item.trim().length > 0;
+
+  return (
+    <>
+      <div id="scrim" onClick={onClose} />
+      <div id="drw" style={{ height: "auto", top: "20%", bottom: "auto", borderRadius: "8px 0 0 8px" }}>
+        <div className="dh">
+          <h2>New Purchase</h2>
+          <div className="x" onClick={onClose}>
+            ×
+          </div>
+        </div>
+        <div className="db">
+          <div className="fld">
+            <label>Item</label>
+            <input value={item} onChange={(e) => setItem(e.target.value)} placeholder="e.g. CX 3 — WEM (Named)" />
+          </div>
+          <div className="fld">
+            <label>Category</label>
+            <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Licence, Add-on" />
+          </div>
+          <div className="fld">
+            <label>Price</label>
+            <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="0.00" />
+          </div>
+          <div className="fld">
+            <label>Purchased</label>
+            <input type="date" value={purchasedAt} onChange={(e) => setPurchasedAt(e.target.value)} />
+          </div>
+        </div>
+        <div className="df">
+          <LegacyBtn secondary onClick={onClose} disabled={saving}>
+            Cancel
+          </LegacyBtn>
+          <LegacyBtn
+            disabled={saving || !canSave}
+            onClick={() =>
+              onSave({
+                item: item.trim(),
+                category: category.trim() || undefined,
+                price: price ? Number(price) : undefined,
+                purchased_at: purchasedAt || undefined,
+              })
+            }
+          >
+            {saving ? "Saving…" : "Create purchase"}
+          </LegacyBtn>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export function PurchasesPage() {
+  const queryClient = useQueryClient();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const { data, isLoading } = useQuery({
+    queryKey: QUERY_KEY,
+    queryFn: fetchPurchases,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: createPurchase,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      setDrawerOpen(false);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deletePurchase,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY }),
+  });
+
+  const rows = (data ?? []).filter((p) => {
+    if (!search) return true;
+    const haystack = `${p.item} ${p.category ?? ""}`.toLowerCase();
+    return haystack.includes(search.toLowerCase());
+  });
+
+  return (
+    <>
+      <div className="phd">
+        <div className="bc">
+          <a onClick={goToAdminIndex}>Admin</a> › Account Settings
+        </div>
+        <div className="tt">
+          <h1>Purchases</h1>
+          <div className="rt">
+            <LegacyBtn onClick={() => setDrawerOpen(true)}>+ New Purchase</LegacyBtn>
+          </div>
+        </div>
+      </div>
+
+      <div className="pbody">
+        <div className="tbar">
+          <input className="s" placeholder="Search purchases" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="tblw">
+          <table className="dt">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Category</th>
+                <th>Price</th>
+                <th>Purchased</th>
+                <th style={{ width: 40 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: "center", color: "#8794a8", padding: 18 }}>
+                    Loading…
+                  </td>
+                </tr>
+              ) : rows.length ? (
+                rows.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      <b className="lnk">{p.item}</b>
+                    </td>
+                    <td>{p.category ?? "—"}</td>
+                    <td>{p.price != null ? `$${p.price.toFixed(2)}` : "—"}</td>
+                    <td>{p.purchased_at ?? "—"}</td>
+                    <td
+                      style={{ color: "#a9b3c2", cursor: "pointer" }}
+                      onClick={() => {
+                        if (confirm(`Delete "${p.item}"?`)) deleteMutation.mutate(p.id);
+                      }}
+                    >
+                      ⋮
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: "center", color: "#8794a8", padding: 18 }}>
+                    No purchases yet
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <LegacyHelpPanel topicKey="purch" />
+      </div>
+
+      {drawerOpen && (
+        <NewPurchaseDrawer
+          onClose={() => setDrawerOpen(false)}
+          saving={createMutation.isPending}
+          onSave={(purchase) => createMutation.mutate(purchase)}
+        />
+      )}
+    </>
+  );
+}

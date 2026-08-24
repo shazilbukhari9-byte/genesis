@@ -1,0 +1,768 @@
+"""
+One-time schema + demo-data setup, run at import time (see app.py). The
+Render Postgres instance starts empty — nothing here has ever run schema.sql
+against it — so every query 500s until tables exist. schema.sql is all
+CREATE TABLE IF NOT EXISTS / idempotent DDL, and the seed step below only
+inserts when `users` is empty, so this is safe to run on every boot.
+"""
+
+import base64
+import io
+import os
+import re
+import wave
+from datetime import datetime
+from werkzeug.security import generate_password_hash
+from psycopg2.extras import Json
+from db import get_db
+
+SCHEMA_PATH = os.path.join(os.path.dirname(__file__), '..', 'database', 'schema.sql')
+
+
+def _tone_wav_base64(seconds=2, freq=440):
+    # A real audible tone (not silence) so "Play" on the seeded Music on
+    # hold prompt actually produces sound to confirm playback works,
+    # rather than a technically-playing-but-silent file that looks broken.
+    import math
+    rate = 8000
+    frames = bytearray()
+    for i in range(rate * seconds):
+        sample = int(8000 * math.sin(2 * math.pi * freq * i / rate))
+        frames += sample.to_bytes(2, byteorder='little', signed=True)
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(bytes(frames))
+    return base64.b64encode(buf.getvalue()).decode()
+
+# Same category → label map as backend/canned.py and the frontend's
+# CANNED_CATEGORIES — kept in three places because canned.py needs it at
+# request time, this module needs it once at seed time, and the frontend
+# needs it in the browser; not worth a shared-import for three static dicts.
+CANNED_CATEGORY_LABELS = {
+    'greetings': 'Greetings',
+    'billing': 'Billing',
+    'technical': 'Technical Support',
+    'escalation': 'Escalation',
+    'closing': 'Closing',
+    'general': 'General',
+}
+
+_SUBSTITUTION_RE = re.compile(r'\{\{\s*([^}]+?)\s*\}\}')
+
+
+def _extract_substitution_fields(body):
+    seen = []
+    for m in _SUBSTITUTION_RE.finditer(body or ''):
+        token = m.group(1).strip()
+        if token and token not in seen:
+            seen.append(token)
+    return seen
+
+# All seeded demo accounts share this password so they stay loggable now
+# that /api/auth/login actually checks one — fine for a demo tenant, not a
+# pattern to keep once real users outnumber seed data.
+DEMO_PASSWORD_HASH = generate_password_hash('demo1234')
+
+DIVISIONS = [
+    ('d_home', 'Home', 'Default division — cannot be deleted', True),
+    ('d_ret', 'UK Retail', 'Retail contact centre', False),
+    ('d_dig', 'UK Digital', 'Digital / messaging teams', False),
+    ('d_col', 'UK Collections', 'Collections & recoveries', False),
+    ('d_man', 'Partner — Manila', 'BPO partner site', False),
+]
+
+LICENSES = [
+    ('CX 1', 'CX 1 — Voice', 40, 75),
+    ('CX 2', 'CX 2 — Digital', 60, 115),
+    ('CX 3', 'CX 3 — WEM', 25, 155),
+    ('CX 4', 'CX 4 — AI', 10, 240),
+    ('Communicate', 'Communicate', 50, 18),
+]
+
+# backend/app.py's GET /api/subscription/overview reads these two tables
+# directly (with no tenant filter — invoices/usage_log are global, not
+# per-tenant, matching how the rest of that route's schema already works)
+# to fill the Subscription page's Usage tab, Invoices tab, and AI Tokens
+# gauge. Without a seed, both tables start empty and those three sections
+# render as real zeros — the route isn't broken, it's just wired up to
+# nothing to display. Two invoices (one paid, one still open this month)
+# and one usage_log row per metric ('voice_min'|'sms'|'storage_gb'|
+# 'ai_tokens') give it something real to show.
+INVOICES = [
+    ('Jul 2026', 'INV-2026-07', 44210.0, 'Paid'),
+    ('Aug 2026', 'INV-2026-08', 46870.0, 'Open'),
+]
+
+USAGE_LOG = [
+    ('voice_min', 12480.0),
+    ('sms', 3260.0),
+    ('storage_gb', 148.0),
+    ('ai_tokens', 64000.0),
+]
+
+# division matches the frontend's fixed 5-division set (d_home/d_ret/d_dig/d_col/d_man)
+# email follows the same first-initial+surname@mcmgroup.com pattern the
+# frontend's own demo seed (mkU calls in scripts.ts) already uses.
+# Matches frontend/src/mcm/apps-redesign.ts's INSTALLED_APPS_FALLBACK exactly
+# (id, name, category code, category label, icon key, description,
+# permissions) so the UI looks identical whether it's reading this seed data
+# or its own local fallback. installed=True apps start 'active'/'Connected';
+# the 4 available apps start installed=False/'inactive'/'Not connected'.
+INSTALLED_APPS = [
+    ('salesforce-cx-cloud', 'Salesforce CX Cloud', 'crm', 'CRM Integration', 'cloud', 'Embedded CTI and screen pop',
+     ['Read customer records', 'Write interaction history', 'Screen pop on inbound calls'], '2 minutes ago'),
+    ('servicenow-unified', 'ServiceNow Unified', 'itsm', 'ITSM Integration', 'settings', 'Front and back office',
+     ['Read/write incidents', 'Read CMDB assets', 'Sync front & back office cases'], '5 minutes ago'),
+    ('customised-analytics', 'Customised Analytics', 'analytics', 'Reporting & BI', 'barChart', 'Prebuilt and custom dashboards',
+     ['Read historical data', 'Export reports', 'Manage custom dashboards'], '12 minutes ago'),
+    ('bot-manager', 'Bot Manager', 'automation', 'Automation & Bots', 'cpu', 'Native and third-party bots',
+     ['Manage bot flows', 'Read conversation transcripts', 'Deploy bot updates'], '1 minute ago'),
+    ('workforce-mobile', 'Workforce Mobile', 'workforce', 'Workforce Management', 'smartphone', 'Schedules and time-off',
+     ['Read/write schedules', 'Manage time-off requests', 'Send push notifications'], '8 minutes ago'),
+    ('secure-payments', 'Secure Payments', 'payments', 'Payments & Compliance', 'lock', 'PCI card capture',
+     ['PCI-scoped card capture', 'Tokenize payment data', 'Write audit trail logs'], '20 minutes ago'),
+    ('agent-copilot', 'Agent Copilot', 'ai', 'AI & Agent Assist', 'headset', 'Real-time assistance',
+     ['Read live transcript', 'Suggest agent responses', 'Access knowledge base'], 'Just now'),
+    ('knowledge-workbench', 'Knowledge Workbench', 'knowledge', 'Knowledge Management', 'bookOpen', 'Article authoring',
+     ['Read/write articles', 'Manage publishing workflow', 'Access search index'], '30 minutes ago'),
+]
+
+# Matches frontend/src/mcm/apps-redesign.ts's AVAILABLE_APPS_FALLBACK exactly —
+# the 4 AppFoundry catalogue integrations also listed on Admin > Integrations
+# > Catalogue. category_label doubles as the badge text ('CRM', 'UC', etc).
+AVAILABLE_APPS = [
+    ('salesforce-cti', 'Salesforce CTI', 'crm', 'CRM', 'cloud', 'Click-to-dial and screen pop from Salesforce',
+     ['Read/write Salesforce contacts', 'Screen pop on inbound calls', 'Log call activity to Salesforce']),
+    ('microsoft-teams', 'Microsoft Teams', 'uc', 'UC', 'users', 'Presence sync and click-to-chat with Teams',
+     ['Read Teams presence status', 'Send click-to-chat messages', 'Sync calendar availability']),
+    ('zendesk', 'Zendesk', 'ticketing', 'Ticketing', 'messageSquare', 'Two-way ticket sync for every interaction',
+     ['Create and update Zendesk tickets', 'Read ticket status', 'Attach interaction transcripts']),
+    ('power-bi-export', 'Power BI Export', 'analytics', 'Analytics', 'barChart', 'Scheduled exports of contact centre data to Power BI',
+     ['Read historical reporting data', 'Export scheduled datasets', 'Manage export schedule']),
+]
+
+# Matches frontend/src/mcm/canned-redesign.ts's CANNED_FALLBACK exactly (id,
+# name, category code, body, created_at, updated_at) so the UI looks
+# identical whether it's reading this seed data or its own local fallback.
+# substitution_fields is derived here the same way the frontend derives it
+# (the {{Token}} markers inside body) rather than hand-duplicated separately
+# from the text that defines them.
+CANNED_RESPONSES = [
+    ('cr-greeting-email', 'Greeting — email', 'greetings',
+     'Dear {{Contact.FirstName}}, thank you for contacting MCM Support.',
+     '2026-01-04T09:00:00Z', '2026-01-04T09:00:00Z'),
+    ('cr-greeting-call', 'Greeting — call opener', 'greetings',
+     'Hi {{Contact.FirstName}}, thanks for calling MCM, this is {{Agent.FirstName}} — how can I help today?',
+     '2026-01-05T09:00:00Z', '2026-01-05T09:00:00Z'),
+    ('cr-payment-received', 'Payment received', 'billing',
+     'We confirm receipt of your payment. Your balance is now {{Contact.Balance}}.',
+     '2026-01-06T10:00:00Z', '2026-02-11T14:20:00Z'),
+    ('cr-billing-dispute', 'Billing dispute acknowledged', 'billing',
+     'We have logged your dispute for invoice {{Invoice.Number}} and will respond within 3 business days.',
+     '2026-01-08T11:00:00Z', '2026-01-08T11:00:00Z'),
+    ('cr-password-reset', 'Password reset instructions', 'technical',
+     'Hi {{Contact.FirstName}}, please reset your password at the link we just emailed to {{Contact.Email}}.',
+     '2026-01-10T09:30:00Z', '2026-01-10T09:30:00Z'),
+    ('cr-outage-notice', 'Technical outage notice', 'technical',
+     'We are aware of an issue affecting {{Service.Name}} and are working on a fix. Updates at status.mcmgroup.com.',
+     '2026-01-12T08:00:00Z', '2026-03-02T16:45:00Z'),
+    ('cr-escalate-supervisor', 'Escalated to supervisor', 'escalation',
+     'Your case has been escalated to {{Supervisor.Name}} and will be reviewed within 24 hours.',
+     '2026-01-14T13:00:00Z', '2026-01-14T13:00:00Z'),
+    ('cr-call-closing', 'Thank you — call closing', 'closing',
+     'Thank you for calling MCM, {{Contact.FirstName}}. Is there anything else I can help you with today?',
+     '2026-01-16T15:00:00Z', '2026-01-16T15:00:00Z'),
+    ('cr-general-followup', 'General follow-up', 'general',
+     'Just checking in on your recent request — let us know if you need anything further, {{Contact.FirstName}}.',
+     '2026-01-18T12:00:00Z', '2026-01-18T12:00:00Z'),
+]
+
+# Matches frontend/src/mcm/certs-redesign.ts's CERTIFICATES_FALLBACK exactly
+# — the same 7 certificates the page's static prototype HTML used to hardcode
+# (id, name, purpose, issued_to, issuer, division, valid_from, expires_at).
+# '' division = not division-scoped (root/global CAs).
+CERTIFICATES = [
+    ('cert-byoc-sbc-2026', 'byoc-sbc-2026.pem', 'BYOC trunk', 'sbc.mcmgroup.example', 'DigiCert TLS RSA',
+     'd_home', '2026-02-14', '2027-02-14'),
+    ('cert-edge-hq-lon-01', 'edge-hq-lon-01.pem', 'Edge SIP TLS', 'edge-hq-lon-01.mcm.local', 'MCM Internal CA',
+     'd_home', '2026-01-02', '2027-01-02'),
+    ('cert-edge-hq-lon-02', 'edge-hq-lon-02.pem', 'Edge SIP TLS', 'edge-hq-lon-02.mcm.local', 'MCM Internal CA',
+     'd_home', '2026-01-02', '2027-01-02'),
+    ('cert-entra-signing-2026', 'entra-signing-2026.cer', 'SAML signing', 'sts.windows.net', 'Microsoft',
+     '', '2026-02-14', '2027-02-14'),
+    ('cert-partner-mtls-northstar', 'partner-mtls-northstar.pem', 'Mutual TLS', 'api.northstarbpo.example', 'Sectigo',
+     'd_man', '2025-08-30', '2026-08-30'),
+    ('cert-legacy-pbx-2024', 'legacy-pbx-2024.pem', 'PBX trunk', 'pbx.mcm.local', 'MCM Internal CA',
+     'd_ret', '2024-11-11', '2025-11-11'),
+    ('cert-mcm-internal-root', 'mcm-internal-root.pem', 'Root CA', 'MCM Internal CA', 'Self-signed',
+     '', '2024-01-01', '2034-01-01'),
+]
+
+# Matches frontend/src/mcm/contactlists-redesign.ts's CONTACT_LISTS_FALLBACK
+# exactly — the same 2 lists (13 contacts total) scripts.ts's ensureOB()
+# used to seed DB.contactLists in-memory on first page load.
+CONTACT_LISTS = [
+    (
+        'cl-collections-q3-uk', 'Collections_Q3_UK', 'd_col',
+        ['FirstName', 'LastName', 'Phone', 'Balance', 'TimeZone'],
+        [
+            {'FirstName': 'Oliver', 'LastName': 'Smith', 'Phone': '+447700900101', 'Balance': '£240.50', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Amelia', 'LastName': 'Jones', 'Phone': '+447700900102', 'Balance': '£1,120.00', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Harry', 'LastName': 'Williams', 'Phone': '+447700900103', 'Balance': '£86.20', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Isla', 'LastName': 'Brown', 'Phone': '+447700900104', 'Balance': '£410.00', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'George', 'LastName': 'Taylor', 'Phone': '+447700900105', 'Balance': '£55.75', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Ava', 'LastName': 'Davies', 'Phone': '+447700900106', 'Balance': '£730.10', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Jack', 'LastName': 'Evans', 'Phone': '+447700900107', 'Balance': '£199.99', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Emily', 'LastName': 'Thomas', 'Phone': '+447700900108', 'Balance': '£315.40', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Noah', 'LastName': 'Roberts', 'Phone': '+447700900109', 'Balance': '£67.00', 'TimeZone': 'Europe/London'},
+            {'FirstName': 'Mia', 'LastName': 'Walker', 'Phone': '+447700900110', 'Balance': '£925.60', 'TimeZone': 'Europe/London'},
+        ],
+    ),
+    (
+        'cl-renewal-reminders', 'Renewal_Reminders', 'd_ret',
+        ['FirstName', 'LastName', 'Phone', 'RenewalDate'],
+        [
+            {'FirstName': 'Priya', 'LastName': 'Shah', 'Phone': '+447700900201', 'RenewalDate': '15 Sep 2026'},
+            {'FirstName': 'Tom', 'LastName': 'Hughes', 'Phone': '+447700900202', 'RenewalDate': '18 Sep 2026'},
+            {'FirstName': 'Zara', 'LastName': 'Khan', 'Phone': '+447700900203', 'RenewalDate': '21 Sep 2026'},
+        ],
+    ),
+]
+
+# Matches frontend/src/mcm/dataact-redesign.ts's DATA_ACTIONS_FALLBACK exactly
+# — the same 9 data actions the page's static prototype HTML used to hardcode
+# (id, name, integration, method, endpoint, contract, division, avg_latency_ms,
+# status, last_error). Legacy_Balance_Lookup keeps its seeded 'Failing' state
+# until someone runs Test Action on it (which recomputes deterministically —
+# see backend/dataact.py's _simulate_test — and would keep it Failing anyway
+# since its endpoint contains 'legacy').
+DATA_ACTIONS = [
+    ('da-crm-lookup-customer', 'CRM_Lookup_Customer', 'Salesforce', 'GET', '/services/data/v60.0/query',
+     'ani → tier, name, accountId', 'd_home', 410, 'Published', ''),
+    ('da-crm-create-case', 'CRM_Create_Case', 'Salesforce', 'POST', '/services/data/v60.0/sobjects/Case',
+     'subject, desc → caseId', 'd_home', 620, 'Published', ''),
+    ('da-verify-account-pin', 'Verify_Account_PIN', 'Web Services', 'POST', 'https://api.mcmgroup.example/verify',
+     'accountId, pin → valid', 'd_col', 180, 'Published', ''),
+    ('da-get-invoice-balance', 'Get_Invoice_Balance', 'Web Services', 'GET', 'https://api.mcmgroup.example/billing/{id}',
+     'accountId → balance, dueDate', 'd_col', 240, 'Published', ''),
+    ('da-snow-open-incident', 'SNOW_Open_Incident', 'ServiceNow', 'POST', '/api/now/table/incident',
+     'short_desc → number', 'd_dig', 780, 'Published', ''),
+    ('da-snow-get-incident', 'SNOW_Get_Incident', 'ServiceNow', 'GET', '/api/now/table/incident',
+     'number → state, assignee', 'd_dig', 350, 'Published', ''),
+    ('da-post-callback-request', 'Post_Callback_Request', 'Web Services', 'POST', 'https://api.mcmgroup.example/callback',
+     'number, window → ref', 'd_ret', 200, 'Published', ''),
+    ('da-get-delivery-status', 'Get_Delivery_Status', 'Web Services', 'GET', 'https://api.mcmgroup.example/track',
+     'orderId → status, eta', 'd_ret', 1240, 'Slow', ''),
+    ('da-legacy-balance-lookup', 'Legacy_Balance_Lookup', 'Web Services', 'GET', 'https://legacy.mcm.local/bal',
+     'accountId → balance', 'd_man', None, 'Failing', 'Connection refused (503)'),
+]
+
+# Matches frontend/src/mcm/dnclists-redesign.ts's DNC_LISTS_FALLBACK exactly
+# — the single 'UK-Internal-DNC' list (2 numbers) scripts.ts's ensureOB()
+# used to seed DB.dncLists in-memory on first page load.
+DNC_LISTS = [
+    ('dnc-uk-internal', 'UK-Internal-DNC', ['+447700900104', '+447700900999']),
+]
+
+# Matches frontend/src/mcm/authorg-redesign.ts's authorgData mock array
+# exactly (org_name, org_id, domain, relationship, scope_roles, divisions,
+# status, expires_at, notes, created_at) — without this seed, a fresh tenant
+# has zero rows in auth_org_trusts, GET /api/v2/authorization/trusts returns
+# [], and loadTrustsFromApi()'s `if (!list.length) return;` guard leaves the
+# frontend showing its local mock data with fake string ids ('org_ie', ...)
+# that don't exist in the database — every edit/revoke/delete against them
+# then 404s silently (the fetch failure is swallowed) instead of persisting.
+# auth_org_trusts.id is SERIAL, not a slug, so this is guarded by a
+# tenant-scoped existence check rather than ON CONFLICT.
+AUTH_ORG_TRUSTS = [
+    ('MCM Retail Ireland', 'a19c4b82-9f33-44f1-bc82-019e28344fa1', 'retail.ie.mcmgroup.com · EU (Dublin)',
+     'Trustee', ['Contact Centre Admin'], ['UK Retail', 'IE Retail'], 'Active', '2026-12-31',
+     'Regional operations management for Irish entity. Provisioned under standard Master Services Agreement.', '2026-01-15'),
+    ('Northstar BPO', '77bd18f0-1a22-49a1-8e01-cc82910499a1', 'partner.northstarbpo.ph · Asia (Manila)',
+     'Trustee', ['Supervisor', 'Agent'], ['Partner — Manila'], 'Active', '2026-09-30',
+     'Outsourced tier-1 customer support partner handling voice & digital queues.', '2026-03-10'),
+    ('MCM Group PLC', '8f14e45f-ceea-4d3b-9c7f-2b1a0d7e33aa', 'mcmcloudcx.com · EU (London) · Parent Entity',
+     'Owner', ['Root / Full Platform Access'], ['All'], 'Owner', None,
+     'Primary billing and root governance entity holding platform ownership.', '2024-06-01'),
+    ('Cloudline Partners', '32ee991a-4421-40c8-8812-7819920100c8', 'cloudline.co.uk · EU (London)',
+     'Trustee', ['Read-only Admin'], ['UK Digital'], 'Expiring soon', '2026-08-11',
+     'External security auditor reviewing chat routing and data privacy compliance.', '2026-02-20'),
+    ('Vertex Consulting', 'be408819-aa21-4712-9c12-381902847712', 'vertex-cx.com · US (East)',
+     'Trustee', ['Implementation'], ['All'], 'Revoked', '2026-07-18',
+     'Architect flow migration partner. Project completed and access revoked.', '2025-11-05'),
+]
+
+USERS = [
+    ('Faisal Khan', 'fkhan@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
+    ('Adnan Shaikh', 'ashaikh@mcmgroup.com', 'CX 3', 'Active', 'd_home'),
+    ('Sofia Petrova', 'spetrova@mcmgroup.com', 'CX 2', 'Active', 'd_ret'),
+    ('James Okafor', 'jokafor@mcmgroup.com', 'CX 2', 'Active', 'd_ret'),
+    ('Priya Nair', 'pnair@mcmgroup.com', 'CX 2', 'Active', 'd_ret'),
+    ('Marco Rossi', 'mrossi@mcmgroup.com', 'CX 1', 'Active', 'd_dig'),
+    ('Aisha Rahman', 'arahman@mcmgroup.com', 'CX 1', 'Active', 'd_dig'),
+    ('Carlos Mendez', 'cmendez@mcmgroup.com', 'CX 2', 'Active', 'd_col'),
+    ('Grace Adeyemi', 'gadeyemi@mcmgroup.com', 'CX 3', 'Active', 'd_col'),
+    ('Rajan Patel', 'rpatel@mcmgroup.com', 'CX 2', 'Inactive', 'd_col'),
+    ('Elena Volkov', 'evolkov@mcmgroup.com', 'CX 4', 'Active', 'd_man'),
+    ('Tariq Malik', 'tmalik@mcmgroup.com', 'CX 4', 'Active', 'd_man'),
+    ('Ngozi Eze', 'neze@mcmgroup.com', 'Communicate', 'Active', 'd_home'),
+    ('Haruto Sato', 'hsato@mcmgroup.com', 'Communicate', 'Active', 'd_ret'),
+]
+
+# Matches frontend/src/mcm/callrouting-redesign.ts's ensureQueues()/
+# ensureSchedules() shape — queues.division/config and schedule_groups exist
+# for Contact Center admin already, but nothing seeded them, so Call
+# Routing's own division/queue/schedule pickers had nothing to reference
+# until a route was hand-created once. name is unique per tenant (see
+# ux_queues_tenant_name / ux_schedule_groups_tenant_name in schema.sql).
+# config mirrors the shape the Contact Center > Queues admin page itself
+# writes when a queue is created by hand (DB.queues row: desc/routing/evalm/
+# acw/acwSec/members/rings/media/wrapup/music) — a bare {} here (this
+# table's column default) makes that page's own renderQueues() crash with
+# "Cannot read properties of undefined (reading 'Voice')" since it reads
+# q.media.Voice unconditionally, no optional chaining.
+_QUEUE_MEDIA = {
+    'Voice': {'alert': 12, 'slaPct': 80, 'slaSec': 20, 'auto': False},
+    'Callback': {'alert': 30, 'slaPct': 80, 'slaSec': 60, 'auto': False},
+    'Chat': {'alert': 24, 'slaPct': 80, 'slaSec': 40, 'auto': False},
+    'Email': {'alert': 300, 'slaPct': 90, 'slaSec': 3600, 'auto': False},
+    'Message': {'alert': 60, 'slaPct': 80, 'slaSec': 120, 'auto': False},
+}
+
+
+def _queue_config(desc, routing, evalm, acw, acw_sec):
+    return {
+        'desc': desc, 'routing': routing, 'evalm': evalm, 'acw': acw, 'acwSec': acw_sec,
+        'members': [], 'rings': [{'timeout': 20, 'drop': []}], 'media': _QUEUE_MEDIA,
+        'wrapup': [], 'music': 'MCM Default Hold',
+    }
+
+
+QUEUES = [
+    ('UK Retail Support', 'd_ret', 300, _queue_config('Retail order and account support', 'Standard', 'All Skills Matching', 'Optional', 30)),
+    ('UK Collections', 'd_col', 240, _queue_config('Payment and collections calls', 'Standard', 'Best Available Skills', 'Mandatory', 45)),
+    ('UK Digital Tier 2', 'd_dig', 180, _queue_config('Digital channel escalations', 'Standard', 'All Skills Matching', 'Optional', 20)),
+    ('Manila Tier 1', 'd_man', 300, _queue_config('Partner site first-line intake', 'Standard', 'All Skills Matching', 'Optional', 30)),
+]
+
+SCHEDULE_GROUPS = [
+    ('UK Business Hours', 'Mon–Fri 09:00–17:00', "New Year's Day, Christmas Day, Boxing Day", 'Open'),
+    ('Collections Hours', 'Mon–Fri 08:00–20:00, Sat 09:00–13:00', 'UK bank holidays', 'Open'),
+    ('24/7 Support', 'Every day 00:00–24:00', 'None', 'Open'),
+]
+
+
+# Architect Flows demo seed — five flows, one per division, each a real
+# 5-node graph in the editor's own array+links+meta shape (see
+# frontend/src/mcm/flows-redesign.ts's fromBackendGraph: when graph.nodes is
+# already an array it loads as-is, no canonical-dict conversion needed) so
+# these open directly in the Flow Editor with working drag/connect/publish,
+# not just a bare {nodes:[],links:[]} placeholder. Each graph independently
+# satisfies validateCanonicalGraph's rules (every menu/decision/schedule
+# branch present, every acd node has a queue_id, every user/vm node has a
+# target, every node reachable from Start) so Validate/Publish both pass
+# clean the first time, with no need to touch the graph in the editor first.
+def _flow_graph_retail(queue_id):
+    return {
+        'type': 'Inbound Call', 'division': 'd_ret', 'status': 'Published', 'ver': 3, 'sched': '',
+        'nodes': [
+            {'id': 'n1', 'type': 'start', 't': 'Start', 'b': 'Entry point', 'x': 40, 'y': 40},
+            {'id': 'n2', 'type': 'play', 't': 'Welcome greeting', 'b': 'Thank you for calling MCM Retail Support. Your call may be recorded for training purposes.', 'x': 40, 'y': 150},
+            {'id': 'n3', 'type': 'menu', 't': 'Main menu', 'b': 'Press 1 for order support. Press 2 to end the call.', 'x': 40, 'y': 260},
+            {'id': 'n4', 'type': 'acd', 't': 'Retail support queue', 'b': 'Route to UK Retail Support', 'x': 40, 'y': 370},
+            {'id': 'n5', 'type': 'disc', 't': 'Disconnect', 'b': 'End of call', 'x': 40, 'y': 480},
+        ],
+        'links': [['n1', 'n2', ''], ['n2', 'n3', ''], ['n3', 'n4', '1'], ['n3', 'n5', '2'], ['n4', 'n5', '']],
+        'meta': {'queueFor': {'n4': queue_id('UK Retail Support')}, 'transferFor': {}, 'decisionFor': {}, 'scheduleFor': {}, 'actionFor': {}, 'skills': {}},
+    }
+
+
+def _flow_graph_collections(queue_id):
+    return {
+        'type': 'Inbound Call', 'division': 'd_col', 'status': 'Draft', 'ver': 0, 'sched': '',
+        'nodes': [
+            {'id': 'n1', 'type': 'start', 't': 'Start', 'b': 'Entry point', 'x': 40, 'y': 40},
+            {'id': 'n2', 'type': 'play', 't': 'Payment reminder', 'b': 'This is a courtesy call from MCM Collections regarding your account.', 'x': 40, 'y': 150},
+            {'id': 'n3', 'type': 'decision', 't': 'Balance check', 'b': 'Does the account have an outstanding balance?', 'x': 40, 'y': 260},
+            {'id': 'n4', 'type': 'acd', 't': 'Collections queue', 'b': 'Route to UK Collections', 'x': 40, 'y': 370},
+            {'id': 'n5', 'type': 'disc', 't': 'Disconnect', 'b': 'End of call', 'x': 240, 'y': 370},
+        ],
+        'links': [['n1', 'n2', ''], ['n2', 'n3', ''], ['n3', 'n4', 'true'], ['n3', 'n5', 'false'], ['n4', 'n5', '']],
+        'meta': {'queueFor': {'n4': queue_id('UK Collections')}, 'transferFor': {}, 'decisionFor': {'n3': {'field': 'Contact.Balance', 'op': 'not_equals', 'value': '0'}}, 'scheduleFor': {}, 'actionFor': {}, 'skills': {}},
+    }
+
+
+def _flow_graph_digital(queue_id):
+    return {
+        'type': 'Inbound Call', 'division': 'd_dig', 'status': 'Published', 'ver': 2, 'sched': '',
+        'nodes': [
+            {'id': 'n1', 'type': 'start', 't': 'Start', 'b': 'Entry point', 'x': 40, 'y': 40},
+            {'id': 'n2', 'type': 'schedule', 't': 'Business hours check', 'b': 'Check UK Digital business hours', 'x': 40, 'y': 150},
+            {'id': 'n3', 'type': 'play', 't': 'Open greeting', 'b': 'Thanks for calling MCM Digital Support, connecting you now.', 'x': 40, 'y': 260},
+            {'id': 'n4', 'type': 'vm', 't': 'After-hours voicemail', 'b': 'Leave a message and we will call you back the next business day.', 'x': 240, 'y': 260},
+            {'id': 'n5', 'type': 'disc', 't': 'Disconnect', 'b': 'End of call', 'x': 140, 'y': 370},
+        ],
+        'links': [['n1', 'n2', ''], ['n2', 'n3', 'open'], ['n2', 'n4', 'closed'], ['n3', 'n5', ''], ['n4', 'n5', '']],
+        'meta': {'queueFor': {}, 'transferFor': {'n4': 'digital-support-vm'}, 'decisionFor': {}, 'scheduleFor': {'n2': {'open_hour': 9, 'close_hour': 17}}, 'actionFor': {}, 'skills': {}},
+    }
+
+
+def _flow_graph_manila(queue_id):
+    return {
+        'type': 'Inbound Call', 'division': 'd_man', 'status': 'Draft', 'ver': 1, 'sched': '',
+        'nodes': [
+            {'id': 'n1', 'type': 'start', 't': 'Start', 'b': 'Entry point', 'x': 40, 'y': 40},
+            {'id': 'n2', 'type': 'play', 't': 'Intro greeting', 'b': 'Thank you for calling, please hold while we look up your account.', 'x': 40, 'y': 150},
+            {'id': 'n3', 'type': 'data', 't': 'Lookup customer', 'b': 'CRM_Lookup_Customer', 'x': 40, 'y': 260},
+            {'id': 'n4', 'type': 'acd', 't': 'Manila tier 1 queue', 'b': 'Route to Manila Tier 1', 'x': 40, 'y': 370},
+            {'id': 'n5', 'type': 'disc', 't': 'Disconnect', 'b': 'End of call', 'x': 40, 'y': 480},
+        ],
+        'links': [['n1', 'n2', ''], ['n2', 'n3', ''], ['n3', 'n4', ''], ['n4', 'n5', '']],
+        'meta': {'queueFor': {'n4': queue_id('Manila Tier 1')}, 'transferFor': {}, 'decisionFor': {}, 'scheduleFor': {}, 'actionFor': {'n3': 'da-crm-lookup-customer'}, 'skills': {}},
+    }
+
+
+def _flow_graph_emergency(queue_id):
+    return {
+        'type': 'Inbound Call', 'division': 'd_home', 'status': 'Published', 'ver': 5, 'sched': '',
+        'nodes': [
+            {'id': 'n1', 'type': 'start', 't': 'Start', 'b': 'Entry point', 'x': 40, 'y': 40},
+            {'id': 'n2', 'type': 'play', 't': 'Emergency announcement', 'b': 'This is an emergency notice from MCM Group Head Office.', 'x': 40, 'y': 150},
+            {'id': 'n3', 'type': 'menu', 't': 'Emergency menu', 'b': 'Press 1 to speak with the on-call manager. Press 2 to end the call.', 'x': 40, 'y': 260},
+            {'id': 'n4', 'type': 'user', 't': 'On-call manager', 'b': 'Transfer to on-call manager', 'x': 40, 'y': 370},
+            {'id': 'n5', 'type': 'disc', 't': 'Disconnect', 'b': 'End of call', 'x': 240, 'y': 370},
+        ],
+        'links': [['n1', 'n2', ''], ['n2', 'n3', ''], ['n3', 'n4', '1'], ['n3', 'n5', '2'], ['n4', 'n5', '']],
+        'meta': {'queueFor': {}, 'transferFor': {'n4': 'oncall-manager-ext-2100'}, 'decisionFor': {}, 'scheduleFor': {}, 'actionFor': {}, 'skills': {}},
+    }
+
+
+FLOWS = [
+    ('UK Retail — Inbound Support', _flow_graph_retail),
+    ('Collections — Payment IVR', _flow_graph_collections),
+    ('UK Digital — After Hours Routing', _flow_graph_digital),
+    ('Partner Manila — Tier 1 Intake', _flow_graph_manila),
+    ('Head Office — Emergency Broadcast', _flow_graph_emergency),
+]
+
+# Matches frontend/src/mcm/prompts-redesign.ts's PROMPT_TYPES ('User
+# prompt'|'System prompt'|'Music on hold', stored in the description column
+# — prompts has no separate type column, see normalizePromptRow) and its
+# LANG_RE ('en-GB' style codes). The Music on hold entry ships a real,
+# audible tone (generated at seed time via _tone_wav_base64) rather than
+# silence, since that type requires audio to pass promptsSave's own
+# validation and a silent file looks broken when someone actually hits
+# Play to confirm playback works — everything else here is TTS-only,
+# matching how most prompts are actually authored.
+PROMPTS = [
+    ('WelcomeGreetingEN', 'User prompt', 'en-GB',
+     'Thank you for calling MCM Group. Your call is important to us.', None, None, None),
+    ('PaymentConfirmationEN', 'System prompt', 'en-GB',
+     'Your payment has been received and your account has been updated.', None, None, None),
+    ('EscalationNoticeEN', 'System prompt', 'en-GB',
+     'This call is being transferred to a supervisor for further assistance.', None, None, None),
+    ('WelcomeGreetingES', 'User prompt', 'es-ES',
+     'Gracias por llamar a MCM Group. Su llamada es importante para nosotros.', None, None, None),
+    ('HoldMusicClassic', 'Music on hold', '',
+     '', 'hold-music-classic.wav', _tone_wav_base64(2), 'audio/wav'),
+]
+
+# call_routes.division/schedule_id are the columns added this session for
+# Call Routing's own division + schedule pickers (see schema.sql, above
+# call_routes' original definition) — flow_id/queue_id below are resolved
+# from FLOWS/QUEUES by name once both are seeded (see run()). destination
+# is either ('flow', <flow name>) or ('queue', <queue name>).
+CALL_ROUTES = [
+    ('UK Retail Main Line', 'exact', '+442071234501', 'flow', 'UK Retail — Inbound Support',
+     'd_ret', 'UK Business Hours', 100, True, 'Primary inbound number for UK Retail support.'),
+    ('UK Collections Line', 'exact', '+442071234502', 'flow', 'Collections — Payment IVR',
+     'd_col', 'Collections Hours', 100, True, 'Inbound line for payment and collections calls.'),
+    ('UK Digital Support', 'exact', '+442071234503', 'flow', 'UK Digital — After Hours Routing',
+     'd_dig', '24/7 Support', 90, True, 'Digital team inbound line; the flow itself branches on business hours.'),
+    ('Manila Partner Intake', 'prefix', '+63272', 'flow', 'Partner Manila — Tier 1 Intake',
+     'd_man', '24/7 Support', 80, True, 'Prefix match covering every Manila partner site inbound number.'),
+    ('Legacy Retail Overflow', 'exact', '+442071234599', 'queue', 'UK Retail Support',
+     'd_ret', None, 200, False, 'Disabled overflow route kept for reference — bypasses the IVR straight to queue.'),
+]
+
+# emergency_groups.flows/members are plain arrays resolved by name/email
+# once FLOWS and USERS are seeded (see run()); emergency_contacts/
+# notification_rules/escalation_tiers match emergency-redesign.ts's
+# collectContacts/collectNotificationRules/collectTiers output shape
+# exactly, so these open in the real editor pre-filled instead of blank.
+EMERGENCY_GROUPS = [
+    ('UK Retail Store Closure', 'd_ret', ['UK Retail — Inbound Support'], False,
+     ['Sofia Petrova', 'James Okafor'],
+     [{'name': 'Sofia Petrova', 'phone': '+447700900301', 'email': 'spetrova@mcmgroup.com'},
+      {'name': 'James Okafor', 'phone': '+447700900302', 'email': 'jokafor@mcmgroup.com'}],
+     [{'channel': 'sms', 'enabled': True}, {'channel': 'email', 'enabled': True}, {'channel': 'call', 'enabled': False}],
+     [{'after_minutes': 15, 'channels': ['sms', 'email']}, {'after_minutes': 30, 'channels': ['call']}]),
+    ('Collections Site Outage', 'd_col', ['Collections — Payment IVR'], False,
+     ['Carlos Mendez', 'Grace Adeyemi'],
+     [{'name': 'Carlos Mendez', 'phone': '+447700900303', 'email': 'cmendez@mcmgroup.com'},
+      {'name': 'Grace Adeyemi', 'phone': '+447700900304', 'email': 'gadeyemi@mcmgroup.com'}],
+     [{'channel': 'sms', 'enabled': True}, {'channel': 'email', 'enabled': False}, {'channel': 'call', 'enabled': True}],
+     [{'after_minutes': 10, 'channels': ['sms']}, {'after_minutes': 20, 'channels': ['call']}]),
+    ('UK Digital Platform Incident', 'd_dig', ['UK Digital — After Hours Routing'], True,
+     ['Marco Rossi', 'Aisha Rahman'],
+     [{'name': 'Marco Rossi', 'phone': '+447700900305', 'email': 'mrossi@mcmgroup.com'},
+      {'name': 'Aisha Rahman', 'phone': '+447700900306', 'email': 'arahman@mcmgroup.com'}],
+     [{'channel': 'sms', 'enabled': True}, {'channel': 'email', 'enabled': True}, {'channel': 'call', 'enabled': True}],
+     [{'after_minutes': 5, 'channels': ['sms', 'email', 'call']}]),
+    ('Manila Site Evacuation', 'd_man', ['Partner Manila — Tier 1 Intake'], False,
+     ['Elena Volkov', 'Tariq Malik'],
+     [{'name': 'Elena Volkov', 'phone': '+639171234567', 'email': 'evolkov@mcmgroup.com'},
+      {'name': 'Tariq Malik', 'phone': '+639171234568', 'email': 'tmalik@mcmgroup.com'}],
+     [{'channel': 'sms', 'enabled': True}, {'channel': 'email', 'enabled': True}, {'channel': 'call', 'enabled': False}],
+     [{'after_minutes': 15, 'channels': ['sms', 'email']}]),
+    ('Head Office Emergency Broadcast', 'd_home', ['Head Office — Emergency Broadcast'], False,
+     ['Faisal Khan', 'Adnan Shaikh', 'Ngozi Eze'],
+     [{'name': 'Faisal Khan', 'phone': '+447700900307', 'email': 'fkhan@mcmgroup.com'},
+      {'name': 'Adnan Shaikh', 'phone': '+447700900308', 'email': 'ashaikh@mcmgroup.com'}],
+     [{'channel': 'sms', 'enabled': True}, {'channel': 'email', 'enabled': True}, {'channel': 'call', 'enabled': True}],
+     [{'after_minutes': 15, 'channels': ['sms', 'email']}, {'after_minutes': 30, 'channels': ['call']}, {'after_minutes': 60, 'channels': ['sms', 'email', 'call']}]),
+]
+
+
+def run():
+    with open(SCHEMA_PATH, 'r', encoding='utf-8') as f:
+        schema_sql = f.read()
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(schema_sql)
+    conn.commit()
+
+    cur.execute('SELECT id FROM tenants WHERE name = %s', (os.environ.get('OG_DEFAULT_TENANT', 'MCM Group'),))
+    tenant = cur.fetchone()
+    if tenant is None:
+        cur.execute('INSERT INTO tenants (name) VALUES (%s) RETURNING id', (os.environ.get('OG_DEFAULT_TENANT', 'MCM Group'),))
+        tenant = cur.fetchone()
+    tenant_id = tenant['id']
+
+    for div_code, name, description, is_home in DIVISIONS:
+        cur.execute(
+            'INSERT INTO divisions (code, tenant_id, name, description, is_home) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (code) DO NOTHING',
+            (div_code, tenant_id, name, description, is_home),
+        )
+
+    for code, label, purchased, unit_price in LICENSES:
+        cur.execute(
+            'INSERT INTO licenses (code, label, purchased, unit_price) VALUES (%s,%s,%s,%s) ON CONFLICT (code) DO NOTHING',
+            (code, label, purchased, unit_price),
+        )
+
+    for app_id, name, category, category_label, icon, description, permissions, last_sync_label in INSTALLED_APPS:
+        cur.execute(
+            """
+            INSERT INTO apps (id, tenant_id, name, category, category_label, icon, description, permissions,
+                               installed, status, status_label, integration_status, last_sync_label, installed_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s, true, 'active', 'Active', 'Connected', %s, now())
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (app_id, tenant_id, name, category, category_label, icon, description, permissions, last_sync_label),
+        )
+
+    for app_id, name, category, category_label, icon, description, permissions in AVAILABLE_APPS:
+        cur.execute(
+            """
+            INSERT INTO apps (id, tenant_id, name, category, category_label, icon, description, permissions)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (app_id, tenant_id, name, category, category_label, icon, description, permissions),
+        )
+
+    for cr_id, name, category, body, created_at, updated_at in CANNED_RESPONSES:
+        cur.execute(
+            """
+            INSERT INTO canned_responses (id, tenant_id, name, category, category_label, body,
+                                           substitution_fields, created_at, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (cr_id, tenant_id, name, category, CANNED_CATEGORY_LABELS.get(category, 'General'), body,
+             _extract_substitution_fields(body), created_at, updated_at),
+        )
+
+    for cert_id, name, purpose, issued_to, issuer, division, valid_from, expires_at in CERTIFICATES:
+        cur.execute(
+            """
+            INSERT INTO certificates (id, tenant_id, name, purpose, issued_to, issuer, division,
+                                       valid_from, expires_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (cert_id, tenant_id, name, purpose, issued_to, issuer, division, valid_from, expires_at),
+        )
+
+    for list_id, name, division, cols, contacts in CONTACT_LISTS:
+        cur.execute(
+            'INSERT INTO contact_lists (id, tenant_id, name, division, cols) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+            (list_id, tenant_id, name, division, cols),
+        )
+        for contact in contacts:
+            contact_id = list_id + '-' + re.sub(r'[^0-9]', '', contact['Phone'])[-6:]
+            cur.execute(
+                'INSERT INTO contacts (id, tenant_id, list_id, data) VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+                (contact_id, tenant_id, list_id, contact),
+            )
+
+    for da_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error in DATA_ACTIONS:
+        cur.execute(
+            """
+            INSERT INTO data_actions (id, tenant_id, name, integration, method, endpoint, contract, division,
+                                       avg_latency_ms, status, last_error)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (da_id, tenant_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error),
+        )
+
+    for dnc_id, name, numbers in DNC_LISTS:
+        cur.execute(
+            'INSERT INTO dnc_lists (id, tenant_id, name) VALUES (%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+            (dnc_id, tenant_id, name),
+        )
+        for phone in numbers:
+            number_id = dnc_id + '-' + re.sub(r'[^0-9]', '', phone)[-6:]
+            cur.execute(
+                'INSERT INTO dnc_numbers (id, tenant_id, list_id, phone) VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+                (number_id, tenant_id, dnc_id, phone),
+            )
+
+    cur.execute('SELECT COUNT(*) AS n FROM auth_org_trusts WHERE tenant_id = %s', (tenant_id,))
+    if cur.fetchone()['n'] == 0:
+        for org_name, org_id, domain, relationship, scope_roles, divisions, status, expires_at, notes, created_at in AUTH_ORG_TRUSTS:
+            cur.execute(
+                """
+                INSERT INTO auth_org_trusts (tenant_id, org_name, org_id, domain, relationship, scope_roles,
+                                              divisions, status, expires_at, notes, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (tenant_id, org_name, org_id, domain, relationship, scope_roles, divisions, status,
+                 expires_at, notes, created_at),
+            )
+
+    cur.execute('SELECT COUNT(*) AS n FROM invoices')
+    if cur.fetchone()['n'] == 0:
+        for period_label, reference, total, status in INVOICES:
+            cur.execute(
+                'INSERT INTO invoices (period_label, reference, total, status) VALUES (%s,%s,%s,%s)',
+                (period_label, reference, total, status),
+            )
+
+    cur.execute('SELECT COUNT(*) AS n FROM usage_log')
+    if cur.fetchone()['n'] == 0:
+        for metric, amount in USAGE_LOG:
+            cur.execute(
+                'INSERT INTO usage_log (metric, amount, recorded_at) VALUES (%s,%s,%s)',
+                (metric, amount, datetime.now()),
+            )
+
+    cur.execute('SELECT COUNT(*) AS n FROM users')
+    if cur.fetchone()['n'] == 0:
+        for name, email, license_code, state, division in USERS:
+            cur.execute(
+                'INSERT INTO users (tenant_id, name, email, license_code, state, division, password_hash) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                (tenant_id, name, email, license_code, state, division, DEMO_PASSWORD_HASH),
+            )
+    else:
+        # backfill columns added after these rows were first seeded
+        for name, email, license_code, state, division in USERS:
+            cur.execute(
+                'UPDATE users SET division = %s WHERE name = %s AND division IS NULL',
+                (division, name),
+            )
+            cur.execute(
+                'UPDATE users SET email = %s WHERE name = %s AND email IS NULL',
+                (email, name),
+            )
+            cur.execute(
+                'UPDATE users SET password_hash = %s WHERE name = %s AND password_hash IS NULL',
+                (DEMO_PASSWORD_HASH, name),
+            )
+
+    # ── Architect Flows / Prompts / Call Routing / Emergency Groups demo
+    # seed. Every insert below targets a table with a (tenant_id, lower(name))
+    # — or, for call_routes, (tenant_id, match_type, lower(pattern)) — unique
+    # index (see schema.sql), so ON CONFLICT DO NOTHING makes every one of
+    # these safe to re-run on every boot, same as the rest of this file.
+    for q_name, q_division, q_wait, q_config in QUEUES:
+        cur.execute(
+            'INSERT INTO queues (tenant_id, name, division, max_wait_s, config) VALUES (%s,%s,%s,%s,%s) '
+            'ON CONFLICT (tenant_id, lower(name)) DO NOTHING',
+            (tenant_id, q_name, q_division, q_wait, Json(q_config)),
+        )
+    cur.execute('SELECT id, name FROM queues WHERE tenant_id = %s', (tenant_id,))
+    queue_id_by_name = {r['name']: r['id'] for r in cur.fetchall()}
+
+    for sg_name, open_hours, holidays, state in SCHEDULE_GROUPS:
+        cur.execute(
+            'INSERT INTO schedule_groups (tenant_id, name, open_hours, holidays, state) VALUES (%s,%s,%s,%s,%s) '
+            'ON CONFLICT (tenant_id, lower(name)) DO NOTHING',
+            (tenant_id, sg_name, open_hours, holidays, state),
+        )
+    cur.execute('SELECT id, name FROM schedule_groups WHERE tenant_id = %s', (tenant_id,))
+    schedule_id_by_name = {r['name']: r['id'] for r in cur.fetchall()}
+
+    for flow_name, graph_builder in FLOWS:
+        graph = graph_builder(lambda n: queue_id_by_name.get(n))
+        cur.execute(
+            'INSERT INTO flows (tenant_id, name, graph) VALUES (%s,%s,%s) '
+            'ON CONFLICT (tenant_id, lower(name)) DO NOTHING',
+            (tenant_id, flow_name, Json(graph)),
+        )
+    cur.execute('SELECT id, name FROM flows WHERE tenant_id = %s', (tenant_id,))
+    flow_id_by_name = {r['name']: r['id'] for r in cur.fetchall()}
+
+    for name, ptype, lang, tts, audio_name, audio_data, audio_mime in PROMPTS:
+        cur.execute(
+            """
+            INSERT INTO prompts (tenant_id, name, description, tts, lang, audio_name, audio_data, audio_mime)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (tenant_id, lower(name)) DO NOTHING
+            """,
+            (tenant_id, name, ptype, tts, lang, audio_name, audio_data, audio_mime),
+        )
+
+    for (route_name, match_type, pattern, dest_type, dest_name, division, schedule_name,
+         priority, enabled, description) in CALL_ROUTES:
+        flow_id = flow_id_by_name.get(dest_name) if dest_type == 'flow' else None
+        queue_id = queue_id_by_name.get(dest_name) if dest_type == 'queue' else None
+        schedule_id = schedule_id_by_name.get(schedule_name) if schedule_name else None
+        cur.execute(
+            """
+            INSERT INTO call_routes (tenant_id, name, match_type, pattern, destination_type, flow_id, queue_id,
+                                      priority, enabled, description, division, schedule_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (tenant_id, match_type, lower(pattern)) DO NOTHING
+            """,
+            (tenant_id, route_name, match_type, pattern, dest_type, flow_id, queue_id,
+             priority, enabled, description, division, schedule_id),
+        )
+
+    cur.execute('SELECT id, email FROM users WHERE tenant_id = %s', (tenant_id,))
+    user_id_by_email = {r['email']: r['id'] for r in cur.fetchall()}
+    user_id_by_name = {name: user_id_by_email.get(email) for name, email, _, _, _ in USERS}
+
+    for (group_name, division, flow_names, active, member_names, contacts,
+         notification_rules, escalation_tiers) in EMERGENCY_GROUPS:
+        flow_ids = [str(flow_id_by_name[n]) for n in flow_names if n in flow_id_by_name]
+        member_ids = [user_id_by_name[n] for n in member_names if user_id_by_name.get(n)]
+        cur.execute(
+            """
+            INSERT INTO emergency_groups (tenant_id, name, division, flows, active, members,
+                                           emergency_contacts, notification_rules, escalation_tiers)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (tenant_id, lower(name)) DO NOTHING
+            """,
+            (tenant_id, group_name, division, flow_ids, active, member_ids,
+             Json(contacts), Json(notification_rules), Json(escalation_tiers)),
+        )
+
+    conn.commit()
+    conn.close()
