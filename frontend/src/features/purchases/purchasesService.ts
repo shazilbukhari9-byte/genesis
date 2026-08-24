@@ -12,6 +12,13 @@ export async function createPurchase(purchase: NewPurchase): Promise<Purchase> {
   });
 }
 
+export async function updatePurchase(id: number, purchase: NewPurchase): Promise<Purchase> {
+  return apiFetch<Purchase>(`/api/purchases/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(purchase),
+  });
+}
+
 export async function deletePurchase(id: number): Promise<void> {
   await apiFetch<{ ok: boolean }>(`/api/purchases/${id}`, { method: "DELETE" });
 }
