@@ -130,7 +130,14 @@ function McmCloudCx() {
     // backend.ts's real ES-module code does. This bridges the same
     // environment-configured value onto a global they can read instead,
     // so no legacy script ever hardcodes an API host.
-    window.__GENESIS_API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:5000";
+    //
+    // Default (when VITE_API_BASE is unset) is this app's real production
+    // backend, matching features/shared/backend.ts's default — never
+    // localhost. This is what every legacy Integrations/Data Actions/Bot
+    // Connectors call ultimately falls back to via backend-sync.ts's
+    // SUBS_API_BASE, authorg-redesign.ts and directory-redesign.ts's own
+    // API_BASE vars, all of which chain through window.__GENESIS_API_BASE.
+    window.__GENESIS_API_BASE = import.meta.env.VITE_API_BASE || "https://genesis-yysv.onrender.com";
 
     const orgSettings = mountLegacyReactPage("orgsetRoot", <OrganizationSettingsPage />);
     window.__showOrgSettings = orgSettings.show;

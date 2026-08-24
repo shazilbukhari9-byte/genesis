@@ -73,7 +73,7 @@ export const DIRECTORY_SCRIPT: string = `
        GET/POST      \\/api/directory/threads/:id/messages
        POST          \\/api/directory/calls · \\/emails
      ══════════════════════════════════════════════════════════ */
-  var API_BASE = window.MCM_DIRECTORY_API || ((window.__GENESIS_API_BASE || 'http://127.0.0.1:5000') + '/api/directory');
+  var API_BASE = window.MCM_DIRECTORY_API || ((window.__GENESIS_API_BASE || 'https://genesis-yysv.onrender.com') + '/api/directory');
   var USE_API = true;   // API is live — data stored in PostgreSQL
   var KEY = 'mcm_directory_v5';
 
