@@ -21,7 +21,8 @@ function currentMonthKey(): string {
 }
 
 function fmtMoney(n: number): string {
-  return `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const sign = n < 0 ? "-" : "";
+  return `${sign}£${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 // Older rows (written before purchased_at stored a time) are a bare
@@ -35,6 +36,28 @@ function fmtPurchasedAt(purchasedAt: string | null): string {
   if (!purchasedAt.includes("T")) return datePart;
   const timePart = date.toTimeString().slice(0, 5);
   return `${datePart}, ${timePart}`;
+}
+
+function csvField(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+function exportPurchasesCsv(purchases: Purchase[]): void {
+  const header = ["Item", "Category", "Price", "Purchased"];
+  const rows = purchases.map((p) => [
+    p.item,
+    p.category ?? "",
+    p.price != null ? p.price.toFixed(2) : "",
+    p.purchased_at ?? "",
+  ]);
+  const csv = [header, ...rows].map((r) => r.map((cell) => csvField(String(cell))).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "purchases_export.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("Purchase history exported as CSV");
 }
 
 // Purchase history is a record, not something anyone should be able to
@@ -78,7 +101,7 @@ function PurchaseDetailDrawer({
           <LegacyBtn
             secondary
             onClick={() => {
-              if (confirm(`Delete "${purchase.item}"?`)) onDelete();
+              if (confirm(`Delete "${purchase.item}"? This only removes it from your spend history — it won't undo a related seat change.`)) onDelete();
             }}
           >
             Delete purchase
@@ -297,6 +320,10 @@ export function PurchasesPage() {
         </div>
         <div className="tt">
           <h1>Purchases</h1>
+          <span className="sp" />
+          <LegacyBtn secondary disabled={!purchases.length} onClick={() => exportPurchasesCsv(purchases)}>
+            Export CSV
+          </LegacyBtn>
         </div>
       </div>
 
@@ -342,7 +369,7 @@ export function PurchasesPage() {
                       style={{ color: "#a9b3c2", cursor: "pointer" }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm(`Delete "${p.item}"?`)) deleteMutation.mutate(p.id);
+                        if (confirm(`Delete "${p.item}"? This only removes it from your spend history — it won't undo a related seat change.`)) deleteMutation.mutate(p.id);
                       }}
                     >
                       ⋮

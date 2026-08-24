@@ -510,6 +510,11 @@ def overview():
 
     at_risk = [c for c in pool if pool[c] > 0 and round(100 * used_map[c] / pool[c]) >= 95]
 
+    # Fixed monthly AI Experience token allotment included with the plan —
+    # there's no separate "buy AI tokens" flow or table (unlike seats, which
+    # really are purchasable via add_seats()/remove_seats() below), so this
+    # is a plan constant, not a query. ai_used (from usage_log) is the only
+    # real per-tenant number here.
     ai_purchased = 182500
     ai_pct = round(100 * ai_used / ai_purchased) if ai_purchased else 0
     ai_remaining = ai_purchased - ai_used
@@ -767,7 +772,7 @@ def _validate_card(data):
     return None
 
 
-@app.route('/api/subscription/payment-method', methods=['GET', 'PUT'])
+@app.route('/api/subscription/payment-method', methods=['GET', 'PUT', 'DELETE'])
 def payment_method():
     """The dummy card on file for Subscription's checkout — see
     payment_methods' schema.sql comment for why only brand/last4/expiry/name
@@ -805,6 +810,18 @@ def payment_method():
         conn.commit()
         conn.close()
         return jsonify(dict(row))
+
+    if request.method == 'DELETE':
+        cur.execute('DELETE FROM payment_methods WHERE tenant_id = %s', (g.tenant_id,))
+        deleted = cur.rowcount > 0
+        if deleted:
+            cur.execute(
+                'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+                (g.user_name, 'Payment method removed', '', g.tenant_id, datetime.now()),
+            )
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
 
     cur.execute(
         'SELECT brand, last4, exp_month, exp_year, cardholder_name FROM payment_methods WHERE tenant_id = %s',

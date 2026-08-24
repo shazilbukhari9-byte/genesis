@@ -655,7 +655,8 @@ export const SUBSCRIPTION_SCRIPT: string = `
           'Manage Subscription',
           '<div class="kv" style="margin-bottom:6px"><span>Status</span><b style="color:' + (cancelled ? '#b3261e' : '#1a7a4a') + '">' + status + '</b></div>' +
             '<div class="kv" style="margin-bottom:14px"><span>Payment method</span><b>' + (pm && pm.last4 ? cardSummaryLine(pm) : 'No card on file') + '</b></div>' +
-            '<div style="margin-bottom:16px"><a id="pmChangeCard" style="font-size:12px;color:#c9401a;cursor:pointer">' + (pm && pm.last4 ? 'Change payment method' : 'Add payment method') + '</a></div>' +
+            '<div style="margin-bottom:16px;display:flex;gap:12px"><a id="pmChangeCard" style="font-size:12px;color:#c9401a;cursor:pointer">' + (pm && pm.last4 ? 'Change payment method' : 'Add payment method') + '</a>' +
+            (pm && pm.last4 ? '<a id="pmRemoveCard" style="font-size:12px;color:#5b6a7d;cursor:pointer">Remove card</a>' : '') + '</div>' +
             '<div class="tgl" style="margin-bottom:16px"><input type="checkbox" id="pmAutopay" style="width:auto;margin-right:6px"' + (autopay ? ' checked' : '') + '> Autopay (charge automatically each month)</div>' +
             (cancelled
               ? '<div style="font-size:12.5px;color:#5b6a7d">Your subscription is cancelled. Reactivate to buy more seats or resume autopay.</div>'
@@ -665,20 +666,52 @@ export const SUBSCRIPTION_SCRIPT: string = `
             if (!cancelled && !window.confirm('Cancel your subscription? This stops future automatic billing.')) return;
             var endpoint = cancelled ? '/api/subscription/reactivate' : '/api/subscription/cancel';
             var submitBtn = document.getElementById('smSubmit');
-            if (submitBtn) submitBtn.disabled = true;
-            subsApiPost(endpoint, {}).then(function() {
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Processing\\u2026'; }
+            subsApiPost(endpoint, {}).then(function(r) {
+              if (r && r.ok === false) {
+                if (window.toast) window.toast('\\u2717 ' + (r.error || 'Could not update subscription'));
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = cancelled ? 'Reactivate Subscription' : 'Cancel Subscription'; }
+                return;
+              }
               document.querySelector('#subsModal .sm-b').innerHTML = '<div class="sm-ok">\\u2713 ' + (cancelled ? 'Subscription reactivated.' : 'Subscription cancelled.') + '</div>';
               document.querySelector('#subsModal .sm-f').innerHTML = '<button class="btn" onclick="closeSubsModal();renderSubsFx();">Done</button>';
+            }).catch(function() {
+              if (window.toast) window.toast('\\u2717 Could not update subscription \\u2014 please try again.');
+              if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = cancelled ? 'Reactivate Subscription' : 'Cancel Subscription'; }
             });
           }
         );
         var changeCard = document.getElementById('pmChangeCard');
         if (changeCard) changeCard.onclick = function() { renderStandaloneCardForm(pm); };
+        var removeCard = document.getElementById('pmRemoveCard');
+        if (removeCard) {
+          removeCard.onclick = function() {
+            if (!window.confirm('Remove the saved card? You\\u2019ll need to add one again before buying more seats.')) return;
+            subsApiPost('/api/subscription/payment-method', {}, 'DELETE').then(function() {
+              if (window.toast) window.toast('Payment method removed');
+              window.subsManagePlan();
+            }).catch(function() {
+              if (window.toast) window.toast('\\u2717 Could not remove card \\u2014 please try again.');
+            });
+          };
+        }
         var autopayBox = document.getElementById('pmAutopay');
         if (autopayBox) {
           autopayBox.onchange = function() {
-            subsApiPost('/api/subscription/autopay', { enabled: autopayBox.checked }).then(function() {
-              if (window.toast) window.toast(autopayBox.checked ? 'Autopay enabled' : 'Autopay disabled');
+            var next = autopayBox.checked;
+            autopayBox.disabled = true;
+            subsApiPost('/api/subscription/autopay', { enabled: next }).then(function(r) {
+              autopayBox.disabled = false;
+              if (r && r.ok === false) {
+                autopayBox.checked = !next;
+                if (window.toast) window.toast('\\u2717 ' + (r.error || 'Could not save autopay setting'));
+                return;
+              }
+              if (window.toast) window.toast(next ? 'Autopay enabled' : 'Autopay disabled');
+            }).catch(function() {
+              autopayBox.disabled = false;
+              autopayBox.checked = !next;
+              if (window.toast) window.toast('\\u2717 Could not save autopay setting \\u2014 please try again.');
             });
           };
         }
