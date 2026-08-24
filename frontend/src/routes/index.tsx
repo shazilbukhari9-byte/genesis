@@ -18,6 +18,7 @@ import { DATAACT_SCRIPT } from "../mcm/dataact-redesign";
 import { DNCLISTS_SCRIPT } from "../mcm/dnclists-redesign";
 import { SUBSCRIPTION_SCRIPT } from "../mcm/subscription-redesign";
 import { INTEGRATIONS_THEME_SCRIPT } from "../mcm/integrations-theme";
+import { INTEGRATIONS_RESPONSIVE_SCRIPT } from "../mcm/integrations-responsive";
 import { RESPONSIVE_NAV_SCRIPT } from "../mcm/responsive-nav";
 import { SESSION_GUARD_SCRIPT } from "../mcm/session-guard";
 import { bridgeGlobalToast } from "../lib/global-toast";
@@ -297,6 +298,17 @@ function McmCloudCx() {
     integrationsThemeScript.type = "text/javascript";
     integrationsThemeScript.textContent = INTEGRATIONS_THEME_SCRIPT;
     document.body.appendChild(integrationsThemeScript);
+
+    // After integrationsThemeScript, so its openPage wrapper (which sets
+    // data-mcm-section) has already run by the time this one's wrapper
+    // checks it. Purely additive DOM affordances — a mobile filter-collapse
+    // toggle, a table-wrapper scroll shadow, a refresh-chip spin — layered
+    // on top of the same markup those render functions already produce, no
+    // fetch/onclick/business logic touched. See mcm/integrations-responsive.ts.
+    const integrationsResponsiveScript = document.createElement("script");
+    integrationsResponsiveScript.type = "text/javascript";
+    integrationsResponsiveScript.textContent = INTEGRATIONS_RESPONSIVE_SCRIPT;
+    document.body.appendChild(integrationsResponsiveScript);
 
     // After MCM_SCRIPT, so the session it restores from localStorage exists
     // to be checked, and after every module that issues API calls, so the
