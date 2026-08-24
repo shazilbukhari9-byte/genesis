@@ -23,32 +23,38 @@ npm run dev
 
 ## Deployment
 
-This repository is **two** deployables, and the hosted frontend is useless
-without the second one:
+This repository is **two** deployables:
 
-| Part | What it is | Where it runs |
+| Part | What it is | Currently hosted on |
 | --- | --- | --- |
-| `frontend/` | TanStack Start app | static host (Vercel, etc.) |
-| `backend/` + PostgreSQL | Flask API and the database it reads | needs its own host |
+| `frontend/` | TanStack Start app | Vercel |
+| `backend/` + PostgreSQL | Flask API and the database it reads | Render (web service + managed Postgres) |
 
-Deploying only the frontend produces a site that appears to work but cannot
-load any data. `VITE_API_BASE` is read at **build** time, and when it is unset
-the bundle falls back to `http://127.0.0.1:5000` — so a hosted page ends up
-calling whatever is on the *visitor's* own machine. The app detects this and
-says so explicitly rather than failing as a confusing network error or 401.
+`VITE_API_BASE` is read at **build** time and controls which backend a
+deployed frontend calls. If it is unset, the bundle now falls back to this
+project's real Render backend rather than `http://127.0.0.1:5000` — a
+missing environment variable can no longer break the app for every visitor
+the way it once did (a hosted page calling `127.0.0.1` is only ever reaching
+the *visitor's own machine*, never a real server). Setting `VITE_API_BASE`
+explicitly is still the correct thing to do for any deployment — including
+this one — since the fallback is just a safety net, not a substitute for
+configuring it.
 
 To deploy properly:
 
-1. **Host the backend** (`backend/app.py`, any WSGI host) with a PostgreSQL
-   database, and apply `database/schema.sql`. Set at least `OG_DB_HOST`,
-   `OG_DB_PORT`, `OG_DB_NAME`, `OG_DB_USER`, `OG_DB_PASSWORD` and
-   `OG_SECRET_KEY` — see `backend/.env.example`.
+1. **Host the backend** (`backend/app.py`, any WSGI host — Render currently)
+   with a PostgreSQL database, and apply `database/schema.sql` (also
+   auto-applied/migrated on every boot by `init_db.run()`). Set at least
+   `OG_DB_HOST`, `OG_DB_PORT`, `OG_DB_NAME`, `OG_DB_USER`, `OG_DB_PASSWORD`
+   and `OG_SECRET_KEY` — see `backend/.env.example`.
 2. **Set `OG_CORS_ORIGINS`** on the backend to the frontend's real origin
    (comma-separated). It is not a wildcard; an origin that is not listed is
-   refused.
-3. **Set `VITE_API_BASE`** in the frontend host's environment variables to the
-   deployed backend URL, then **rebuild** — changing it without a rebuild has
-   no effect, because the value is baked into the bundle.
+   refused. The default already includes this project's Vercel origin.
+3. **Set `VITE_API_BASE`** in the frontend host's environment variables (in
+   Vercel: Project Settings → Environment Variables, for the Production
+   environment) to the deployed backend's URL, then **redeploy** — changing
+   an env var without a rebuild has no effect, because the value is baked
+   into the bundle at build time.
 
 ### Sessions
 
