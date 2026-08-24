@@ -67,17 +67,6 @@ PORT = int(os.environ.get('OG_PORT', '5000'))
 DEFAULT_TENANT = os.environ.get('OG_DEFAULT_TENANT', 'MCM Group')
 PUBLIC_BASE_URL = os.environ.get('OG_PUBLIC_BASE_URL', f'http://{HOST}:{PORT}')
 
-# Comma-separated list of allowed frontend origins for CORS. Defaults to the
-# two origins this app has always shipped with (local Vite dev server +
-# the deployed Vercel frontend) so existing deployments keep working with
-# no config change; a real production deploy on a new domain sets
-# OG_CORS_ORIGINS instead of needing a code change.
-CORS_ORIGINS = [
-    o.strip() for o in os.environ.get(
-        'OG_CORS_ORIGINS', 'http://localhost:8080,https://genesis-eta-six.vercel.app'
-    ).split(',') if o.strip()
-]
-
 # --- real telephony (Telnyx), optional — left unset until a real account
 # exists. telephony.py checks these before every call instead of failing
 # fast at import, so the app keeps booting (and every other feature keeps

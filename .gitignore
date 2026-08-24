@@ -38,10 +38,6 @@ backend/.env
 backend/*.db
 **/__pycache__/
 
-# Frontend (Vite) — per-environment overrides; .env.example stays tracked
-frontend/.env
-frontend/.env.local
-
 # Database (PostgreSQL engine + backups)
 database/pg/
 database/backups/

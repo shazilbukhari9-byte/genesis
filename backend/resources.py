@@ -338,19 +338,6 @@ REGISTRY = {
         search=["name", "integration_name"],
         perm=None,
     ),
-    # Admin > Integrations > Integrations page's "Catalogue" tab. Plain
-    # list/get/create/update/delete come from this generic registry entry;
-    # the one non-generic action — installing a catalogue entry into
-    # installed_integrations — is a dedicated route in backend/catalogue.py
-    # since it does more than a column-for-column write (creates a linked
-    # row in a different table, so it can't be expressed declaratively here).
-    "integration-catalogue": dict(
-        table="integration_catalogue",
-        order="name",
-        fields=["tenant_id", "name", "category", "type", "credentials", "used_by", "status"],
-        search=["name", "category", "type"],
-        perm=None,
-    ),
     "work-plans": dict(
         table="work_plans",
         order="name",
@@ -395,11 +382,11 @@ REGISTRY = {
         # evaluators is JSONB storing a *list* — see eval-forms' json_fields note.
         json_fields=["evaluators"],
     ),
-    # bot_connectors is NOT here on purpose. It used to be, but the generic
-    # registry can only do column-for-column CRUD, which meant `status` was
-    # a plain writable field a client could set to "Connected" itself, and
-    # there was nowhere to hang connect/disconnect/test. It now has a
-    # dedicated blueprint (backend/botconnectors.py) that owns `status` and
-    # validates platform/webhook — keeping the registry entry as well would
-    # leave a second, unvalidated write path to the same table.
+    "bot-connectors": dict(
+        table="bot_connectors",
+        order="name",
+        fields=["tenant_id", "name", "platform", "status", "webhook_url", "notes"],
+        search=["name"],
+        perm=None,
+    ),
 }
