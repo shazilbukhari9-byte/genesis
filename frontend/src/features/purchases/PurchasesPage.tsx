@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
 import { toast } from "../shared/toast";
-import { createPurchase, deletePurchase, fetchPurchases, updatePurchase } from "./purchasesService";
-import type { NewPurchase, Purchase } from "./types";
+import { createPurchase, deletePurchase, fetchPurchases } from "./purchasesService";
+import type { NewPurchase } from "./types";
 
 const QUERY_KEY = ["purchases"];
 
@@ -19,24 +19,19 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function PurchaseDrawer({
-  purchase,
+function NewPurchaseDrawer({
   onClose,
   onSave,
-  onDelete,
   saving,
 }: {
-  purchase: Purchase | null;
   onClose: () => void;
   onSave: (purchase: NewPurchase) => void;
-  onDelete?: () => void;
   saving: boolean;
 }) {
-  const isNew = purchase === null;
-  const [item, setItem] = useState(purchase?.item ?? "");
-  const [category, setCategory] = useState(purchase?.category ?? "");
-  const [price, setPrice] = useState(purchase?.price != null ? String(purchase.price) : "");
-  const [purchasedAt, setPurchasedAt] = useState(purchase?.purchased_at ?? todayIso());
+  const [item, setItem] = useState("");
+  const [category, setCategory] = useState("");
+  const [price, setPrice] = useState("");
+  const [purchasedAt, setPurchasedAt] = useState(todayIso());
 
   const priceValid = price.trim() === "" || (Number.isFinite(Number(price)) && Number(price) >= 0);
   const canSave = item.trim().length > 0 && priceValid;
@@ -46,7 +41,7 @@ function PurchaseDrawer({
       <div id="scrim" onClick={onClose} />
       <div id="drw" style={{ height: "auto", top: "20%", bottom: "auto", borderRadius: "8px 0 0 8px" }}>
         <div className="dh">
-          <h2>{isNew ? "New Purchase" : `Edit — ${purchase.item}`}</h2>
+          <h2>New Purchase</h2>
           <div className="x" onClick={onClose}>
             ×
           </div>
@@ -69,18 +64,6 @@ function PurchaseDrawer({
             <label>Purchased</label>
             <input type="date" value={purchasedAt} onChange={(e) => setPurchasedAt(e.target.value)} />
           </div>
-          {!isNew && onDelete && (
-            <div className="fld" style={{ marginTop: 14 }}>
-              <LegacyBtn
-                secondary
-                onClick={() => {
-                  if (window.confirm(`Delete "${purchase.item}"?`)) onDelete();
-                }}
-              >
-                Delete purchase
-              </LegacyBtn>
-            </div>
-          )}
         </div>
         <div className="df">
           <LegacyBtn secondary onClick={onClose} disabled={saving}>
@@ -97,7 +80,7 @@ function PurchaseDrawer({
               })
             }
           >
-            {saving ? "Saving…" : isNew ? "Create purchase" : "Save changes"}
+            {saving ? "Saving…" : "Create purchase"}
           </LegacyBtn>
         </div>
       </div>
@@ -107,7 +90,7 @@ function PurchaseDrawer({
 
 export function PurchasesPage() {
   const queryClient = useQueryClient();
-  const [editing, setEditing] = useState<Purchase | "new" | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   const { data, isLoading } = useQuery({
@@ -119,18 +102,8 @@ export function PurchasesPage() {
     mutationFn: createPurchase,
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-      setEditing(null);
+      setDrawerOpen(false);
       toast(`Purchase saved — <b>${variables.item}</b>`);
-    },
-    onError: () => toast("Couldn't save purchase — try again."),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, purchase }: { id: number; purchase: NewPurchase }) => updatePurchase(id, purchase),
-    onSuccess: (_data, { purchase }) => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-      setEditing(null);
-      toast(`Purchase saved — <b>${purchase.item}</b>`);
     },
     onError: () => toast("Couldn't save purchase — try again."),
   });
@@ -139,7 +112,6 @@ export function PurchasesPage() {
     mutationFn: deletePurchase,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-      setEditing(null);
       toast("Purchase deleted");
     },
     onError: () => toast("Couldn't delete purchase — try again."),
@@ -160,7 +132,7 @@ export function PurchasesPage() {
         <div className="tt">
           <h1>Purchases</h1>
           <div className="rt">
-            <LegacyBtn onClick={() => setEditing("new")}>+ New Purchase</LegacyBtn>
+            <LegacyBtn onClick={() => setDrawerOpen(true)}>+ New Purchase</LegacyBtn>
           </div>
         </div>
       </div>
@@ -189,7 +161,7 @@ export function PurchasesPage() {
                 </tr>
               ) : rows.length ? (
                 rows.map((p) => (
-                  <tr key={p.id} onClick={() => setEditing(p)} style={{ cursor: "pointer" }}>
+                  <tr key={p.id}>
                     <td>
                       <b className="lnk">{p.item}</b>
                     </td>
@@ -198,8 +170,7 @@ export function PurchasesPage() {
                     <td>{p.purchased_at ?? "—"}</td>
                     <td
                       style={{ color: "#a9b3c2", cursor: "pointer" }}
-                      onClick={(e) => {
-                        e.stopPropagation();
+                      onClick={() => {
                         if (confirm(`Delete "${p.item}"?`)) deleteMutation.mutate(p.id);
                       }}
                     >
@@ -221,15 +192,11 @@ export function PurchasesPage() {
         <LegacyHelpPanel topicKey="purch" />
       </div>
 
-      {editing && (
-        <PurchaseDrawer
-          purchase={editing === "new" ? null : editing}
-          saving={createMutation.isPending || updateMutation.isPending}
-          onClose={() => setEditing(null)}
-          onSave={(purchase) =>
-            editing === "new" ? createMutation.mutate(purchase) : updateMutation.mutate({ id: editing.id, purchase })
-          }
-          {...(editing !== "new" ? { onDelete: () => deleteMutation.mutate(editing.id) } : {})}
+      {drawerOpen && (
+        <NewPurchaseDrawer
+          onClose={() => setDrawerOpen(false)}
+          saving={createMutation.isPending}
+          onSave={(purchase) => createMutation.mutate(purchase)}
         />
       )}
     </>
