@@ -127,8 +127,16 @@ export const AUTHORG_SCRIPT: string = `
       var diffDays = Math.ceil((expiryDate.getTime() - Date.now()) / 86400000);
       isExpiring = diffDays <= 14;
       expiryDays = diffDays < 0 ? 'Expired' : (diffDays <= 14 ? 'Expiring in ' + diffDays + ' days' : 'Valid for ' + diffDays + ' days');
+      // The stored status (e.g. "Active", "Expiring soon") only ever
+      // changes when someone clicks Extend/Revoke — nothing updates it as
+      // time passes, so a trust whose expires_at is already in the past
+      // kept showing its last-set status badge (e.g. still "Expiring
+      // soon") indefinitely. Computed the same way expiryDays above
+      // already derives "Expired" from the real date, so the badge and
+      // the sub-label never disagree.
+      if (diffDays < 0) status = 'Expired';
     }
-    statusClass = status === 'Owner' ? 'status-owner' : (status === 'Revoked' ? 'status-revoked' : ((status === 'Expiring soon' || isExpiring) ? 'status-expiring' : 'status-active'));
+    statusClass = status === 'Owner' ? 'status-owner' : (status === 'Revoked' || status === 'Expired' ? 'status-revoked' : ((status === 'Expiring soon' || isExpiring) ? 'status-expiring' : 'status-active'));
 
     return {
       id: String(t.id),
@@ -947,7 +955,7 @@ export const AUTHORG_SCRIPT: string = `
     var options = [];
     var currentVal = '';
     if (type === 'div') { options = ['All', 'Partner — Manila', 'UK Digital', 'UK Retail, IE Retail']; currentVal = filtersState.division; }
-    else if (type === 'status') { options = ['All', 'Active', 'Expiring soon', 'Owner', 'Revoked']; currentVal = filtersState.status; }
+    else if (type === 'status') { options = ['All', 'Active', 'Expiring soon', 'Expired', 'Owner', 'Revoked']; currentVal = filtersState.status; }
 
     menu.innerHTML = options.map(function(opt) {
       var isSelected = (opt === currentVal) || (opt === 'All' && (currentVal === 'All' || currentVal === 'Any'));

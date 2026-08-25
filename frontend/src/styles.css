@@ -154,6 +154,80 @@
 .Toastify__toast-container {
   font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
+/* react-toastify's mobile breakpoint puts top-* containers flush at
+   top:0, directly under the MCM app shell's fixed top bar (#top, 48px —
+   see frontend/src/mcm/mcm.css). Offsetting below it keeps the (top)
+   stacked deck from starting underneath the header. */
+@media (max-width: 480px) {
+  .Toastify__toast-container.Toastify__toast-container--top-left,
+  .Toastify__toast-container.Toastify__toast-container--top-center,
+  .Toastify__toast-container.Toastify__toast-container--top-right {
+    top: 56px;
+  }
+
+  /* This app's legacy Alert Rules produce genuinely long messages ("Agent
+     away too long — Time in Away status (min) is 28 (> 15). Supervisors
+     notified."), long enough to dominate a phone screen even as a single
+     toast. Clamped so one message can't grow past a reasonable card. */
+  .mcm-toast .Toastify__toast-body {
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* Stacked deck (ToastContainer's `stacked` prop, __root.tsx): only the top
+   card is fully visible, older ones collapse behind it as a thin sliver of
+   edge, so N toasts never add up to N toast-heights of screen no matter
+   how many alerts fire. Dismissing the top card (click / autoClose / the
+   swipe gesture `draggable` already enables) reveals the next one. */
+.Toastify__toast-container[data-stacked='true'] {
+  --toastify-toast-width: 320px;
+}
+@media (max-width: 480px) {
+  .Toastify__toast-container[data-stacked='true'] {
+    --toastify-toast-width: calc(100vw - 24px);
+    left: 12px !important;
+    right: 12px !important;
+    width: calc(100vw - 24px) !important;
+  }
+}
+.mcm-toast.Toastify__toast {
+  margin-bottom: 0;
+}
+
+/* Floating "Clear all" pill (ClearAllToasts, __root.tsx) -- shown once 2+
+   toasts are active, since a single toast is already easy to dismiss on
+   its own. Anchored under the stacked deck's top-right corner on both
+   desktop and mobile. */
+.mcm-toast-clear-all {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 9998;
+  border: none;
+  border-radius: 999px;
+  background: #152550;
+  color: #fff;
+  font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.28);
+  cursor: pointer;
+}
+.mcm-toast-clear-all:hover {
+  background: #1c3170;
+}
+@media (max-width: 480px) {
+  .mcm-toast-clear-all {
+    top: calc(56px + 8px);
+    right: 16px;
+    font-size: 11.5px;
+    padding: 5px 12px;
+  }
+}
 .mcm-toast.Toastify__toast {
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);

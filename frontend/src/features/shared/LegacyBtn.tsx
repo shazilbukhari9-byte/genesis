@@ -8,18 +8,23 @@ export function LegacyBtn({
   children,
   onClick,
   secondary,
+  ghost,
   disabled,
   style,
 }: {
   children: ReactNode;
   onClick: () => void;
   secondary?: boolean;
+  // .btn.gh — transparent background, no border, just coloured text (see
+  // mcm.css). Matches the reference mockup's "Delete policy"/"Delete form"
+  // links, which are ghost buttons, not full bordered secondary buttons.
+  ghost?: boolean;
   disabled?: boolean;
   style?: CSSProperties;
 }) {
   return (
     <div
-      className={"btn" + (secondary ? " sec" : "")}
+      className={"btn" + (secondary ? " sec" : "") + (ghost ? " gh" : "")}
       role="button"
       tabIndex={disabled ? -1 : 0}
       aria-disabled={disabled}

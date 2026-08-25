@@ -730,26 +730,18 @@ def _guess_card_brand(number):
     return {'4': 'Visa', '5': 'Mastercard', '3': 'Amex', '6': 'Discover'}.get(first, 'Card')
 
 
-def _luhn_valid(number):
-    """Standard mod-10 checksum every real card number (and every
-    well-known test number, including 4242 4242 4242 4242) satisfies —
-    catches an obvious typo without needing a real payment processor."""
-    total = 0
-    for i, ch in enumerate(reversed(number)):
-        n = int(ch)
-        if i % 2 == 1:
-            n *= 2
-            if n > 9:
-                n -= 9
-        total += n
-    return total % 10 == 0
-
-
 def _validate_card(data):
     """Returns an error string, or None if every field is acceptable.
     Frontend runs the same checks first (see subscription-redesign.ts's
     validateCardInput) so this is the real enforcement point, not the only
-    one — a direct API call bypassing the UI still can't save garbage."""
+    one — a direct API call bypassing the UI still can't save garbage.
+
+    Deliberately no Luhn checksum: this is a pure demo checkout with no
+    real payment processor behind it, and requiring a checksum-valid
+    number just meant anyone testing with a made-up number kept getting
+    rejected. Length/expiry/CVV shape checks still catch obvious garbage
+    (a 3-digit "card number", an already-expired date) without requiring
+    a genuine card number."""
     name = (data.get('cardholder_name') or '').strip()
     number = re.sub(r'\D', '', data.get('card_number') or '')
     exp_month = data.get('exp_month')
@@ -760,8 +752,6 @@ def _validate_card(data):
         return 'Cardholder name is required'
     if not (13 <= len(number) <= 19):
         return 'Card number must be 13–19 digits'
-    if not _luhn_valid(number):
-        return 'Card number is invalid — check for a typo'
     if not isinstance(exp_month, int) or not (1 <= exp_month <= 12):
         return 'Expiry month must be 1–12'
     if not isinstance(exp_year, int):

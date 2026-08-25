@@ -7,8 +7,8 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, useRef, type ReactNode } from "react";
-import { ToastContainer } from "react-toastify";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ToastContainer, toast as toastify, type Id } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 import appCss from "../styles.css?url";
@@ -117,6 +117,45 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+// react-toastify's `stacked` mode renders each toast as a card in a single
+// deck — newest on top, older ones collapsed behind it showing only a thin
+// sliver of edge (see .Toastify__toast--stacked rules in styles.css) —
+// rather than piling full-height toasts one under another. That's what
+// "overlapping based on time" and "swipe to dismiss and see next" need:
+// dismissing (click, autoClose, or the built-in swipe from `draggable`)
+// the top card animates the next one into place, so N alerts can never
+// add up to N toast-heights of screen the way plain stacking did.
+function useActiveToastCount(): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    const activeIds = new Set<Id>();
+    const unsubscribe = toastify.onChange((item) => {
+      if (item.status === "added") activeIds.add(item.id);
+      else if (item.status === "removed") activeIds.delete(item.id);
+      setCount(activeIds.size);
+    });
+    return unsubscribe;
+  }, []);
+  return count;
+}
+
+// "Clear all" is not a built-in react-toastify control — toast.dismiss()
+// with no id dismisses every active toast, so this just needs a button
+// that shows once there's more than one to clear.
+function ClearAllToasts() {
+  const count = useActiveToastCount();
+  if (count < 2) return null;
+  return (
+    <button
+      type="button"
+      className="mcm-toast-clear-all"
+      onClick={() => toastify.dismiss()}
+    >
+      Clear all ({count})
+    </button>
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const bridgedRef = useRef(false);
@@ -136,6 +175,7 @@ function RootComponent() {
       <Outlet />
       <ToastContainer
         position="top-right"
+        stacked
         autoClose={3000}
         hideProgressBar={false}
         newestOnTop
@@ -144,7 +184,12 @@ function RootComponent() {
         draggable
         theme="light"
         toastClassName="mcm-toast"
+        // Bounds how many toasts can exist at once — the stacked deck itself
+        // keeps the screen clear regardless of count, this is just a backstop
+        // against an unbounded pile-up if alerts fire faster than autoClose.
+        limit={8}
       />
+      <ClearAllToasts />
     </QueryClientProvider>
   );
 }

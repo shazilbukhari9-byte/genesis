@@ -20,6 +20,7 @@ import { SUBSCRIPTION_SCRIPT } from "../mcm/subscription-redesign";
 import { INTEGRATIONS_THEME_SCRIPT } from "../mcm/integrations-theme";
 import { INTEGRATIONS_RESPONSIVE_SCRIPT } from "../mcm/integrations-responsive";
 import { RESPONSIVE_NAV_SCRIPT } from "../mcm/responsive-nav";
+import { NOTIFICATIONS_SCRIPT } from "../mcm/notifications-redesign";
 import { SESSION_GUARD_SCRIPT } from "../mcm/session-guard";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
@@ -34,6 +35,30 @@ import { LangsPage } from "../features/people-permissions/LangsPage";
 import { LicencesPage } from "../features/people-permissions/LicencesPage";
 import { SsoPage } from "../features/sso/SsoPage";
 import { OAuthClientsPage } from "../features/oauth-clients/OAuthClientsPage";
+import { RecordingPoliciesPage } from "../features/quality/RecordingPoliciesPage";
+import { RECPOL_SCRIPT } from "../mcm/recpol-redesign";
+import { EvaluationFormsPage } from "../features/quality/EvaluationFormsPage";
+import { EVALFORMS_SCRIPT } from "../mcm/evalforms-redesign";
+import { CalibrationsPage } from "../features/quality/CalibrationsPage";
+import { CALIBRATIONS_SCRIPT } from "../mcm/calibrations-redesign";
+import { ForecastsPage } from "../features/quality/ForecastsPage";
+import { FORECASTS_SCRIPT } from "../mcm/forecasts-redesign";
+import { CUSTOM_PAGES_ROUTER_SCRIPT } from "../mcm/custom-pages-router";
+import { API_BASE } from "../features/shared/backend";
+
+const DEPLOYED_API_BASE = "https://genesis-yysv.onrender.com";
+
+// scripts.ts / authorg-redesign.ts / directory-redesign.ts / backend-sync.ts
+// hardcode the deployed backend's URL as a plain string literal (not read
+// from Vite env — they're injected as raw <script> text, not real ES
+// modules). Every other legacy page (canned, certs, contactlists, dataact,
+// dnclists, apps) reads window.SUBS_API_BASE at call time instead of its
+// own hardcoded literal, so swapping the one assignment inside scripts.ts
+// is enough to redirect all of them together — see backend.ts for the
+// VITE_API_BASE override this mirrors.
+function withApiBase(script: string): string {
+  return API_BASE === DEPLOYED_API_BASE ? script : script.split(DEPLOYED_API_BASE).join(API_BASE);
+}
 
 declare global {
   interface Window {
@@ -62,6 +87,15 @@ declare global {
     __hideSso?: () => void;
     __showOauth?: () => void;
     __hideOauth?: () => void;
+    __showRecpol?: () => void;
+    __hideRecpol?: () => void;
+    __showEvalforms?: () => void;
+    __hideEvalforms?: () => void;
+    __showCalibrations?: () => void;
+    __hideCalibrations?: () => void;
+    __showForecasts?: () => void;
+    __hideForecasts?: () => void;
+    __registerCustomPage?: (id: string, show: () => void, hide: () => void) => void;
   }
 }
 
@@ -124,7 +158,21 @@ function mountLegacyReactPage(containerId: string, element: ReactNode) {
     if (cnt) cnt.style.display = "";
   };
 
-  return { show, hide };
+  // Tears down this page's React root. Without this, an unmount+remount of
+  // McmCloudCx (its own effect never used to clean up after itself) would
+  // call createRoot() again on a container that still has the previous,
+  // never-unmounted root silently attached — which corrupts React's
+  // internal bookkeeping of that subtree and surfaces later as an uncaught
+  // "NotFoundError: removeChild — the node to be removed is not a child of
+  // this node", crashing the whole app. Reproduced live on Evaluation Forms.
+  const unmount = () => {
+    if (root) {
+      root.unmount();
+      root = null;
+    }
+  };
+
+  return { show, hide, unmount };
 }
 
 function McmCloudCx() {
@@ -198,10 +246,35 @@ function McmCloudCx() {
     window.__showOauth = oauth.show;
     window.__hideOauth = oauth.hide;
 
+    const recpol = mountLegacyReactPage("recpolRoot", <RecordingPoliciesPage />);
+    window.__showRecpol = recpol.show;
+    window.__hideRecpol = recpol.hide;
+
+    const evalforms = mountLegacyReactPage("evalformsRoot", <EvaluationFormsPage />);
+    window.__showEvalforms = evalforms.show;
+    window.__hideEvalforms = evalforms.hide;
+
+    const calibrations = mountLegacyReactPage("calibrationsRoot", <CalibrationsPage />);
+    window.__showCalibrations = calibrations.show;
+    window.__hideCalibrations = calibrations.hide;
+
+    const forecasts = mountLegacyReactPage("forecastsRoot", <ForecastsPage />);
+    window.__showForecasts = forecasts.show;
+    window.__hideForecasts = forecasts.hide;
+
     const script = document.createElement("script");
     script.type = "text/javascript";
-    script.textContent = MCM_SCRIPT;
+    script.textContent = withApiBase(MCM_SCRIPT);
     document.body.appendChild(script);
+
+    // Shared router for every migrated real-React page (recpol, evalforms,
+    // ...) — must run right after MCM_SCRIPT (window.openPage must already
+    // exist) and before any *-redesign.ts script below that registers a page
+    // with it. See mcm/custom-pages-router.ts.
+    const customPagesRouterScript = document.createElement("script");
+    customPagesRouterScript.type = "text/javascript";
+    customPagesRouterScript.textContent = CUSTOM_PAGES_ROUTER_SCRIPT;
+    document.body.appendChild(customPagesRouterScript);
 
     // Adds the mobile hamburger toggle for #anav — no API calls, no
     // dependency on MCM_SCRIPT having run first, safe to inject anywhere.
@@ -210,18 +283,26 @@ function McmCloudCx() {
     responsiveNavScript.textContent = RESPONSIVE_NAV_SCRIPT;
     document.body.appendChild(responsiveNavScript);
 
+    // Points the notifications bell at real audit_log data instead of the
+    // legacy in-memory-only DB.audit list — no dependency on MCM_SCRIPT
+    // having run first (retries internally), safe to inject anywhere.
+    const notificationsScript = document.createElement("script");
+    notificationsScript.type = "text/javascript";
+    notificationsScript.textContent = NOTIFICATIONS_SCRIPT;
+    document.body.appendChild(notificationsScript);
+
     // Runs after MCM_SCRIPT so window.SNAP already exists — it patches in
     // window.SNAP.authorg (the Authorized Organizations page content) the
     // same way the legacy script itself works, rather than through the
     // mountLegacyReactPage/REACT_PAGES system the pages above use.
     const authorgScript = document.createElement("script");
     authorgScript.type = "text/javascript";
-    authorgScript.textContent = AUTHORG_SCRIPT;
+    authorgScript.textContent = withApiBase(AUTHORG_SCRIPT);
     document.body.appendChild(authorgScript);
 
     const directoryScript = document.createElement("script");
     directoryScript.type = "text/javascript";
-    directoryScript.textContent = DIRECTORY_SCRIPT;
+    directoryScript.textContent = withApiBase(DIRECTORY_SCRIPT);
     document.body.appendChild(directoryScript);
 
     // Same pattern as authorgScript above — patches window.SNAP.__apps (the
@@ -244,7 +325,7 @@ function McmCloudCx() {
     // functions MCM_SCRIPT already defined with API fetch/persist logic.
     const syncScript = document.createElement("script");
     syncScript.type = "text/javascript";
-    syncScript.textContent = BACKEND_SYNC_SCRIPT;
+    syncScript.textContent = withApiBase(BACKEND_SYNC_SCRIPT);
     document.body.appendChild(syncScript);
 
     // Patches window.SNAP.certs (Digital Certificates) with real,
@@ -289,6 +370,33 @@ function McmCloudCx() {
     subscriptionScript.textContent = SUBSCRIPTION_SCRIPT;
     document.body.appendChild(subscriptionScript);
 
+    // Registers the real Recording Policies page with the shared custom-pages
+    // router (mcm/custom-pages-router.ts) — 'recpol' is DYN7-routed in
+    // scripts.ts, so a plain window.__showRecpol assignment alone wouldn't
+    // be picked up. See mcm/recpol-redesign.ts.
+    const recpolScript = document.createElement("script");
+    recpolScript.type = "text/javascript";
+    recpolScript.textContent = RECPOL_SCRIPT;
+    document.body.appendChild(recpolScript);
+
+    // Same pattern for Evaluation Forms. See mcm/evalforms-redesign.ts.
+    const evalformsScript = document.createElement("script");
+    evalformsScript.type = "text/javascript";
+    evalformsScript.textContent = EVALFORMS_SCRIPT;
+    document.body.appendChild(evalformsScript);
+
+    // Same pattern for Calibrations. See mcm/calibrations-redesign.ts.
+    const calibrationsScript = document.createElement("script");
+    calibrationsScript.type = "text/javascript";
+    calibrationsScript.textContent = CALIBRATIONS_SCRIPT;
+    document.body.appendChild(calibrationsScript);
+
+    // Same pattern for Forecasts. See mcm/forecasts-redesign.ts.
+    const forecastsScript = document.createElement("script");
+    forecastsScript.type = "text/javascript";
+    forecastsScript.textContent = FORECASTS_SCRIPT;
+    document.body.appendChild(forecastsScript);
+
     // Must be appended LAST: it wraps window.openPage, so every other
     // module's own openPage wrapper has to already be installed for the
     // chain to stay intact. Purely presentational — it only stamps a
@@ -326,6 +434,29 @@ function McmCloudCx() {
     // what actually wins, since it runs after scripts.ts's assignment
     // above, not routes/__root.tsx's earlier baseline call.
     bridgeGlobalToast();
+
+    // See mountLegacyReactPage's `unmount` comment — if this effect ever
+    // re-runs (component remount, not just the double-invoke ranRef already
+    // guards against within one mount), every root and every injected
+    // <script> needs tearing down first, or the next run's createRoot()/
+    // appendChild() calls pile up on top of live, orphaned ones instead of
+    // starting clean.
+    const allPages = [
+      orgSettings, purchases, auditLog, people, roles, divisions, groups, skills, langs, licences,
+      sso, oauth, recpol, evalforms, calibrations, forecasts,
+    ];
+    const allScripts = [
+      script, customPagesRouterScript, responsiveNavScript, notificationsScript, authorgScript,
+      directoryScript, appsScript, cannedScript, syncScript, certsScript, contactListsScript,
+      dataactScript, dncListsScript, subscriptionScript, recpolScript, evalformsScript,
+      calibrationsScript, forecastsScript, integrationsThemeScript, integrationsResponsiveScript,
+      sessionGuardScript,
+    ];
+    return () => {
+      ranRef.current = false;
+      allPages.forEach((p) => p.unmount());
+      allScripts.forEach((s) => s.remove());
+    };
   }, []);
 
   return <div id="mcm-app" dangerouslySetInnerHTML={{ __html: MCM_HTML }} />;
