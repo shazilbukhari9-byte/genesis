@@ -158,7 +158,21 @@ function mountLegacyReactPage(containerId: string, element: ReactNode) {
     if (cnt) cnt.style.display = "";
   };
 
-  return { show, hide };
+  // Tears down this page's React root. Without this, an unmount+remount of
+  // McmCloudCx (its own effect never used to clean up after itself) would
+  // call createRoot() again on a container that still has the previous,
+  // never-unmounted root silently attached — which corrupts React's
+  // internal bookkeeping of that subtree and surfaces later as an uncaught
+  // "NotFoundError: removeChild — the node to be removed is not a child of
+  // this node", crashing the whole app. Reproduced live on Evaluation Forms.
+  const unmount = () => {
+    if (root) {
+      root.unmount();
+      root = null;
+    }
+  };
+
+  return { show, hide, unmount };
 }
 
 function McmCloudCx() {
@@ -420,6 +434,29 @@ function McmCloudCx() {
     // what actually wins, since it runs after scripts.ts's assignment
     // above, not routes/__root.tsx's earlier baseline call.
     bridgeGlobalToast();
+
+    // See mountLegacyReactPage's `unmount` comment — if this effect ever
+    // re-runs (component remount, not just the double-invoke ranRef already
+    // guards against within one mount), every root and every injected
+    // <script> needs tearing down first, or the next run's createRoot()/
+    // appendChild() calls pile up on top of live, orphaned ones instead of
+    // starting clean.
+    const allPages = [
+      orgSettings, purchases, auditLog, people, roles, divisions, groups, skills, langs, licences,
+      sso, oauth, recpol, evalforms, calibrations, forecasts,
+    ];
+    const allScripts = [
+      script, customPagesRouterScript, responsiveNavScript, notificationsScript, authorgScript,
+      directoryScript, appsScript, cannedScript, syncScript, certsScript, contactListsScript,
+      dataactScript, dncListsScript, subscriptionScript, recpolScript, evalformsScript,
+      calibrationsScript, forecastsScript, integrationsThemeScript, integrationsResponsiveScript,
+      sessionGuardScript,
+    ];
+    return () => {
+      ranRef.current = false;
+      allPages.forEach((p) => p.unmount());
+      allScripts.forEach((s) => s.remove());
+    };
   }, []);
 
   return <div id="mcm-app" dangerouslySetInnerHTML={{ __html: MCM_HTML }} />;
