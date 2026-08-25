@@ -290,6 +290,7 @@ CREATE TABLE IF NOT EXISTS queues (
 -- on; the admin-only fields live in config so nothing else has to change.
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS division TEXT;
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}'::jsonb;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_queues_tenant_name ON queues (tenant_id, lower(name));
 
 CREATE TABLE IF NOT EXISTS campaigns (
   id SERIAL PRIMARY KEY,
@@ -367,6 +368,7 @@ CREATE TABLE IF NOT EXISTS flows (
   name TEXT NOT NULL,
   graph JSONB NOT NULL DEFAULT '{"nodes":[],"links":[]}'::jsonb
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_flows_tenant_name ON flows (tenant_id, lower(name));
 
 CREATE TABLE IF NOT EXISTS call_routes (
   id SERIAL PRIMARY KEY,
@@ -383,6 +385,13 @@ CREATE TABLE IF NOT EXISTS call_routes (
   enabled BOOLEAN NOT NULL DEFAULT true,
   description TEXT
 );
+
+-- Admin > Architect > Call Routing edits a division per route too (a plain
+-- division code, same bare-TEXT convention as queues.division above — no FK
+-- table of division codes is enforced there either). schedule_id is added
+-- further down, once schedule_groups exists (see below).
+ALTER TABLE call_routes ADD COLUMN IF NOT EXISTS division TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_call_routes_tenant_pattern ON call_routes (tenant_id, match_type, lower(pattern));
 
 -- both queried as "WHERE tenant_id = %s ... ORDER BY priority, name" (carrier.py)
 CREATE INDEX IF NOT EXISTS idx_trunks_tenant_priority ON trunks(tenant_id, priority);
@@ -613,8 +622,14 @@ CREATE TABLE IF NOT EXISTS emergency_groups (
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   flows TEXT[] NOT NULL DEFAULT '{}',
-  active BOOLEAN NOT NULL DEFAULT false
+  active BOOLEAN NOT NULL DEFAULT false,
+  division TEXT,
+  members INTEGER[] NOT NULL DEFAULT '{}',
+  emergency_contacts JSONB NOT NULL DEFAULT '[]'::jsonb,
+  notification_rules JSONB NOT NULL DEFAULT '[]'::jsonb,
+  escalation_tiers JSONB NOT NULL DEFAULT '[]'::jsonb
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_emergency_groups_tenant_name ON emergency_groups (tenant_id, lower(name));
 
 -- Admin > Contact Center > Email Settings — verified sending domains and
 -- the inbound addresses routed off each one.
@@ -691,6 +706,11 @@ CREATE TABLE IF NOT EXISTS schedule_groups (
   holidays TEXT,
   state TEXT NOT NULL DEFAULT 'Open'
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_schedule_groups_tenant_name ON schedule_groups (tenant_id, lower(name));
+
+-- call_routes is defined earlier in this file, before schedule_groups
+-- existed to reference.
+ALTER TABLE call_routes ADD COLUMN IF NOT EXISTS schedule_id INTEGER REFERENCES schedule_groups(id);
 
 -- Admin > Contact Center > Scripts (the list Script Editor opens into).
 -- Only name/type/published persist — the visual drag-drop canvas itself
@@ -1274,10 +1294,13 @@ CREATE TABLE IF NOT EXISTS prompts (
   tts TEXT NOT NULL DEFAULT '',
   lang TEXT NOT NULL DEFAULT 'en-GB',
   audio_name TEXT,
+  audio_data TEXT,
+  audio_mime TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_prompts_tenant ON prompts(tenant_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_prompts_tenant_name ON prompts (tenant_id, lower(name));
 
 DROP TRIGGER IF EXISTS trg_prompts_touch ON prompts;
 CREATE TRIGGER trg_prompts_touch BEFORE UPDATE ON prompts
