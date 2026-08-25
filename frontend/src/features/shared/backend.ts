@@ -1,7 +1,11 @@
 // Shared backend config for every feature page's service layer.
 // One demo tenant for now, matching how the rest of the app (Subscription's
 // SubsAPI, the legacy scripts.ts DB.*) has no real multi-tenant login either.
-export const API_BASE = "https://genesis-yysv.onrender.com";
+// Defaults to the deployed backend so every other developer's build keeps
+// working untouched. Override locally via frontend/.env.local (gitignored) —
+// VITE_API_BASE=http://localhost:5000 — to point this dev server at your
+// own local backend + database instead.
+export const API_BASE = import.meta.env["VITE_API_BASE"] || "https://genesis-yysv.onrender.com";
 export const TENANT_ID = "38bfdb29-8845-46e0-ab92-b0b5b43cfd6e";
 
 declare global {

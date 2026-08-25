@@ -194,6 +194,21 @@ REGISTRY = {
         # as a Postgres ARRAY literal instead and round-trips wrong.
         json_fields=["groups"],
     ),
+    # ── Evaluations (Quality & WEM > Evaluation Forms > Perform Evaluation) ──
+    "evals": dict(
+        table="evals",
+        order="created_at DESC",
+        fields=[
+            "tenant_id", "form_id", "interaction_id", "agent_id", "evaluator_id",
+            "answers", "pct", "critical_fail",
+        ],
+        search=[],
+        perm=None,
+        # answers is JSONB storing a *dict* (question id -> answer), not a
+        # list, so it round-trips fine through db.py's plain dict->jsonb
+        # adapter — no json_fields entry needed here (contrast eval_forms.groups
+        # above, which stores a list and does need the opt-out).
+    ),
     # ── Prompts (Routing > Prompts) ──
     "prompts": dict(
         table="prompts",
@@ -376,7 +391,10 @@ REGISTRY = {
     "calibrations": dict(
         table="calibrations",
         order="name",
-        fields=["tenant_id", "name", "form_ref", "interaction_ref", "status", "evaluators", "notes"],
+        fields=[
+            "tenant_id", "name", "form_ref", "interaction_ref", "division", "status", "evaluators", "notes",
+            "due_date", "hide_scores_until_complete", "include_agent_self_assessment", "notify_evaluators_by_email",
+        ],
         search=["name"],
         perm=None,
         # evaluators is JSONB storing a *list* — see eval-forms' json_fields note.
