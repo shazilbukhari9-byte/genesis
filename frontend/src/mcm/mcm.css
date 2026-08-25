@@ -914,4 +914,20 @@ body[data-mcm-section="integrations"] .int-banner.err{
   .phd h1{font-size:16px}
   .subs-banner{gap:14px;padding:14px}
   .subs-banner .sb-sep{display:none}
+
+  /* The bell/help/profile dropdowns (#notifddm, #wnddm, #meddm, ...) are
+     positioned by scripts.ts's ddStyle() with a fixed `right` offset plus a
+     min-width (e.g. right:120px + min-width:340px) sized for desktop —
+     right+width alone exceeds a 375px viewport, so the panel's left edge
+     lands off-screen, clipping every row's leading text ("NOTIFICATIONS"
+     read as "CATIONS") and forcing the whole page into horizontal scroll.
+     !important overrides the inline style.cssText scripts.ts sets, since a
+     stylesheet rule alone can't out-specificity an inline style otherwise. */
+  .ddm{
+    left:10px!important;
+    right:10px!important;
+    width:auto!important;
+    min-width:0!important;
+    max-width:none!important;
+  }
 }
