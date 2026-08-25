@@ -7,8 +7,8 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, useRef, type ReactNode } from "react";
-import { ToastContainer } from "react-toastify";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ToastContainer, type ToastPosition } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 import appCss from "../styles.css?url";
@@ -117,9 +117,33 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+// react-toastify's top-right layout goes full-bleed (width:100vw, flush
+// against the top edge) below its own 480px breakpoint, which is where it
+// collided with the MCM app shell's fixed top bar (see styles.css) — and
+// even once that overlap was fixed, a wordy legacy alert message (this
+// app's simulated Alert Rules produce long ones) still ate a large chunk
+// of a phone's limited vertical space, worse each time another one
+// stacked on top. Anchoring at the bottom on mobile keeps every toast
+// clear of both the header AND the page content people are looking at,
+// which is where iOS/Android's own system notifications and most mobile
+// apps' toasts live for exactly this reason.
+function useIsNarrowViewport(breakpointPx: number): boolean {
+  const [isNarrow, setIsNarrow] = useState(false);
+  useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${breakpointPx}px)`);
+    setIsNarrow(mql.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsNarrow(e.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, [breakpointPx]);
+  return isNarrow;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const bridgedRef = useRef(false);
+  const isMobile = useIsNarrowViewport(480);
+  const toastPosition: ToastPosition = isMobile ? "bottom-center" : "top-right";
 
   useEffect(() => {
     if (bridgedRef.current) return;
@@ -135,7 +159,7 @@ function RootComponent() {
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
       <ToastContainer
-        position="top-right"
+        position={toastPosition}
         autoClose={3000}
         hideProgressBar={false}
         newestOnTop
@@ -144,6 +168,13 @@ function RootComponent() {
         draggable
         theme="light"
         toastClassName="mcm-toast"
+        // Caps how many toasts can be on screen at once — without this, a
+        // burst of this app's simulated alerts (queue backlog, agent-away,
+        // ...) firing close together stacks indefinitely and, at mobile
+        // toast widths/heights, can genuinely cover the whole viewport.
+        // Older ones queue and appear as newer ones clear instead of all
+        // piling up together.
+        limit={isMobile ? 2 : 4}
       />
     </QueryClientProvider>
   );

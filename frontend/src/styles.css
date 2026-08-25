@@ -154,20 +154,45 @@
 .Toastify__toast-container {
   font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
-/* react-toastify's own built-in mobile breakpoint (max-width:480px) forces
-   the container to top:0, width:100vw so toasts stack flush against the
-   screen edge -- but its z-index (9999) is far above the MCM app shell's
-   own fixed top bar (frontend/src/mcm/mcm.css's #top, z-index:100), which
-   is also position:fixed at top:0. The two stack directly on top of each
-   other on a phone: every toast completely covers the real navigation bar
-   (logo, module tabs, notifications bell, avatar) for as long as it's
-   visible, making the app look like it lost its header. Push toasts below
-   #top's 48px height instead of overlapping it. */
+/* __root.tsx switches the container to bottom-center below 480px, so
+   toasts never compete with the MCM app shell's fixed top bar (#top,
+   frontend/src/mcm/mcm.css) the way top-right did on a phone. This top-*
+   offset stays only as a defensive fallback (e.g. the instant before JS
+   hydration picks the real position) -- react-toastify's own mobile
+   breakpoint otherwise forces top:0, directly under #top's 48px bar. */
 @media (max-width: 480px) {
   .Toastify__toast-container.Toastify__toast-container--top-left,
   .Toastify__toast-container.Toastify__toast-container--top-center,
   .Toastify__toast-container.Toastify__toast-container--top-right {
     top: 56px;
+  }
+
+  /* react-toastify's own mobile rule makes bottom-center full-bleed too
+     (width:100vw, flush to the screen edges) -- fine on a wide toast, but
+     this app's legacy Alert Rules produce genuinely long messages ("Agent
+     away too long — Time in Away status (min) is 28 (> 15). Supervisors
+     notified."), and a full-width banner reads as covering the page
+     rather than a lightweight notification. Constrained to a floating
+     pill with real margins instead, clamped to 3 lines with an ellipsis
+     so one long message can't grow to dominate the screen on its own --
+     the limit={2} prop on ToastContainer (__root.tsx) caps how many can
+     ever be stacked at once. */
+  .Toastify__toast-container.Toastify__toast-container--bottom-center {
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    padding: 0;
+  }
+  .mcm-toast.Toastify__toast {
+    margin-bottom: 8px;
+    font-size: 12.5px;
+  }
+  .mcm-toast .Toastify__toast-body {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 }
 .mcm-toast.Toastify__toast {
