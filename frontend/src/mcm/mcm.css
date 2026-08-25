@@ -834,9 +834,20 @@ body[data-mcm-section="integrations"] .int-banner.err{
   /* Global search crowds out the nav tabs before either becomes usable —
      dropping it is a smaller loss than the tabs it would otherwise starve. */
   #gs{display:none}
-  #nav{overflow-x:auto;scrollbar-width:none}
+  #nav{overflow-x:auto;scrollbar-width:none;position:relative}
   #nav::-webkit-scrollbar{display:none}
-  #nav .n{min-width:60px;padding:0 10px}
+  #nav .n{min-width:60px;padding:0 10px;flex-shrink:0}
+
+  /* Even after reclaiming space elsewhere (see the 520px block below),
+     the 5 nav tabs (Directory/Activity/Performance/Admin/Apps) still need
+     ~300px and #nav's own visible box is well under that on a phone — so
+     reaching "Admin", the most-used tab in this app, requires a
+     horizontal swipe with nothing on screen suggesting that's possible.
+     A static fade at the scroll container's trailing edge is the
+     standard, no-JS way to signal "more content this way" without
+     needing scroll-position tracking. */
+  #nav::after{content:'';position:absolute;top:0;right:0;bottom:0;width:20px;
+    background:linear-gradient(to right,transparent,#152550);pointer-events:none}
 
   /* Admin sidebar accordion (see responsive-nav.ts) — each module's link
      list is collapsed by default and only shown once its group header is
@@ -881,6 +892,25 @@ body[data-mcm-section="integrations"] .int-banner.err{
 @media(max-width:520px){
   #top{padding:0 8px 0 10px}
   #top .lg b{display:none}
+
+  /* #top is a plain flex row with no flex-shrink protection on its
+     children, so once the logo + hamburger + nav tabs + icon cluster +
+     avatar/name block together need more than the viewport's width, the
+     browser shrinks everything proportionally — including the icon
+     buttons, which have no min-width of their own to shrink down FROM.
+     Measured on a real 375px viewport: the notification/help icons were
+     squeezed from their intended 30x30px down to ~12-14px wide, both
+     visually broken and too small to tap accurately. Two changes fix it:
+     drop the name/status text (the avatar alone is enough identity, and
+     it was the single biggest space cost at ~60px) and stop the icon
+     buttons from shrinking at all — the nav tabs already have their own
+     min-width and #nav's own overflow-x:auto scroll, so they're fine
+     ceding space instead. */
+  #me .nm{display:none}
+  #top .ic{flex-shrink:0}
+  #top .anav-toggle{flex-shrink:0}
+  #top .lg{flex-shrink:0}
+
   .phd h1{font-size:16px}
   .subs-banner{gap:14px;padding:14px}
   .subs-banner .sb-sep{display:none}
