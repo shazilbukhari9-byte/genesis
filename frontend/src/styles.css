@@ -154,6 +154,22 @@
 .Toastify__toast-container {
   font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
+/* react-toastify's own built-in mobile breakpoint (max-width:480px) forces
+   the container to top:0, width:100vw so toasts stack flush against the
+   screen edge -- but its z-index (9999) is far above the MCM app shell's
+   own fixed top bar (frontend/src/mcm/mcm.css's #top, z-index:100), which
+   is also position:fixed at top:0. The two stack directly on top of each
+   other on a phone: every toast completely covers the real navigation bar
+   (logo, module tabs, notifications bell, avatar) for as long as it's
+   visible, making the app look like it lost its header. Push toasts below
+   #top's 48px height instead of overlapping it. */
+@media (max-width: 480px) {
+  .Toastify__toast-container.Toastify__toast-container--top-left,
+  .Toastify__toast-container.Toastify__toast-container--top-center,
+  .Toastify__toast-container.Toastify__toast-container--top-right {
+    top: 56px;
+  }
+}
 .mcm-toast.Toastify__toast {
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
