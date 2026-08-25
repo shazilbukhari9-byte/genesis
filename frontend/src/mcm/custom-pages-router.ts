@@ -36,7 +36,23 @@ export const CUSTOM_PAGES_ROUTER_SCRIPT: string = `
   window.openPage = function(id) {
     var page = customPages[id];
     if (page) {
-      window.closeDrawer && window.closeDrawer();
+      // scripts.ts's own closeDrawer() does document.getElementById('drw').remove()
+      // directly — no awareness that a real-React page's LegacyDrawer (see
+      // features/shared/LegacyDrawer.tsx) might currently have #drw portaled in
+      // and mid-render. React's unmount of that same node is async/batched, not
+      // synchronous with this call, so calling the raw remove() here could yank
+      // the node out from under React right as React is also about to remove
+      // it — the next removeChild then throws "NotFoundError: the node to be
+      // removed is not a child of this node", uncaught, crashing the whole app.
+      // Reproduced live switching pages shortly after closing a React drawer.
+      // Skip the raw removal whenever #drw is React-owned; its own component
+      // state (not this legacy path) is what's responsible for its lifecycle.
+      var currentDrw = document.getElementById('drw');
+      var reactPortalRoot = document.getElementById('legacy-drawer-portal-root');
+      var drwIsReactOwned = !!(currentDrw && reactPortalRoot && reactPortalRoot.contains(currentDrw));
+      if (!drwIsReactOwned) {
+        window.closeDrawer && window.closeDrawer();
+      }
       window.restoreAdmin && window.restoreAdmin();
       window.navMark && window.navMark('admin');
       window.APP.page = id;
