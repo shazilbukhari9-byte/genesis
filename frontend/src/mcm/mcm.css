@@ -319,7 +319,7 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .help .hh .cx{margin-left:auto;color:#6b7a90;font-weight:500;font-size:12px}
 .help .hb{padding:14px}
 .help h5{margin:0 0 7px;font-size:12px;font-weight:700;color:#6b7a90;text-transform:uppercase;letter-spacing:.5px}
-.help ul{margin:0 0 14px;padding-left:18px;font-size:12.5px;color:#33425c;line-height:1.7}
+.help ul{list-style:disc;margin:0 0 14px;padding-left:18px;font-size:12.5px;color:#33425c;line-height:1.7}
 .kw{display:inline-block;background:#eef2f8;border:1px solid #dde3ec;color:#33425c;border-radius:11px;padding:2px 9px;font-size:11px;margin:0 5px 5px 0}
 .kw.o{background:#fff1eb;border-color:#ffd2c0;color:#c23c11}
 .vid{display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid #eef1f6;border-radius:4px;margin-bottom:6px;font-size:12.5px;color:#22304a;text-decoration:none}
