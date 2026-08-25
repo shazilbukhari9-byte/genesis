@@ -34,6 +34,7 @@ from dnclists import dnclists_bp
 from catalogue import catalogue_bp
 from client_apps import client_apps_bp
 from botconnectors import botconnectors_bp
+from salesforce_oauth import salesforce_oauth_bp
 import config
 import init_db
 
@@ -137,6 +138,7 @@ app.register_blueprint(dnclists_bp)
 app.register_blueprint(catalogue_bp)
 app.register_blueprint(client_apps_bp)
 app.register_blueprint(botconnectors_bp)
+app.register_blueprint(salesforce_oauth_bp)
 register_auth_guard(app)
 
 

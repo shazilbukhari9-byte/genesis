@@ -1806,3 +1806,63 @@ CREATE TABLE IF NOT EXISTS dnc_numbers (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dnc_numbers_list_phone ON dnc_numbers(list_id, phone);
 CREATE INDEX IF NOT EXISTS idx_dnc_numbers_tenant_phone ON dnc_numbers(tenant_id, phone);
+
+-- ============================================================
+-- Integrations Phase 1 — real Salesforce OAuth connection (see
+-- backend/salesforce_oauth.py / backend/salesforce_client.py). Backs the
+-- Installed tab's Connect/Disconnect/Test Connection controls on the
+-- Salesforce CTI row, and dataact.py's real execution branch for the
+-- CRM_Lookup_Customer data action. Deliberately two NEW tables rather than
+-- any change to installed_integrations/integration_credentials/
+-- data_actions/data_action_runs — none of those needed a schema change.
+-- ============================================================
+
+-- One row per installed Salesforce connection's OAuth tokens. Tokens are
+-- Fernet-encrypted before storage (see salesforce_oauth.py's _encrypt/
+-- _decrypt) — this table never holds a plaintext access/refresh token,
+-- unlike sso_providers.client_secret above, which the schema comment on
+-- that table already admits is a prototype shortcut not to be repeated.
+-- 1:1 with installed_integrations via the UNIQUE constraint — reconnecting
+-- updates the existing row rather than accumulating history.
+CREATE TABLE IF NOT EXISTS salesforce_connections (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  installed_integration_id INTEGER NOT NULL REFERENCES installed_integrations(id) ON DELETE CASCADE,
+  access_token_encrypted TEXT,
+  refresh_token_encrypted TEXT,
+  instance_url TEXT,
+  token_type TEXT,
+  scope TEXT,
+  expires_at TIMESTAMPTZ,
+  -- Not Connected | Connecting | Connected | Authentication Failed |
+  -- Token Expired | Disconnected — set only by salesforce_oauth.py's route
+  -- handlers, never client-writable (this table has no resources.py
+  -- registry entry, so it isn't reachable through the generic CRUD routes).
+  connection_status TEXT NOT NULL DEFAULT 'Not Connected',
+  last_error TEXT NOT NULL DEFAULT '',
+  connected_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (installed_integration_id)
+);
+CREATE INDEX IF NOT EXISTS idx_salesforce_connections_tenant ON salesforce_connections(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_salesforce_connections_touch ON salesforce_connections;
+CREATE TRIGGER trg_salesforce_connections_touch BEFORE UPDATE ON salesforce_connections
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- Short-lived OAuth CSRF state, mirroring sso_states above exactly (same
+-- single-use-then-delete pattern). redirect_uri is the Genesis frontend
+-- page to bounce back to once the callback finishes — Salesforce's
+-- redirect lands on this backend with no bearer token attached, so tenant/
+-- integration identity for the callback comes from this row, never from
+-- client-supplied input.
+CREATE TABLE IF NOT EXISTS salesforce_oauth_states (
+  state TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  installed_integration_id INTEGER NOT NULL REFERENCES installed_integrations(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id),
+  redirect_uri TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL
+);

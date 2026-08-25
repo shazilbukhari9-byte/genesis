@@ -34,6 +34,12 @@ PUBLIC_PATHS = (
     '/api/auth/sso/providers', '/api/auth/sso/check-domain',
     # OAuth token endpoint — client authenticates with its own credentials
     '/api/oauth/token', '/api/oauth/revoke',
+    # Salesforce OAuth callback (Integrations Phase 1) — Salesforce
+    # redirects the bare browser here with no way to attach our bearer
+    # token; tenant/user identity comes from the server-stored state row
+    # instead (see salesforce_oauth.py's callback()), same reasoning as
+    # the SSO callback above.
+    '/api/integrations/salesforce/oauth/callback',
 )
 
 
