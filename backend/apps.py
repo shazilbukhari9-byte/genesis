@@ -70,8 +70,8 @@ def install_app(app_id):
     )
     row = cur.fetchone()
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'App installed', row['name']),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'App installed', row['name'], g.tenant_id),
     )
     conn.commit()
     conn.close()
@@ -134,8 +134,8 @@ def uninstall_app(app_id):
         (app_id, g.tenant_id),
     )
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
-        (g.user_name, 'App uninstalled', existing['name']),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'App uninstalled', existing['name'], g.tenant_id),
     )
     conn.commit()
     conn.close()

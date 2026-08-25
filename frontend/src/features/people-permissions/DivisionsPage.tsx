@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
+import { toast } from "../shared/toast";
 import { deleteDivision, fetchDirectory, upsertDivision } from "./store";
 import type { Division, Person } from "./types";
 
@@ -22,16 +23,18 @@ export function DivisionsPage() {
 
   const saveMutation = useMutation({
     mutationFn: upsertDivision,
-    onSuccess: (updated) => {
+    onSuccess: (updated, variables) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       setEditing(null);
+      toast(("id" in variables && variables.id ? "Saved — " : "Division created — ") + `<b>${variables.name}</b>`);
     },
   });
   const deleteMutation = useMutation({
-    mutationFn: deleteDivision,
-    onSuccess: (updated) => {
+    mutationFn: ({ id, name }: { id: string; name: string; memberCount: number }) => deleteDivision(id, name),
+    onSuccess: (updated, { memberCount }) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       setEditing(null);
+      toast("Division deleted" + (memberCount ? ` — ${memberCount} users moved to Home` : ""));
     },
   });
 
@@ -101,7 +104,16 @@ export function DivisionsPage() {
           saving={saveMutation.isPending}
           onClose={() => setEditing(null)}
           onSave={(value) => saveMutation.mutate(value)}
-          {...("id" in editing ? { onDelete: () => deleteMutation.mutate(editing.id) } : {})}
+          {...("id" in editing
+            ? {
+                onDelete: () =>
+                  deleteMutation.mutate({
+                    id: editing.id,
+                    name: editing.name,
+                    memberCount: (data?.people ?? []).filter((p) => p.division === editing.id).length,
+                  }),
+              }
+            : {})}
         />
       )}
     </>

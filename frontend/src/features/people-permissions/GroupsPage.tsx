@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
+import { toast } from "../shared/toast";
 import { deleteGroup, fetchDirectory, upsertGroup } from "./store";
 import type { Group, Person } from "./types";
 
@@ -26,16 +27,18 @@ export function GroupsPage() {
 
   const saveMutation = useMutation({
     mutationFn: upsertGroup,
-    onSuccess: (updated) => {
+    onSuccess: (updated, variables) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       setEditing(null);
+      toast(`Group saved — <b>${variables.name}</b>`);
     },
   });
   const deleteMutation = useMutation({
-    mutationFn: deleteGroup,
+    mutationFn: ({ id, name }: { id: string; name: string }) => deleteGroup(id, name),
     onSuccess: (updated) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       setEditing(null);
+      toast("Group deleted");
     },
   });
 
@@ -45,7 +48,7 @@ export function GroupsPage() {
     <>
       <div className="phd">
         <div className="bc">
-          <a onClick={goToAdminIndex}>Admin</a> › Directory
+          <a onClick={goToAdminIndex}>Admin</a> › People &amp; Permissions
         </div>
         <div className="tt">
           <h1>Groups</h1>
@@ -107,7 +110,7 @@ export function GroupsPage() {
           saving={saveMutation.isPending}
           onClose={() => setEditing(null)}
           onSave={(value) => saveMutation.mutate(value)}
-          {...("id" in editing ? { onDelete: () => deleteMutation.mutate(editing.id) } : {})}
+          {...("id" in editing ? { onDelete: () => deleteMutation.mutate({ id: editing.id, name: editing.name }) } : {})}
         />
       )}
     </>

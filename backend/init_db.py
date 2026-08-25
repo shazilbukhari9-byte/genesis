@@ -11,6 +11,10 @@ import re
 from datetime import datetime
 from werkzeug.security import generate_password_hash
 from db import get_db
+# parse_contract only — a pure string->fields function with no request
+# context, reused here so seeded contracts are derived by exactly the same
+# rule the API uses rather than a second copy that could drift.
+import dataact
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), '..', 'database', 'schema.sql')
 
@@ -57,6 +61,17 @@ LICENSES = [
     ('CX 3', 'CX 3 — WEM', 25, 155),
     ('CX 4', 'CX 4 — AI', 10, 240),
     ('Communicate', 'Communicate', 50, 18),
+]
+
+# Admin > Integrations > Integrations page's "Catalogue" tab — same 4
+# entries the frontend's now-removed CATALOGUE_ITEMS array used to
+# hardcode (frontend/src/mcm/scripts.ts), seeded once so the tab has real
+# data on first boot instead of starting empty.
+INTEGRATION_CATALOGUE = [
+    ('Salesforce CTI', 'CRM', 'Client application', 'OAuth', 'Agent UI'),
+    ('Microsoft Teams', 'UC', 'Directory presence sync', 'OAuth', 'Directory'),
+    ('Zendesk', 'Ticketing', 'Data actions', 'API key', 'Architect'),
+    ('Power BI Export', 'Analytics', 'Client application', 'OAuth', 'Supervisors'),
 ]
 
 # Permission domains (Roles / Permissions page) — must match the frontend's
@@ -404,6 +419,16 @@ def run():
             (code, label, purchased, unit_price),
         )
 
+    for name, category, itype, credentials, used_by in INTEGRATION_CATALOGUE:
+        cur.execute(
+            """
+            INSERT INTO integration_catalogue (tenant_id, name, category, type, credentials, used_by)
+            VALUES (%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (tenant_id, name) DO NOTHING
+            """,
+            (tenant_id, name, category, itype, credentials, used_by),
+        )
+
     for app_id, name, category, category_label, icon, description, permissions, last_sync_label in INSTALLED_APPS:
         cur.execute(
             """
@@ -470,6 +495,27 @@ def run():
             """,
             (da_id, tenant_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error),
         )
+
+    # Structured contract rows for the Contracts tab. Not seed *content* —
+    # every field here is parsed out of the action's own contract string
+    # above by the same backend parser the API uses, so this only
+    # materialises what data_actions.contract already says. Runs on every
+    # boot (cheap, and idempotent via the ON CONFLICT) so actions created
+    # before data_action_contracts existed get backfilled too.
+    cur.execute('SELECT id, contract FROM data_actions WHERE tenant_id = %s', (tenant_id,))
+    for action in cur.fetchall():
+        for field in dataact.parse_contract(action['contract']):
+            cur.execute(
+                """
+                INSERT INTO data_action_contracts
+                    (tenant_id, data_action_id, direction, field_name, field_type, position)
+                VALUES (%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (data_action_id, direction, field_name) DO UPDATE
+                    SET field_type = EXCLUDED.field_type, position = EXCLUDED.position
+                """,
+                (tenant_id, action['id'], field['direction'], field['field_name'],
+                 field['field_type'], field['position']),
+            )
 
     for dnc_id, name, numbers in DNC_LISTS:
         cur.execute(
@@ -569,6 +615,17 @@ def run():
           AND EXISTS (SELECT 1 FROM unnest(langs) AS l WHERE NOT lang_proficiency ? l)
         """
     )
+
+    # audit_log tenant_id backfill: the table predates multi-tenancy, so any
+    # row left over from before this column existed has no tenant recorded.
+    # Attribute those to the current tenant (they can only have come from
+    # actions taken against this deployment) rather than leave them globally
+    # visible to every tenant sharing this database. Idempotent (only touches
+    # rows still missing a tenant) so it's safe to run on every startup.
+    cur.execute('UPDATE audit_log SET tenant_id = %s WHERE tenant_id IS NULL', (tenant_id,))
+
+    # Same backfill for purchases — see its tenant_id comment in schema.sql.
+    cur.execute('UPDATE purchases SET tenant_id = %s WHERE tenant_id IS NULL', (tenant_id,))
 
     conn.commit()
     conn.close()

@@ -29,7 +29,10 @@ function mapFromApi(row: any): OAuthClient {
     clientId: row.client_id ?? "",
     scope: row.scopes ?? "read",
     tokenDurationSec: 3600,
-    lastUsed: row.updated_at ? new Date(row.updated_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Never",
+    // last_used_at is the real signal (max oauth_tokens.created_at for this
+    // client) — updated_at ticks on any edit, not on token issuance, so it
+    // would misreport a just-renamed, never-used client as recently active.
+    lastUsed: row.last_used_at ? new Date(row.last_used_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Never",
     status: row.enabled ? "Active" : "Disabled",
     redirectUris: row.redirect_uris ?? [],
   };
@@ -99,7 +102,7 @@ export async function fetchOAuthClients(): Promise<OAuthClient[]> {
 }
 
 export async function createOAuthClient(
-  client: Pick<OAuthClient, "name" | "grantType" | "scope" | "tokenDurationSec" | "redirectUris">,
+  client: Pick<OAuthClient, "name" | "grantType" | "scope" | "tokenDurationSec" | "redirectUris" | "status">,
 ): Promise<{ data: OAuthClient[]; secret: OneTimeSecret | null }> {
   try {
     const created = await apiFetch<any>("/api/oauth/clients", {
@@ -119,7 +122,7 @@ export async function createOAuthClient(
       scope: client.scope,
       tokenDurationSec: client.tokenDurationSec,
       lastUsed: "Never",
-      status: "Active",
+      status: client.status,
       redirectUris: client.redirectUris,
     });
     writeStore(data);

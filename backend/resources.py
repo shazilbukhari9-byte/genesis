@@ -63,7 +63,7 @@ REGISTRY = {
     "purchases": dict(
         table="purchases",
         order="purchased_at DESC, id DESC",
-        fields=["item", "category", "price", "purchased_at"],
+        fields=["tenant_id", "item", "category", "price", "purchased_at"],
         search=["item", "category"],
         perm=None,
     ),
@@ -71,12 +71,10 @@ REGISTRY = {
     # tenant-scoped" — but app.py never lets a client set or filter it
     # directly: create forces it from g.tenant_id, list/get/update/delete all
     # scope by it automatically. See _tenant_scoped() in app.py.
-    # plans/routes aren't exposed here — the Sites create/edit form never
-    # sets them directly (they're auto-defaulted on create and managed via
-    # the separate Number Plans / Outbound Routes admin pages, which this
-    # entity doesn't cover yet); leaving them out avoids sending a Python
-    # list through the generic JSONB path, which psycopg2 doesn't adapt to
-    # JSON array syntax by default (see the DEFAULT '[]' on the column).
+    # plans/routes aren't exposed here — Number Plans and Outbound Routes
+    # are synced through their own dedicated tables/endpoints instead (see
+    # "number-plans" and "outbound-routes" below), not through this JSONB
+    # column on sites.
     "sites": dict(
         table="sites",
         order="name",
@@ -145,6 +143,13 @@ REGISTRY = {
         fields=["tenant_id", "phone_number", "destination_type", "flow_id", "queue_id",
                  "assignment_type", "target_label"],
         search=["phone_number"],
+        perm=None,
+    ),
+    "did-ranges": dict(
+        table="did_ranges",
+        order="start_number",
+        fields=["tenant_id", "country", "start_number", "end_number", "provider"],
+        search=["start_number", "end_number", "provider"],
         perm=None,
     ),
     "extension-pools": dict(
@@ -353,6 +358,19 @@ REGISTRY = {
         search=["name", "integration_name"],
         perm=None,
     ),
+    # Admin > Integrations > Integrations page's "Catalogue" tab. Plain
+    # list/get/create/update/delete come from this generic registry entry;
+    # the one non-generic action — installing a catalogue entry into
+    # installed_integrations — is a dedicated route in backend/catalogue.py
+    # since it does more than a column-for-column write (creates a linked
+    # row in a different table, so it can't be expressed declaratively here).
+    "integration-catalogue": dict(
+        table="integration_catalogue",
+        order="name",
+        fields=["tenant_id", "name", "category", "type", "credentials", "used_by", "status"],
+        search=["name", "category", "type"],
+        perm=None,
+    ),
     "work-plans": dict(
         table="work_plans",
         order="name",
@@ -400,11 +418,11 @@ REGISTRY = {
         # evaluators is JSONB storing a *list* — see eval-forms' json_fields note.
         json_fields=["evaluators"],
     ),
-    "bot-connectors": dict(
-        table="bot_connectors",
-        order="name",
-        fields=["tenant_id", "name", "platform", "status", "webhook_url", "notes"],
-        search=["name"],
-        perm=None,
-    ),
+    # bot_connectors is NOT here on purpose. It used to be, but the generic
+    # registry can only do column-for-column CRUD, which meant `status` was
+    # a plain writable field a client could set to "Connected" itself, and
+    # there was nowhere to hang connect/disconnect/test. It now has a
+    # dedicated blueprint (backend/botconnectors.py) that owns `status` and
+    # validates platform/webhook — keeping the registry entry as well would
+    # leave a second, unvalidated write path to the same table.
 }

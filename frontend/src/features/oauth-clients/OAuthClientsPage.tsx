@@ -73,9 +73,10 @@ export function OAuthClientsPage() {
   });
   const updateMutation = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Parameters<typeof updateOAuthClient>[1] }) => updateOAuthClient(id, patch),
-    onSuccess: (updated) => {
+    onSuccess: (updated, { patch }) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       closeDrawer();
+      toast(`Changes saved for <b>${patch.name}</b>`);
     },
   });
   const rotateMutation = useMutation({
@@ -90,14 +91,18 @@ export function OAuthClientsPage() {
     onError: () => toast("Couldn't rotate the secret — try again."),
   });
   const revokeMutation = useMutation({
-    mutationFn: revokeOAuthClient,
-    onSuccess: (updated) => queryClient.setQueryData(QUERY_KEY, updated),
+    mutationFn: ({ id }: { id: string; name: string }) => revokeOAuthClient(id),
+    onSuccess: (updated, { name }) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      toast(`<b>${name}</b> revoked`);
+    },
   });
   const deleteMutation = useMutation({
-    mutationFn: deleteOAuthClient,
-    onSuccess: (updated) => {
+    mutationFn: ({ id }: { id: string; name: string }) => deleteOAuthClient(id),
+    onSuccess: (updated, { name }) => {
       queryClient.setQueryData(QUERY_KEY, updated);
       closeDrawer();
+      toast(`<b>${name}</b> deleted`);
     },
   });
 
@@ -232,12 +237,23 @@ export function OAuthClientsPage() {
                           {c.status === "Active" && (
                             <span
                               style={{ color: "#b3261e", fontSize: 11.5, marginRight: 10, cursor: "pointer" }}
-                              onClick={() => revokeMutation.mutate(c.id)}
+                              onClick={() => {
+                                if (window.confirm(`Revoke "${c.name}"? It will stop being able to obtain new tokens until re-enabled.`)) {
+                                  revokeMutation.mutate({ id: c.id, name: c.name });
+                                }
+                              }}
                             >
                               Revoke
                             </span>
                           )}
-                          <span style={{ color: "#8794a8", fontSize: 11.5, cursor: "pointer" }} onClick={() => deleteMutation.mutate(c.id)}>
+                          <span
+                            style={{ color: "#8794a8", fontSize: 11.5, cursor: "pointer" }}
+                            onClick={() => {
+                              if (window.confirm(`Delete "${c.name}"? Its client ID and secret stop working immediately — this can't be undone.`)) {
+                                deleteMutation.mutate({ id: c.id, name: c.name });
+                              }
+                            }}
+                          >
                             Delete
                           </span>
                         </td>
@@ -308,18 +324,21 @@ export function OAuthClientsPage() {
                   3,600 seconds (1 hour) — fixed for every client, not yet configurable individually.
                 </div>
               </div>
-              {"id" in editing && (
-                <div className="fld">
-                  <label>Status</label>
-                  <select
-                    value={editing.status}
-                    onChange={(e) => setEditing((d) => (d ? { ...d, status: e.target.value as OAuthClient["status"] } : d))}
-                  >
-                    <option>Active</option>
-                    <option>Disabled</option>
-                  </select>
-                </div>
-              )}
+              <div className="fld">
+                <label>Status</label>
+                <select
+                  value={editing.status}
+                  onChange={(e) => setEditing((d) => (d ? { ...d, status: e.target.value as OAuthClient["status"] } : d))}
+                >
+                  <option>Active</option>
+                  <option>Disabled</option>
+                </select>
+                {!("id" in editing) && editing.status === "Disabled" && (
+                  <div style={{ fontSize: 11, color: "#8794a8", marginTop: 4 }}>
+                    The client will be created but can't obtain tokens until enabled.
+                  </div>
+                )}
+              </div>
 
               {"id" in editing && (
                 <>
@@ -333,7 +352,15 @@ export function OAuthClientsPage() {
                     </div>
                   </div>
                   <div className="fld" style={{ marginTop: 14 }}>
-                    <LegacyBtn secondary onClick={() => deleteMutation.mutate(editing.id)} disabled={deleteMutation.isPending}>
+                    <LegacyBtn
+                      secondary
+                      onClick={() => {
+                        if (window.confirm(`Delete "${editing.name}"? Its client ID and secret stop working immediately — this can't be undone.`)) {
+                          deleteMutation.mutate({ id: editing.id, name: editing.name });
+                        }
+                      }}
+                      disabled={deleteMutation.isPending}
+                    >
                       {deleteMutation.isPending ? "Deleting…" : "Delete client"}
                     </LegacyBtn>
                   </div>

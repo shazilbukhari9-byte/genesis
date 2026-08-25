@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { LegacyBtn } from "../shared/LegacyBtn";
 import { LegacyHelpPanel } from "../shared/LegacyHelpPanel";
+import { toast } from "../shared/toast";
 import { assignLicence, fetchDirectory } from "./store";
 
 const QUERY_KEY = ["people-directory"];
@@ -17,8 +18,12 @@ export function LicencesPage() {
   const { data, isLoading } = useQuery({ queryKey: QUERY_KEY, queryFn: fetchDirectory });
 
   const assignMutation = useMutation({
-    mutationFn: ({ personId, license }: { personId: string; license: string }) => assignLicence(personId, license),
-    onSuccess: (updated) => queryClient.setQueryData(QUERY_KEY, updated),
+    mutationFn: ({ personId, name, oldLicense, newLicense }: { personId: string; name: string; oldLicense: string; newLicense: string }) =>
+      assignLicence(personId, name, oldLicense, newLicense),
+    onSuccess: (updated, { name, newLicense }) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      toast(`<b>${name}</b> moved to <b>${newLicense}</b>`);
+    },
   });
 
   const licenses = data?.licenses ?? {};
@@ -55,13 +60,14 @@ export function LicencesPage() {
                 const used = usedOf(plan);
                 const ratio = total > 0 ? used / total : 0;
                 const over = used > total;
-                const barColor = over ? "#d9534f" : ratio > 0.85 ? "#e8a33d" : "#2eab6b";
+                const barColor = over ? "#d9534f" : ratio > 0.9 ? "#e8a33d" : "#2eab6b";
                 return (
                   <div key={plan} style={{ background: "#fff", border: "1px solid #dde3ec", borderRadius: 8, padding: "14px 16px", minWidth: 160 }}>
                     <div style={{ fontSize: 11, color: "#93a0b3", textTransform: "uppercase", fontWeight: 700, marginBottom: 6 }}>{plan}</div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: over ? "#d9534f" : "#152550" }}>
                       {used} / {total}
                     </div>
+                    <div style={{ fontSize: 11.5, color: over ? "#d9534f" : "#8794a8" }}>{over ? "Over-assigned!" : "seats assigned"}</div>
                     <div style={{ height: 6, background: "#eef1f6", borderRadius: 3, marginTop: 8, overflow: "hidden" }}>
                       <div style={{ width: `${Math.min(ratio, 1) * 100}%`, height: "100%", background: barColor }} />
                     </div>
@@ -98,7 +104,7 @@ export function LicencesPage() {
                       <td>
                         <select
                           value={p.license}
-                          onChange={(e) => assignMutation.mutate({ personId: p.id, license: e.target.value })}
+                          onChange={(e) => assignMutation.mutate({ personId: p.id, name: p.name, oldLicense: p.license, newLicense: e.target.value })}
                         >
                           {Object.keys(licenses).map((l) => (
                             <option key={l}>{l}</option>

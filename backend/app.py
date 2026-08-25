@@ -3,9 +3,12 @@ from datetime import datetime
 from calendar import monthrange
 from flask import Flask, jsonify, request, g
 from flask_cors import CORS
+import psycopg2
+from psycopg2 import errors as pg_errors
 from psycopg2.extras import Json as PgJson
+from werkzeug.exceptions import HTTPException
 
-from db import get_db
+from db import get_db, close_request_connections
 from resources import REGISTRY
 from interactions import interactions_bp
 from acd import acd_bp
@@ -28,6 +31,9 @@ from certs import certs_bp
 from contactlists import contactlists_bp
 from dataact import dataact_bp
 from dnclists import dnclists_bp
+from catalogue import catalogue_bp
+from client_apps import client_apps_bp
+from botconnectors import botconnectors_bp
 import config
 import init_db
 
@@ -37,7 +43,76 @@ _SAFE_IDENTIFIER = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
-CORS(app, origins=['http://localhost:8080', 'https://genesis-eta-six.vercel.app'], supports_credentials=True)
+# Every error handler below must win over Flask's interactive HTML debugger
+# even when running locally with debug=True (see bottom of this file) — an
+# API has no business ever returning an HTML page, in dev or prod.
+app.config['PROPAGATE_EXCEPTIONS'] = False
+CORS(app, origins=config.CORS_ORIGINS, supports_credentials=True)
+
+# Routes open connections with `conn = get_db()` and close them inline. Any
+# exception in between skips that close(), so this teardown rolls back and
+# closes whatever the request left open. Connections closed normally are
+# skipped, so the happy path is untouched.
+app.teardown_appcontext(close_request_connections)
+
+
+# --- Global error handling (Section: production-readiness) ---
+# psycopg2 raises these directly from cur.execute() with no application code
+# in between — rather than duplicating the schema's own NOT NULL/UNIQUE/FK
+# rules as a second, hand-maintained validation layer in Python (which
+# would just drift out of sync with schema.sql over time), every write
+# route lets Postgres be the single source of truth for those constraints
+# and these handlers translate its errors into the same {'ok': False,
+# 'error': ...} JSON shape every route already returns on the happy-path
+# failure branches (see resource_create/update/delete above).
+# Friendlier text for the unique constraints/indexes a client is actually
+# likely to hit — falls back to the raw constraint name for everything else
+# rather than guessing at a message for one nobody has hit yet.
+_UNIQUE_VIOLATION_MESSAGES = {
+    'integration_catalogue_tenant_id_name_key': 'a catalogue entry with this name already exists',
+    'idx_installed_integrations_tenant_name': 'this integration is already installed',
+    'client_applications_installed_integration_id_key': 'this integration is already registered as a client application',
+    'idx_users_email_unique': 'a user with this email already exists',
+    'idx_data_actions_tenant_name_ci': 'a data action with this name already exists',
+}
+
+
+@app.errorhandler(pg_errors.UniqueViolation)
+def _handle_unique_violation(exc):
+    constraint = exc.diag.constraint_name or ''
+    message = _UNIQUE_VIOLATION_MESSAGES.get(constraint, f'a record with this {constraint or "value"} already exists')
+    return jsonify({'ok': False, 'error': message}), 409
+
+
+@app.errorhandler(pg_errors.ForeignKeyViolation)
+def _handle_fk_violation(exc):
+    return jsonify({'ok': False, 'error': 'referenced record does not exist'}), 400
+
+
+@app.errorhandler(pg_errors.NotNullViolation)
+def _handle_not_null_violation(exc):
+    column = exc.diag.column_name or 'a required field'
+    return jsonify({'ok': False, 'error': f'{column} is required'}), 400
+
+
+@app.errorhandler(psycopg2.DataError)
+def _handle_data_error(exc):
+    return jsonify({'ok': False, 'error': 'invalid field value'}), 400
+
+
+@app.errorhandler(Exception)
+def _handle_unexpected_error(exc):
+    # Real HTTP errors Flask/Werkzeug already knows how to raise (malformed
+    # JSON body, 404 on an unmatched route, 405 on a wrong method, ...) keep
+    # their own status code and message, just re-shaped into the same JSON
+    # envelope every other route already returns — this is a JSON API, it
+    # has no business ever sending an HTML error page back, in dev or prod.
+    if isinstance(exc, HTTPException):
+        return jsonify({'ok': False, 'error': exc.description or exc.name}), exc.code
+    app.logger.exception('unhandled error')
+    return jsonify({'ok': False, 'error': 'internal server error'}), 500
+
+
 app.register_blueprint(interactions_bp)
 app.register_blueprint(acd_bp)
 app.register_blueprint(carrier_bp)
@@ -59,6 +134,9 @@ app.register_blueprint(certs_bp)
 app.register_blueprint(contactlists_bp)
 app.register_blueprint(dataact_bp)
 app.register_blueprint(dnclists_bp)
+app.register_blueprint(catalogue_bp)
+app.register_blueprint(client_apps_bp)
+app.register_blueprint(botconnectors_bp)
 register_auth_guard(app)
 
 
@@ -230,8 +308,27 @@ def index():
             'DELETE /api/contactlists/<id>/contacts/<contact_id>',
             'PATCH  /api/contactlists/<id>/contacts/<contact_id>/dnc',
         ],
+        'bot_connectors': [
+            'GET    /api/bot-connectors  (optional ?q=, ?status=, ?platform=, ?lifecycle=, ?division=)',
+            'GET    /api/bot-connectors/<id>',
+            'POST   /api/bot-connectors',
+            'PUT    /api/bot-connectors/<id>',
+            'DELETE /api/bot-connectors/<id>',
+            'POST   /api/bot-connectors/<id>/connect',
+            'POST   /api/bot-connectors/<id>/disconnect',
+            'POST   /api/bot-connectors/<id>/test',
+            'GET    /api/bot-connectors/intents  (optional ?bot_connector_id=)',
+            'POST   /api/bot-connectors/<id>/intents',
+            'DELETE /api/bot-connectors/intents/<intent_id>',
+            'POST   /api/bot-connectors/match-intent',
+        ],
         'dataact': [
             'GET    /api/dataact  (optional ?integration=, ?division=, ?status=, ?q=)',
+            'GET    /api/dataact/runs  (Run History tab, optional ?limit=)',
+            'GET    /api/dataact/contracts  (optional ?data_action_id=)',
+            'GET    /api/dataact/<id>',
+            'GET    /api/dataact/<id>/contract',
+            'PUT    /api/dataact/<id>/contract',
             'POST   /api/dataact',
             'PUT    /api/dataact/<id>',
             'DELETE /api/dataact/<id>',
@@ -281,6 +378,7 @@ def divisions_collection():
             (code, g.tenant_id, name, data.get('description', ''), bool(data.get('is_home', False))),
         )
         row = cur.fetchone()
+        _log_resource_audit(cur, 'Create division', name)
         conn.commit()
         conn.close()
         return jsonify(dict(row)), 201
@@ -317,6 +415,7 @@ def divisions_item(code):
                 (home['code'], g.tenant_id, code),
             )
         cur.execute('DELETE FROM divisions WHERE code = %s', (code,))
+        _log_resource_audit(cur, 'Delete division', existing['name'])
         conn.commit()
         conn.close()
         return jsonify({'ok': True})
@@ -327,6 +426,7 @@ def divisions_item(code):
         (data.get('name'), data.get('description'), data.get('is_home'), code),
     )
     row = cur.fetchone()
+    _log_resource_audit(cur, 'Edit division', row['name'])
     conn.commit()
     conn.close()
     return jsonify(dict(row))
@@ -345,10 +445,26 @@ def list_licenses():
     return jsonify([dict(r) for r in rows])
 
 
+def _get_subscription_state(cur):
+    """Lazily creates the tenant's subscription_state row on first read —
+    same pattern as org_settings.py's fetch_org_settings()."""
+    cur.execute('SELECT status, autopay FROM subscription_state WHERE tenant_id = %s', (g.tenant_id,))
+    row = cur.fetchone()
+    if row is None:
+        cur.execute(
+            'INSERT INTO subscription_state (tenant_id) VALUES (%s) RETURNING status, autopay',
+            (g.tenant_id,),
+        )
+        row = cur.fetchone()
+    return dict(row)
+
+
 @app.route('/api/subscription/overview')
 def overview():
     conn = get_db()
     cur = conn.cursor()
+    sub_state = _get_subscription_state(cur)
+    conn.commit()
     cur.execute('SELECT * FROM licenses')
     licenses = cur.fetchall()
     cur.execute('SELECT * FROM invoices ORDER BY id DESC LIMIT 3')
@@ -394,6 +510,11 @@ def overview():
 
     at_risk = [c for c in pool if pool[c] > 0 and round(100 * used_map[c] / pool[c]) >= 95]
 
+    # Fixed monthly AI Experience token allotment included with the plan —
+    # there's no separate "buy AI tokens" flow or table (unlike seats, which
+    # really are purchasable via add_seats()/remove_seats() below), so this
+    # is a plan constant, not a query. ai_used (from usage_log) is the only
+    # real per-tenant number here.
     ai_purchased = 182500
     ai_pct = round(100 * ai_used / ai_purchased) if ai_purchased else 0
     ai_remaining = ai_purchased - ai_used
@@ -426,6 +547,8 @@ def overview():
         'aiPurchased': ai_purchased,
         'aiPct': ai_pct,
         'aiRemaining': ai_remaining,
+        'subStatus': sub_state['status'],
+        'autopay': sub_state['autopay'],
     })
 
 
@@ -436,8 +559,8 @@ def plan_change():
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s,%s)',
-        (g.user_name, 'Plan change requested', note, datetime.now()),
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Plan change requested', note, g.tenant_id, datetime.now()),
     )
     conn.commit()
     conn.close()
@@ -446,6 +569,13 @@ def plan_change():
 
 @app.route('/api/subscription/seats', methods=['POST'])
 def add_seats():
+    """The actual purchase action behind Subscription's dummy checkout —
+    the frontend collects fake card details purely for the UI, nothing here
+    validates or charges anything real. A successful buy both raises the
+    real seat pool immediately and writes a real row into `purchases`, so
+    subscription spend shows up in the Purchases history/expense tracker
+    exactly like any other purchase, instead of being a parallel thing the
+    two pages never reconcile."""
     data = request.get_json(force=True) or {}
     lic = data.get('licence')
     qty = int(data.get('qty', 0))
@@ -454,7 +584,13 @@ def add_seats():
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('SELECT purchased FROM licenses WHERE code = %s', (lic,))
+    sub_state = _get_subscription_state(cur)
+    conn.commit()
+    if sub_state['status'] == 'Cancelled':
+        conn.close()
+        return jsonify({'ok': False, 'error': 'Subscription is cancelled — reactivate it before buying seats'}), 409
+
+    cur.execute('SELECT label, purchased, unit_price FROM licenses WHERE code = %s', (lic,))
     existing = cur.fetchone()
     if existing is None:
         conn.close()
@@ -463,13 +599,227 @@ def add_seats():
     cur.execute('UPDATE licenses SET purchased = purchased + %s WHERE code = %s', (qty, lic))
     cur.execute('SELECT purchased FROM licenses WHERE code = %s', (lic,))
     new_total = cur.fetchone()['purchased']
+    cost = round(qty * existing['unit_price'], 2)
     cur.execute(
-        'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s,%s)',
-        (g.user_name, 'Seats requested', f'+{qty} {lic} (pool now {new_total})', datetime.now()),
+        'INSERT INTO purchases (tenant_id, item, category, price, purchased_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.tenant_id, f"{existing['label']} — {qty} seat(s)", 'Licence', cost, datetime.now().isoformat()),
+    )
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Seats purchased', f'+{qty} {lic} for £{cost:.2f} (pool now {new_total})', g.tenant_id, datetime.now()),
     )
     conn.commit()
     conn.close()
-    return jsonify({'ok': True, 'total': new_total})
+    return jsonify({'ok': True, 'total': new_total, 'cost': cost})
+
+
+@app.route('/api/subscription/seats/remove', methods=['POST'])
+def remove_seats():
+    """Symmetric to add_seats() — lets a tenant shed licence seats they no
+    longer need. Blocked from dropping the pool below however many are
+    currently assigned (the same 'active users on this licence' count
+    overview()'s usedMap reports), so a removal can never orphan an
+    assigned agent. Records a credit (negative-price) row in `purchases`,
+    same table add_seats() writes to, so the reduction shows up in spend
+    history/the expense tracker instead of being invisible."""
+    data = request.get_json(force=True) or {}
+    lic = data.get('licence')
+    qty = int(data.get('qty', 0))
+    if not lic or qty <= 0:
+        return jsonify({'ok': False, 'error': 'licence and positive qty required'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT label, purchased, unit_price FROM licenses WHERE code = %s', (lic,))
+    existing = cur.fetchone()
+    if existing is None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'unknown licence code'}), 404
+
+    cur.execute("SELECT COUNT(*) AS n FROM users WHERE license_code = %s AND state = 'Active'", (lic,))
+    assigned = cur.fetchone()['n']
+    free = existing['purchased'] - assigned
+    if qty > free:
+        conn.close()
+        return jsonify({
+            'ok': False,
+            'error': f'Only {free} seat(s) are free to remove — {assigned} of {existing["purchased"]} are currently assigned',
+        }), 409
+
+    cur.execute('UPDATE licenses SET purchased = purchased - %s WHERE code = %s', (qty, lic))
+    credit = round(qty * existing['unit_price'], 2)
+    cur.execute(
+        'INSERT INTO purchases (tenant_id, item, category, price, purchased_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.tenant_id, f"{existing['label']} — {qty} seat(s) removed", 'Licence', -credit, datetime.now().isoformat()),
+    )
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Seats removed', f'-{qty} {lic}, pool now {existing["purchased"] - qty}', g.tenant_id, datetime.now()),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'total': existing['purchased'] - qty, 'credit': credit})
+
+
+@app.route('/api/subscription/cancel', methods=['POST'])
+def cancel_subscription():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO subscription_state (tenant_id, status, updated_at) VALUES (%s, 'Cancelled', now())
+        ON CONFLICT (tenant_id) DO UPDATE SET status = 'Cancelled', updated_at = now()
+        """,
+        (g.tenant_id,),
+    )
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Subscription cancelled', '', g.tenant_id, datetime.now()),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'status': 'Cancelled'})
+
+
+@app.route('/api/subscription/reactivate', methods=['POST'])
+def reactivate_subscription():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO subscription_state (tenant_id, status, updated_at) VALUES (%s, 'Active', now())
+        ON CONFLICT (tenant_id) DO UPDATE SET status = 'Active', updated_at = now()
+        """,
+        (g.tenant_id,),
+    )
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Subscription reactivated', '', g.tenant_id, datetime.now()),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'status': 'Active'})
+
+
+@app.route('/api/subscription/autopay', methods=['POST'])
+def set_autopay():
+    data = request.get_json(force=True) or {}
+    enabled = bool(data.get('enabled'))
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO subscription_state (tenant_id, autopay, updated_at) VALUES (%s, %s, now())
+        ON CONFLICT (tenant_id) DO UPDATE SET autopay = EXCLUDED.autopay, updated_at = now()
+        """,
+        (g.tenant_id, enabled),
+    )
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+        (g.user_name, 'Autopay ' + ('enabled' if enabled else 'disabled'), '', g.tenant_id, datetime.now()),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'autopay': enabled})
+
+
+def _guess_card_brand(number):
+    first = number[0] if number else ''
+    return {'4': 'Visa', '5': 'Mastercard', '3': 'Amex', '6': 'Discover'}.get(first, 'Card')
+
+
+def _validate_card(data):
+    """Returns an error string, or None if every field is acceptable.
+    Frontend runs the same checks first (see subscription-redesign.ts's
+    validateCardInput) so this is the real enforcement point, not the only
+    one — a direct API call bypassing the UI still can't save garbage.
+
+    Deliberately no Luhn checksum: this is a pure demo checkout with no
+    real payment processor behind it, and requiring a checksum-valid
+    number just meant anyone testing with a made-up number kept getting
+    rejected. Length/expiry/CVV shape checks still catch obvious garbage
+    (a 3-digit "card number", an already-expired date) without requiring
+    a genuine card number."""
+    name = (data.get('cardholder_name') or '').strip()
+    number = re.sub(r'\D', '', data.get('card_number') or '')
+    exp_month = data.get('exp_month')
+    exp_year = data.get('exp_year')
+    cvv = re.sub(r'\D', '', str(data.get('cvv') or ''))
+
+    if not name:
+        return 'Cardholder name is required'
+    if not (13 <= len(number) <= 19):
+        return 'Card number must be 13–19 digits'
+    if not isinstance(exp_month, int) or not (1 <= exp_month <= 12):
+        return 'Expiry month must be 1–12'
+    if not isinstance(exp_year, int):
+        return 'Expiry year is required'
+    now = datetime.now()
+    if (exp_year, exp_month) < (now.year, now.month):
+        return 'Card has expired'
+    if not (3 <= len(cvv) <= 4):
+        return 'CVV must be 3 or 4 digits'
+    return None
+
+
+@app.route('/api/subscription/payment-method', methods=['GET', 'PUT', 'DELETE'])
+def payment_method():
+    """The dummy card on file for Subscription's checkout — see
+    payment_methods' schema.sql comment for why only brand/last4/expiry/name
+    are ever stored, never a full card number, even a fake one."""
+    conn = get_db()
+    cur = conn.cursor()
+    if request.method == 'PUT':
+        data = request.get_json(force=True) or {}
+        error = _validate_card(data)
+        if error:
+            conn.close()
+            return jsonify({'ok': False, 'error': error}), 400
+        name = data['cardholder_name'].strip()
+        number = re.sub(r'\D', '', data.get('card_number') or '')
+        exp_month = data['exp_month']
+        exp_year = data['exp_year']
+        brand = _guess_card_brand(number)
+        last4 = number[-4:]
+        cur.execute(
+            """
+            INSERT INTO payment_methods (tenant_id, brand, last4, exp_month, exp_year, cardholder_name, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s, now())
+            ON CONFLICT (tenant_id) DO UPDATE SET
+              brand = EXCLUDED.brand, last4 = EXCLUDED.last4, exp_month = EXCLUDED.exp_month,
+              exp_year = EXCLUDED.exp_year, cardholder_name = EXCLUDED.cardholder_name, updated_at = now()
+            RETURNING brand, last4, exp_month, exp_year, cardholder_name
+            """,
+            (g.tenant_id, brand, last4, exp_month, exp_year, name),
+        )
+        row = cur.fetchone()
+        cur.execute(
+            'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+            (g.user_name, 'Payment method updated', f'{brand} •••• {last4}', g.tenant_id, datetime.now()),
+        )
+        conn.commit()
+        conn.close()
+        return jsonify(dict(row))
+
+    if request.method == 'DELETE':
+        cur.execute('DELETE FROM payment_methods WHERE tenant_id = %s', (g.tenant_id,))
+        deleted = cur.rowcount > 0
+        if deleted:
+            cur.execute(
+                'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s)',
+                (g.user_name, 'Payment method removed', '', g.tenant_id, datetime.now()),
+            )
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+
+    cur.execute(
+        'SELECT brand, last4, exp_month, exp_year, cardholder_name FROM payment_methods WHERE tenant_id = %s',
+        (g.tenant_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return jsonify(dict(row) if row else None)
 
 
 @app.route('/api/subscription/audit', methods=['GET', 'POST'])
@@ -482,8 +832,8 @@ def audit_log():
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
-            'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s,%s) RETURNING *',
-            (g.user_name, action, data.get('detail', ''), datetime.now()),
+            'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s,%s) RETURNING *',
+            (g.user_name, action, data.get('detail', ''), g.tenant_id, datetime.now()),
         )
         row = cur.fetchone()
         conn.commit()
@@ -492,10 +842,47 @@ def audit_log():
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200')
+    # Tenant-scoped: this used to return the newest 200 rows across every
+    # tenant, exposing other tenants' integration installs, data-action names
+    # and bot-connector names to any signed-in user.
+    cur.execute(
+        'SELECT * FROM audit_log WHERE tenant_id = %s ORDER BY id DESC LIMIT 200',
+        (g.tenant_id,),
+    )
     rows = cur.fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/purchases/budget', methods=['GET', 'PUT'])
+def purchases_budget():
+    """One overall monthly spending limit per tenant, for the Purchases
+    page's budget tool — hand-written GET/PUT rather than a resources.py
+    registry entry since it's a single settings row, not a list of
+    entities (same reasoning as /api/subscription/* and /api/org-settings)."""
+    conn = get_db()
+    cur = conn.cursor()
+    if request.method == 'PUT':
+        data = request.get_json(force=True) or {}
+        limit = data.get('monthly_limit')
+        if limit is not None and (not isinstance(limit, (int, float)) or isinstance(limit, bool) or limit < 0):
+            conn.close()
+            return jsonify({'ok': False, 'error': 'monthly_limit must be a non-negative number or null'}), 400
+        cur.execute(
+            """
+            INSERT INTO purchase_budgets (tenant_id, monthly_limit) VALUES (%s, %s)
+            ON CONFLICT (tenant_id) DO UPDATE SET monthly_limit = EXCLUDED.monthly_limit
+            """,
+            (g.tenant_id, limit),
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({'monthly_limit': limit})
+
+    cur.execute('SELECT monthly_limit FROM purchase_budgets WHERE tenant_id = %s', (g.tenant_id,))
+    row = cur.fetchone()
+    conn.close()
+    return jsonify({'monthly_limit': row['monthly_limit'] if row else None})
 
 
 # ---------------------------------------------------------------------------
@@ -579,6 +966,71 @@ def _tenant_scoped(spec):
     return 'tenant_id' in spec['fields']
 
 
+# Friendlier singular labels for resources whose REGISTRY key wouldn't read
+# well in an audit action ("Create simple-entities") — anything not listed
+# here just gets its key title-cased with hyphens turned to spaces.
+_RESOURCE_LABELS = {
+    'people': 'person',
+    'purchases': 'purchase',
+    'simple-entities': 'ACD entity',
+    'did-assignments': 'DID assignment',
+    'wrapup-codes': 'wrap-up code',
+    'eval-forms': 'evaluation form',
+    'byoc-trunks': 'BYOC trunk',
+    'wfm-schedules': 'WFM schedule',
+    'call-routes': 'call route',
+    'extension-pools': 'extension pool',
+    'emergency-groups': 'emergency group',
+    'email-domains': 'email domain',
+    'email-addresses': 'email address',
+    'base-settings': 'base setting',
+    'phone-base-settings': 'phone base setting',
+    'number-plans': 'number plan',
+    'outbound-routes': 'outbound route',
+    'message-channels': 'message channel',
+    'recording-policies': 'recording policy',
+    'schedule-groups': 'schedule group',
+    'planning-groups': 'planning group',
+    'service-goals': 'service goal',
+    'gamification-profiles': 'gamification profile',
+    'installed-integrations': 'installed integration',
+    'integration-credentials': 'integration credential',
+    'work-plans': 'work plan',
+    'activity-codes': 'activity code',
+    'time-off-requests': 'time-off request',
+    'shift-trades': 'shift trade',
+    'calibrations': 'calibration',
+    'bot-connectors': 'bot connector',
+}
+
+# Tried in order for a human-readable identifier to put in the audit detail —
+# the first one present and non-empty on the row wins, else it falls back to
+# the row's id.
+_DISPLAY_NAME_FIELDS = (
+    'name', 'item', 'customer_name', 'from_name', 'phone_number', 'addr',
+    'domain', 'week', 'agent_ref',
+)
+
+
+def _resource_label(resource):
+    return _RESOURCE_LABELS.get(resource, resource.replace('-', ' '))
+
+
+def _resource_display_name(row):
+    for field in _DISPLAY_NAME_FIELDS:
+        value = row.get(field)
+        if value:
+            return value
+    return f"#{row['id']}"
+
+
+def _log_resource_audit(cur, action, detail):
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, action, detail, g.tenant_id),
+    )
+
+
 def _prep_value(col, value, spec):
     """psycopg2 only auto-adapts dict -> jsonb (see db.py); a bare Python
     list adapts to a Postgres ARRAY literal instead, which several TEXT[]
@@ -620,8 +1072,14 @@ def resource_list(resource):
         where.append('tenant_id = %s')
         params.append(g.tenant_id)
 
-    limit = min(int(request.args.get('limit', 100)), 2000)
-    offset = int(request.args.get('offset', 0))
+    # A non-numeric or negative ?limit=/?offset= used to raise straight out of
+    # int() and surface as a generic 500; a malformed query string is the
+    # caller's mistake, so it gets a 400 that says which parameter was wrong.
+    try:
+        limit = min(max(int(request.args.get('limit', 100)), 0), 2000)
+        offset = max(int(request.args.get('offset', 0)), 0)
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'limit and offset must be integers'}), 400
     order = _safe_order(request.args.get('order'), spec)
 
     sql = f"SELECT * FROM {spec['table']}"
@@ -679,6 +1137,7 @@ def resource_create(resource):
     sql = f"INSERT INTO {spec['table']} ({', '.join(cols)}) VALUES ({placeholders}) RETURNING *"
     cur.execute(sql, values)
     new_row = cur.fetchone()
+    _log_resource_audit(cur, f'Create {_resource_label(resource)}', _resource_display_name(dict(new_row)))
     conn.commit()
     conn.close()
     return jsonify(dict(new_row)), 201
@@ -879,17 +1338,19 @@ def resource_update(resource, row_id):
     update_sql += ' RETURNING *'
     cur.execute(update_sql, update_params)
     row = cur.fetchone()
+    _log_resource_audit(cur, f'Edit {_resource_label(resource)}', _resource_display_name(dict(row)))
 
     rename_hits = 0
     if rename_from is not None:
         rename_hits = _propagate_simple_entity(cur, g.tenant_id, rename_kind, rename_from, row['name'])
         if rename_hits:
             cur.execute(
-                'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
+                'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
                 (
                     g.user_name,
                     f'{rename_kind.capitalize()} rename propagated',
                     f'{rename_from} → {row["name"]} ({rename_hits} reference(s))',
+                    g.tenant_id,
                 ),
             )
 
@@ -909,15 +1370,17 @@ def resource_delete(resource, row_id):
 
     conn = get_db()
     cur = conn.cursor()
-    check_sql = f"SELECT id FROM {spec['table']} WHERE id = %s"
+    check_sql = f"SELECT * FROM {spec['table']} WHERE id = %s"
     check_params = [row_id]
     if _tenant_scoped(spec):
         check_sql += ' AND tenant_id = %s'
         check_params.append(g.tenant_id)
     cur.execute(check_sql, check_params)
-    if cur.fetchone() is None:
+    existing_row = cur.fetchone()
+    if existing_row is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
+    _log_resource_audit(cur, f'Delete {_resource_label(resource)}', _resource_display_name(dict(existing_row)))
 
     # Read the skill/language name before the row goes away — the cascade
     # below needs it (see the rename cascade in resource_update for why the
@@ -955,11 +1418,12 @@ def resource_delete(resource, row_id):
         delete_hits = _propagate_simple_entity(cur, g.tenant_id, removed['kind'], removed['name'], None)
         if delete_hits:
             cur.execute(
-                'INSERT INTO audit_log (who, action, detail, created_at) VALUES (%s,%s,%s, now())',
+                'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
                 (
                     g.user_name,
                     f"{removed['kind'].capitalize()} delete propagated",
                     f"{removed['name']} removed ({delete_hits} reference(s))",
+                    g.tenant_id,
                 ),
             )
 

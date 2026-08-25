@@ -17,6 +17,11 @@ import { CONTACTLISTS_SCRIPT } from "../mcm/contactlists-redesign";
 import { DATAACT_SCRIPT } from "../mcm/dataact-redesign";
 import { DNCLISTS_SCRIPT } from "../mcm/dnclists-redesign";
 import { SUBSCRIPTION_SCRIPT } from "../mcm/subscription-redesign";
+import { INTEGRATIONS_THEME_SCRIPT } from "../mcm/integrations-theme";
+import { INTEGRATIONS_RESPONSIVE_SCRIPT } from "../mcm/integrations-responsive";
+import { RESPONSIVE_NAV_SCRIPT } from "../mcm/responsive-nav";
+import { NOTIFICATIONS_SCRIPT } from "../mcm/notifications-redesign";
+import { SESSION_GUARD_SCRIPT } from "../mcm/session-guard";
 import { bridgeGlobalToast } from "../lib/global-toast";
 import { OrganizationSettingsPage } from "../features/org-settings/OrganizationSettingsPage";
 import { PurchasesPage } from "../features/purchases/PurchasesPage";
@@ -39,7 +44,6 @@ import { CALIBRATIONS_SCRIPT } from "../mcm/calibrations-redesign";
 import { ForecastsPage } from "../features/quality/ForecastsPage";
 import { FORECASTS_SCRIPT } from "../mcm/forecasts-redesign";
 import { CUSTOM_PAGES_ROUTER_SCRIPT } from "../mcm/custom-pages-router";
-import { SESSION_GUARD_SCRIPT } from "../mcm/session-guard";
 import { API_BASE } from "../features/shared/backend";
 
 const DEPLOYED_API_BASE = "https://genesis-yysv.onrender.com";
@@ -58,6 +62,7 @@ function withApiBase(script: string): string {
 
 declare global {
   interface Window {
+    __GENESIS_API_BASE?: string;
     __showOrgSettings?: () => void;
     __hideOrgSettings?: () => void;
     __showPurchases?: () => void;
@@ -132,7 +137,17 @@ function mountLegacyReactPage(containerId: string, element: ReactNode) {
     if (cnt) cnt.style.display = "none";
     if (!container) return;
     container.style.display = "";
-    if (!root) root = createRoot(container);
+    if (!root) {
+      root = createRoot(container);
+    } else {
+      // The page never actually unmounts between visits (it's toggled with
+      // display:none, not removed), so useQuery's own refetch-on-mount only
+      // ever fires once. Without this, a page whose data changed elsewhere
+      // — e.g. Purchases, populated by the Subscription buy flow rather than
+      // anything on this page itself — keeps showing whatever it first
+      // fetched, forever, until a full page reload.
+      queryClient.invalidateQueries();
+    }
     root.render(<QueryClientProvider client={queryClient}>{element}</QueryClientProvider>);
   };
 
@@ -152,6 +167,22 @@ function McmCloudCx() {
   useEffect(() => {
     if (ranRef.current) return;
     ranRef.current = true;
+
+    // The legacy scripts below (MCM_SCRIPT, BACKEND_SYNC_SCRIPT,
+    // AUTHORG_SCRIPT, DIRECTORY_SCRIPT) run as classic <script> tags, not ES
+    // modules — `import.meta.env` is a syntax error in that context, so
+    // they can't read VITE_API_BASE directly the way features/shared/
+    // backend.ts's real ES-module code does. This bridges the same
+    // environment-configured value onto a global they can read instead,
+    // so no legacy script ever hardcodes an API host.
+    //
+    // Default (when VITE_API_BASE is unset) is this app's real production
+    // backend, matching features/shared/backend.ts's default — never
+    // localhost. This is what every legacy Integrations/Data Actions/Bot
+    // Connectors call ultimately falls back to via backend-sync.ts's
+    // SUBS_API_BASE, authorg-redesign.ts and directory-redesign.ts's own
+    // API_BASE vars, all of which chain through window.__GENESIS_API_BASE.
+    window.__GENESIS_API_BASE = import.meta.env["VITE_API_BASE"] || "https://genesis-yysv.onrender.com";
 
     const orgSettings = mountLegacyReactPage("orgsetRoot", <OrganizationSettingsPage />);
     window.__showOrgSettings = orgSettings.show;
@@ -231,14 +262,20 @@ function McmCloudCx() {
     customPagesRouterScript.textContent = CUSTOM_PAGES_ROUTER_SCRIPT;
     document.body.appendChild(customPagesRouterScript);
 
-    // Validates a restored token on boot and clears the session on any
-    // later 401, rather than leaving the UI silently wedged with a dead
-    // token. Must run after MCM_SCRIPT (reads window.SUBS_API_BASE /
-    // window.__authToken, which MCM_SCRIPT sets up). See mcm/session-guard.ts.
-    const sessionGuardScript = document.createElement("script");
-    sessionGuardScript.type = "text/javascript";
-    sessionGuardScript.textContent = SESSION_GUARD_SCRIPT;
-    document.body.appendChild(sessionGuardScript);
+    // Adds the mobile hamburger toggle for #anav — no API calls, no
+    // dependency on MCM_SCRIPT having run first, safe to inject anywhere.
+    const responsiveNavScript = document.createElement("script");
+    responsiveNavScript.type = "text/javascript";
+    responsiveNavScript.textContent = RESPONSIVE_NAV_SCRIPT;
+    document.body.appendChild(responsiveNavScript);
+
+    // Points the notifications bell at real audit_log data instead of the
+    // legacy in-memory-only DB.audit list — no dependency on MCM_SCRIPT
+    // having run first (retries internally), safe to inject anywhere.
+    const notificationsScript = document.createElement("script");
+    notificationsScript.type = "text/javascript";
+    notificationsScript.textContent = NOTIFICATIONS_SCRIPT;
+    document.body.appendChild(notificationsScript);
 
     // Runs after MCM_SCRIPT so window.SNAP already exists — it patches in
     // window.SNAP.authorg (the Authorized Organizations page content) the
@@ -345,6 +382,38 @@ function McmCloudCx() {
     forecastsScript.type = "text/javascript";
     forecastsScript.textContent = FORECASTS_SCRIPT;
     document.body.appendChild(forecastsScript);
+
+    // Must be appended LAST: it wraps window.openPage, so every other
+    // module's own openPage wrapper has to already be installed for the
+    // chain to stay intact. Purely presentational — it only stamps a
+    // data attribute on <body> so the Integrations enterprise styles in
+    // mcm.css can scope themselves. See mcm/integrations-theme.ts.
+    const integrationsThemeScript = document.createElement("script");
+    integrationsThemeScript.type = "text/javascript";
+    integrationsThemeScript.textContent = INTEGRATIONS_THEME_SCRIPT;
+    document.body.appendChild(integrationsThemeScript);
+
+    // After integrationsThemeScript, so its openPage wrapper (which sets
+    // data-mcm-section) has already run by the time this one's wrapper
+    // checks it. Purely additive DOM affordances — a mobile filter-collapse
+    // toggle, a table-wrapper scroll shadow, a refresh-chip spin — layered
+    // on top of the same markup those render functions already produce, no
+    // fetch/onclick/business logic touched. See mcm/integrations-responsive.ts.
+    const integrationsResponsiveScript = document.createElement("script");
+    integrationsResponsiveScript.type = "text/javascript";
+    integrationsResponsiveScript.textContent = INTEGRATIONS_RESPONSIVE_SCRIPT;
+    document.body.appendChild(integrationsResponsiveScript);
+
+    // After MCM_SCRIPT, so the session it restores from localStorage exists
+    // to be checked, and after every module that issues API calls, so the
+    // fetch wrapper it installs sees all of them. Validates a restored token
+    // against the backend once on boot and ends the session on any later
+    // 401, instead of leaving a rejected token in place while the UI still
+    // looks signed in. See mcm/session-guard.ts.
+    const sessionGuardScript = document.createElement("script");
+    sessionGuardScript.type = "text/javascript";
+    sessionGuardScript.textContent = SESSION_GUARD_SCRIPT;
+    document.body.appendChild(sessionGuardScript);
 
     // Re-assert the toast bridge (see lib/global-toast.tsx) now that
     // MCM_SCRIPT has run and defined its own window.toast — this call is

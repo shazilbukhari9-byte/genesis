@@ -40,21 +40,27 @@ export function bridgeGlobalToast() {
     const text = String(message ?? "");
     const kind = type ?? inferToastKind(text);
     const content = <ToastMessage html={text} />;
+    // toastId keyed on the message text: react-toastify no-ops a toast()
+    // call whose id is already showing, instead of stacking a duplicate.
+    // Without this, retrying the same failing action (e.g. Save Card with
+    // the same invalid input) piled up an identical toast on top of the
+    // last one every click, since each call was otherwise a fresh toast.
+    const options = { toastId: text };
     switch (kind) {
       case "success":
-        toastify.success(content);
+        toastify.success(content, options);
         break;
       case "error":
-        toastify.error(content);
+        toastify.error(content, options);
         break;
       case "warning":
-        toastify.warn(content);
+        toastify.warn(content, options);
         break;
       case "info":
-        toastify.info(content);
+        toastify.info(content, options);
         break;
       default:
-        toastify(content);
+        toastify(content, options);
     }
   };
 }
