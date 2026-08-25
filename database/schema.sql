@@ -659,6 +659,28 @@ CREATE TABLE IF NOT EXISTS eval_forms (
   groups JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
+-- Admin > Quality & WEM > Evaluation Forms — "Perform Evaluation": one row
+-- per scored interaction. answers is keyed by question id (JSONB), matching
+-- eval_forms.groups[].questions[].id at scoring time. form_id/interaction_id/
+-- agent_id/evaluator_id are all ON DELETE SET NULL rather than CASCADE — a
+-- later-deleted form, interaction or user shouldn't erase historical scoring
+-- records, only the row's forwarding reference to it.
+CREATE TABLE IF NOT EXISTS evals (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  form_id INTEGER REFERENCES eval_forms(id) ON DELETE SET NULL,
+  interaction_id UUID REFERENCES interactions(id) ON DELETE SET NULL,
+  agent_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  evaluator_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  pct INTEGER NOT NULL DEFAULT 0,
+  critical_fail BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_evals_tenant_created ON evals(tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_evals_form ON evals(form_id);
+
 -- Admin > Contact Center > Recording Policies. queues stores the local
 -- queue ids as plain text, not a real FK — same simplification as Call
 -- Routes' flow reference (see resources.py's call-routes comment).
@@ -1528,10 +1550,20 @@ CREATE TABLE IF NOT EXISTS calibrations (
   name TEXT NOT NULL,
   form_ref TEXT,
   interaction_ref TEXT,
+  division TEXT NOT NULL DEFAULT '',    -- '' = not division-scoped, else d_home/d_ret/d_dig/d_col/d_man
   status TEXT NOT NULL DEFAULT 'In Progress',
   evaluators JSONB NOT NULL DEFAULT '[]'::jsonb,
-  notes TEXT
+  notes TEXT,
+  due_date DATE,
+  hide_scores_until_complete BOOLEAN NOT NULL DEFAULT true,
+  include_agent_self_assessment BOOLEAN NOT NULL DEFAULT false,
+  notify_evaluators_by_email BOOLEAN NOT NULL DEFAULT true
 );
+ALTER TABLE calibrations ADD COLUMN IF NOT EXISTS division TEXT NOT NULL DEFAULT '';
+ALTER TABLE calibrations ADD COLUMN IF NOT EXISTS due_date DATE;
+ALTER TABLE calibrations ADD COLUMN IF NOT EXISTS hide_scores_until_complete BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE calibrations ADD COLUMN IF NOT EXISTS include_agent_self_assessment BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE calibrations ADD COLUMN IF NOT EXISTS notify_evaluators_by_email BOOLEAN NOT NULL DEFAULT true;
 
 -- ============================================================
 -- Admin > Integrations > Bot Connectors — same story as Calibrations: no
@@ -1829,3 +1861,63 @@ CREATE TABLE IF NOT EXISTS dnc_numbers (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dnc_numbers_list_phone ON dnc_numbers(list_id, phone);
 CREATE INDEX IF NOT EXISTS idx_dnc_numbers_tenant_phone ON dnc_numbers(tenant_id, phone);
+
+-- ============================================================
+-- Integrations Phase 1 — real Salesforce OAuth connection (see
+-- backend/salesforce_oauth.py / backend/salesforce_client.py). Backs the
+-- Installed tab's Connect/Disconnect/Test Connection controls on the
+-- Salesforce CTI row, and dataact.py's real execution branch for the
+-- CRM_Lookup_Customer data action. Deliberately two NEW tables rather than
+-- any change to installed_integrations/integration_credentials/
+-- data_actions/data_action_runs — none of those needed a schema change.
+-- ============================================================
+
+-- One row per installed Salesforce connection's OAuth tokens. Tokens are
+-- Fernet-encrypted before storage (see salesforce_oauth.py's _encrypt/
+-- _decrypt) — this table never holds a plaintext access/refresh token,
+-- unlike sso_providers.client_secret above, which the schema comment on
+-- that table already admits is a prototype shortcut not to be repeated.
+-- 1:1 with installed_integrations via the UNIQUE constraint — reconnecting
+-- updates the existing row rather than accumulating history.
+CREATE TABLE IF NOT EXISTS salesforce_connections (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  installed_integration_id INTEGER NOT NULL REFERENCES installed_integrations(id) ON DELETE CASCADE,
+  access_token_encrypted TEXT,
+  refresh_token_encrypted TEXT,
+  instance_url TEXT,
+  token_type TEXT,
+  scope TEXT,
+  expires_at TIMESTAMPTZ,
+  -- Not Connected | Connecting | Connected | Authentication Failed |
+  -- Token Expired | Disconnected — set only by salesforce_oauth.py's route
+  -- handlers, never client-writable (this table has no resources.py
+  -- registry entry, so it isn't reachable through the generic CRUD routes).
+  connection_status TEXT NOT NULL DEFAULT 'Not Connected',
+  last_error TEXT NOT NULL DEFAULT '',
+  connected_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (installed_integration_id)
+);
+CREATE INDEX IF NOT EXISTS idx_salesforce_connections_tenant ON salesforce_connections(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_salesforce_connections_touch ON salesforce_connections;
+CREATE TRIGGER trg_salesforce_connections_touch BEFORE UPDATE ON salesforce_connections
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- Short-lived OAuth CSRF state, mirroring sso_states above exactly (same
+-- single-use-then-delete pattern). redirect_uri is the Genesis frontend
+-- page to bounce back to once the callback finishes — Salesforce's
+-- redirect lands on this backend with no bearer token attached, so tenant/
+-- integration identity for the callback comes from this row, never from
+-- client-supplied input.
+CREATE TABLE IF NOT EXISTS salesforce_oauth_states (
+  state TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  installed_integration_id INTEGER NOT NULL REFERENCES installed_integrations(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id),
+  redirect_uri TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL
+);

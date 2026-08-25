@@ -27,12 +27,40 @@ guard) — never a client-supplied value, same convention as certs.py/canned.py.
 
 import re
 import secrets
+import time
 
-from flask import Blueprint, jsonify, request, g
+from flask import Blueprint, jsonify, request, g, current_app
 
 from db import get_db
+import salesforce_client as sf
+import salesforce_oauth as sfo
 
 dataact_bp = Blueprint('dataact', __name__, url_prefix='/api/dataact')
+
+# Integrations Phase 1: the one Data Action that genuinely calls out to
+# Salesforce instead of being simulated. Every other action (including the
+# other Salesforce-tagged seed row, CRM_Create_Case) is untouched — scoping
+# the real path to this one name, rather than to every action with
+# integration == 'Salesforce', keeps the blast radius of Phase 1 exactly
+# where the brief asked for it: one Data Action, not one integration's
+# worth of every action.
+#
+# Matched by (name, integration), not by data_actions.id: id is a TEXT
+# PRIMARY KEY with no tenant_id in it (schema.sql) — it's globally unique
+# across every tenant, not per-tenant — so matching a hardcoded id would
+# only ever fire for whichever one tenant happens to own that exact row
+# (the seed data's 'da-crm-lookup-customer', owned by the demo tenant).
+# Matching by name+integration instead lets any tenant's own
+# 'CRM_Lookup_Customer' action use the real path once *their* Salesforce
+# connection exists, which is what "one integration, working end to end"
+# has to mean in a multi-tenant system.
+SALESFORCE_REAL_ACTION_NAME = 'CRM_Lookup_Customer'
+SALESFORCE_REAL_ACTION_INTEGRATION = 'Salesforce'
+# Matches INTEGRATION_CATALOGUE's seeded Salesforce row name (init_db.py) —
+# how this module finds *which* installed_integrations row (and therefore
+# which salesforce_connections row) backs a Salesforce data action, since
+# data_actions.integration is a free-text label, not a foreign key.
+SALESFORCE_INSTALLED_INTEGRATION_NAME = 'Salesforce CTI'
 
 WRITABLE_FIELDS = ('name', 'integration', 'method', 'endpoint', 'contract', 'division')
 
@@ -133,6 +161,143 @@ def _simulate_test(endpoint, method):
     if base > 900:
         return base, 'Slow', ''
     return base, 'Published', ''
+
+
+# ---------------------------------------------------------------------------
+# Integrations Phase 1 — the one real (non-simulated) execution path.
+# Everything below is only reached for a CRM_Lookup_Customer / Salesforce
+# action, and only when a Connected salesforce_connections row exists for
+# this tenant;
+# test_action() falls back to _simulate_test for every other action, and
+# for this one too whenever Salesforce isn't connected.
+# ---------------------------------------------------------------------------
+
+def _soql_escape(value):
+    """Minimal SOQL string-literal escaping (backslash and single-quote —
+    SOQL's own escaping rules) for a value interpolated into a WHERE
+    clause. There is no parameterised-query API for SOQL text queries the
+    way psycopg2 has one for SQL, so this is the equivalent guard."""
+    return str(value or '').replace('\\', '\\\\').replace("'", "\\'")
+
+
+def _validate_contract(cur, action_id, direction, data):
+    """Checks `data` against this action's persisted data_action_contracts
+    rows for the given direction ('input' or 'output') — every required
+    field must be present and non-empty. Returns None when it passes, or a
+    short human-readable reason when it doesn't; the caller treats any
+    non-None return as a hard failure, never a silently-accepted success.
+    Deliberately only checks presence/non-emptiness, not field_type
+    coercion — data_action_contracts' field_type is a free-text label
+    (e.g. 'string', 'accountId') the contract parser infers from the
+    freeform contract text, not a real type system to validate against."""
+    cur.execute(
+        "SELECT field_name FROM data_action_contracts "
+        "WHERE data_action_id = %s AND tenant_id = %s AND direction = %s ORDER BY position",
+        (action_id, g.tenant_id, direction),
+    )
+    required = [row['field_name'] for row in cur.fetchall()]
+    missing = [name for name in required if data.get(name) in (None, '')]
+    if missing:
+        return f"missing required {direction} field(s): {', '.join(missing)}"
+    return None
+
+
+def _find_salesforce_installed_integration_id(cur):
+    """Which installed_integrations row this tenant's Salesforce connection
+    lives under — data_actions.integration is a free-text label ('Salesforce'),
+    not a foreign key, so this resolves it by the catalogue's known seeded
+    name. Phase 1 supports one Salesforce connection per tenant; a future
+    phase mapping multiple named Salesforce orgs to different data actions
+    would need a real column here instead of this lookup."""
+    cur.execute(
+        "SELECT id FROM installed_integrations WHERE tenant_id = %s AND name = %s",
+        (g.tenant_id, SALESFORCE_INSTALLED_INTEGRATION_NAME),
+    )
+    row = cur.fetchone()
+    return row['id'] if row else None
+
+
+def _execute_salesforce_customer_lookup(cur, action, payload):
+    """CRM_Lookup_Customer, mapped to a real Salesforce SOQL query against
+    the standard Contact/Account objects (no invented custom fields):
+    SELECT Id, Name, AccountId, Account.Type FROM Contact WHERE Phone = ...
+    'tier' in the seeded contract ('ani -> tier, name, accountId') is
+    satisfied by Account.Type, the closest stock field to a customer tier
+    — documented Phase 1 simplification, not a real Salesforce concept.
+
+    Returns (latency_ms, status, error, output) — status/error match
+    _simulate_test's contract exactly ('Published'/'Failing' + a short
+    error string) so test_action()'s surrounding transaction/Run-History/
+    audit-log code needs no changes; `output` is the parsed customer dict
+    (or None on any failure) for the caller to return to the frontend."""
+    input_error = _validate_contract(cur, action['id'], 'input', payload)
+    if input_error:
+        return None, 'Failing', f'Contract validation failed: {input_error}', None
+
+    installed_integration_id = _find_salesforce_installed_integration_id(cur)
+    if installed_integration_id is None:
+        return None, 'Failing', 'Salesforce is not installed for this tenant.', None
+
+    ani = (payload.get('ani') or '').strip()
+    started = time.monotonic()
+    try:
+        instance_url, access_token = sfo.get_valid_access_token(cur, g.tenant_id, installed_integration_id)
+        soql = (
+            "SELECT Id, Name, AccountId, Account.Type FROM Contact "
+            f"WHERE Phone = '{_soql_escape(ani)}' LIMIT 1"
+        )
+        result = sf.soql_query(instance_url, access_token, soql)
+    except sfo.SalesforceNotConnectedError:
+        return None, 'Failing', 'Salesforce is not connected. Connect it from the Installed tab.', None
+    except sfo.SalesforceConfigError as e:
+        current_app.logger.warning('Salesforce data action blocked by missing config: %s', e)
+        return None, 'Failing', 'Salesforce integration is not configured on this server.', None
+    except sf.SalesforceAuthError as e:
+        current_app.logger.warning('Salesforce auth error on %s: %s', action['id'], e)
+        return None, 'Failing', f'Salesforce authentication failed: {e}', None
+    except sf.SalesforceForbiddenError as e:
+        return None, 'Failing', f'Salesforce denied access: {e}', None
+    except sf.SalesforceNotFoundError as e:
+        return None, 'Failing', f'Salesforce resource not found: {e}', None
+    except sf.SalesforceRateLimitError as e:
+        current_app.logger.warning('Salesforce rate limit hit on %s: %s', action['id'], e)
+        return None, 'Failing', 'Salesforce API limit reached — try again shortly.', None
+    except sf.SalesforceServerError as e:
+        current_app.logger.warning('Salesforce server error on %s: %s', action['id'], e)
+        return None, 'Failing', f'Salesforce server error: {e}', None
+    except sf.SalesforceTimeoutError:
+        current_app.logger.warning('Salesforce request timed out on %s', action['id'])
+        return None, 'Failing', 'Request to Salesforce timed out.', None
+    except sf.SalesforceNetworkError as e:
+        current_app.logger.warning('Salesforce network error on %s: %s', action['id'], e)
+        return None, 'Failing', 'Could not reach Salesforce.', None
+    except sf.SalesforceResponseError as e:
+        current_app.logger.warning('Salesforce returned an unparseable response on %s: %s', action['id'], e)
+        return None, 'Failing', 'Salesforce returned an unexpected response.', None
+    except Exception:  # noqa: BLE001 — last-resort net; never leak the raw exception to the caller
+        current_app.logger.exception('Unexpected error executing %s against Salesforce', action['id'])
+        return None, 'Failing', 'Unexpected error while calling Salesforce.', None
+
+    latency = int((time.monotonic() - started) * 1000)
+
+    records = result.get('records') or []
+    if not records:
+        return latency, 'Failing', 'No Salesforce contact found for this phone number.', None
+
+    record = records[0]
+    account = record.get('Account') or {}
+    output = {
+        'name': record.get('Name'),
+        'accountId': record.get('AccountId'),
+        'tier': account.get('Type'),
+    }
+
+    output_error = _validate_contract(cur, action['id'], 'output', output)
+    if output_error:
+        current_app.logger.warning('Salesforce response failed contract validation on %s: %s', action['id'], output_error)
+        return latency, 'Failing', f'Contract validation failed: {output_error}', None
+
+    return latency, 'Published', '', output
 
 
 _CONTRACT_SELECT = """
@@ -445,7 +610,33 @@ def test_action(action_id):
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
 
-    latency, status, error = _simulate_test(existing['endpoint'], existing['method'])
+    # Integrations Phase 1: this one action always genuinely calls
+    # Salesforce — never simulated, and never falls back to simulation just
+    # because Salesforce isn't installed/connected yet.
+    # _execute_salesforce_customer_lookup() itself returns a real, controlled
+    # 'Failing' result (not installed / not connected / auth failed / ...)
+    # in every one of those cases, so routing here unconditionally for this
+    # one name+integration is what actually satisfies "never return fake
+    # business results" — the previous version additionally required
+    # _find_salesforce_installed_integration_id(cur) is not None before even
+    # attempting the real path, which meant an action named
+    # CRM_Lookup_Customer with integration Salesforce silently fell back to
+    # _simulate_test's fake 'Published' result whenever Salesforce had never
+    # been installed at all, exactly the "fake success instead of a
+    # configuration error" this cleanup exists to eliminate. Every other
+    # action (including the other Salesforce-tagged seed row,
+    # CRM_Create_Case) still keeps using _simulate_test exactly as before —
+    # see SALESFORCE_REAL_ACTION_NAME's comment above.
+    output = None
+    is_real_action = (
+        existing['name'] == SALESFORCE_REAL_ACTION_NAME
+        and existing['integration'] == SALESFORCE_REAL_ACTION_INTEGRATION
+    )
+    if is_real_action:
+        latency, status, error, output = _execute_salesforce_customer_lookup(cur, existing, payload)
+    else:
+        latency, status, error = _simulate_test(existing['endpoint'], existing['method'])
+
     cur.execute(
         """
         UPDATE data_actions SET avg_latency_ms = %s, status = %s, last_error = %s, last_tested_at = now()
@@ -464,6 +655,8 @@ def test_action(action_id):
     )
     conn.commit()
     conn.close()
+    if output is not None:
+        return jsonify({**dict(row), 'run': dict(run), 'output': output})
     # The run row is returned too, so a caller can prove the execution was
     # persisted without a second round-trip to Run History.
     return jsonify({**dict(row), 'run': dict(run)})

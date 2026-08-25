@@ -51,17 +51,41 @@ export const NOTIFICATIONS_SCRIPT: string = `
       '<div style="padding:10px 16px;font-size:12px;color:#8794a8">Could not load notifications.</div>';
   }
 
+  // Repeated firings of the same alert rule (e.g. "Agent away too long"
+  // re-triggering every couple of minutes) used to list as a separate row
+  // each time, flooding the panel with near-duplicates. Rows arrive
+  // newest-first, so the first row seen for a given action is the latest
+  // occurrence -- collapse every later duplicate into it as a count
+  // instead of a repeated row.
+  function groupRows(rows) {
+    var order = [];
+    var byAction = {};
+    rows.forEach(function(a) {
+      var key = a.action;
+      var g = byAction[key];
+      if (!g) {
+        g = { action: a.action, detail: a.detail, created_at: a.created_at, who: a.who, count: 1 };
+        byAction[key] = g;
+        order.push(g);
+      } else {
+        g.count++;
+      }
+    });
+    return order;
+  }
+
   function renderRows(nf, rows) {
-    var items = rows.slice(0, 8);
+    var items = groupRows(rows).slice(0, 8);
     nf.innerHTML = '<div style="padding:8px 16px 6px;font-size:11px;font-weight:700;color:#6b7a90;text-transform:uppercase;letter-spacing:.5px">Notifications</div>' +
       (items.length
         ? items.map(function(a) {
             return '<div style="padding:7px 16px;font-size:12px;border-bottom:1px solid #f2f5f9;line-height:1.5"><b>' + escHtml(a.action) + '</b>' +
+              (a.count > 1 ? ' <span style="display:inline-block;background:#eef1f7;color:#5a6a80;border-radius:9px;padding:0 7px;font-size:10.5px;font-weight:700;vertical-align:1px">\\u00d7' + a.count + '</span>' : '') +
               (a.detail ? ' \\u2014 ' + escHtml(a.detail) : '') +
-              '<br><span style="color:#8794a8;font-size:11px">' + escHtml(fmtWhen(a.created_at)) + ' \\u00b7 ' + escHtml(a.who) + '</span></div>';
+              '<br><span style="color:#8794a8;font-size:11px">' + escHtml(fmtWhen(a.created_at)) + ' \\u00b7 ' + escHtml(a.who) + (a.count > 1 ? ' \\u00b7 latest of ' + a.count : '') + '</span></div>';
           }).join('')
         : '<div style="padding:10px 16px;font-size:12px;color:#8794a8">No notifications</div>') +
-      '<div class="ddi" style="' + ITEM_STYLE + 'color:#c9401a" onclick="window.dd(\'notifddm\');window.openPage(\'auditlog\')">Open full audit log</div>';
+      '<div class="ddi" style="' + ITEM_STYLE + 'color:#c9401a" onclick="window.dd(\\'notifddm\\');window.openPage(\\'auditlog\\')">Open full audit log</div>';
   }
 
   function wrapNotifOpen() {

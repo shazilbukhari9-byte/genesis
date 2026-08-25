@@ -1,9 +1,21 @@
 """
-One-time schema + demo-data setup, run at import time (see app.py). The
-Render Postgres instance starts empty — nothing here has ever run schema.sql
-against it — so every query 500s until tables exist. schema.sql is all
-CREATE TABLE IF NOT EXISTS / idempotent DDL, and the seed step below only
-inserts when `users` is empty, so this is safe to run on every boot.
+Schema setup + a small set of reference/definition data, run at import time
+(see app.py). The Render Postgres instance starts empty — nothing here has
+ever run schema.sql against it — so every query 500s until tables exist.
+schema.sql is all CREATE TABLE IF NOT EXISTS / idempotent DDL, safe to run
+on every boot regardless of what's already there.
+
+The inserts below are a mix of two different things, not one uniform "seed
+step": some (roles, divisions, licenses, users, ...) are guarded by a
+COUNT-empty check and only ever run once, on a genuinely fresh database;
+others (integration_catalogue, canned_responses, certificates, contact
+lists, ...) are static reference/definition data — the kind of thing a real
+deployment ships with, like a product catalogue — and insert unconditionally
+with ON CONFLICT DO NOTHING every boot, which is fine precisely because they
+are definitions, not per-tenant business records: no Data Action, no Bot
+Connector, no installed integration, no credential, and no run-history row
+is ever created here. Every one of those starts genuinely empty and is only
+ever populated by a real, explicit user action through the app's own API.
 """
 
 import os
@@ -11,10 +23,6 @@ import re
 from datetime import datetime
 from werkzeug.security import generate_password_hash
 from db import get_db
-# parse_contract only — a pure string->fields function with no request
-# context, reused here so seeded contracts are derived by exactly the same
-# rule the API uses rather than a second copy that could drift.
-import dataact
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), '..', 'database', 'schema.sql')
 
@@ -270,34 +278,6 @@ CONTACT_LISTS = [
     ),
 ]
 
-# Matches frontend/src/mcm/dataact-redesign.ts's DATA_ACTIONS_FALLBACK exactly
-# — the same 9 data actions the page's static prototype HTML used to hardcode
-# (id, name, integration, method, endpoint, contract, division, avg_latency_ms,
-# status, last_error). Legacy_Balance_Lookup keeps its seeded 'Failing' state
-# until someone runs Test Action on it (which recomputes deterministically —
-# see backend/dataact.py's _simulate_test — and would keep it Failing anyway
-# since its endpoint contains 'legacy').
-DATA_ACTIONS = [
-    ('da-crm-lookup-customer', 'CRM_Lookup_Customer', 'Salesforce', 'GET', '/services/data/v60.0/query',
-     'ani → tier, name, accountId', 'd_home', 410, 'Published', ''),
-    ('da-crm-create-case', 'CRM_Create_Case', 'Salesforce', 'POST', '/services/data/v60.0/sobjects/Case',
-     'subject, desc → caseId', 'd_home', 620, 'Published', ''),
-    ('da-verify-account-pin', 'Verify_Account_PIN', 'Web Services', 'POST', 'https://api.mcmgroup.example/verify',
-     'accountId, pin → valid', 'd_col', 180, 'Published', ''),
-    ('da-get-invoice-balance', 'Get_Invoice_Balance', 'Web Services', 'GET', 'https://api.mcmgroup.example/billing/{id}',
-     'accountId → balance, dueDate', 'd_col', 240, 'Published', ''),
-    ('da-snow-open-incident', 'SNOW_Open_Incident', 'ServiceNow', 'POST', '/api/now/table/incident',
-     'short_desc → number', 'd_dig', 780, 'Published', ''),
-    ('da-snow-get-incident', 'SNOW_Get_Incident', 'ServiceNow', 'GET', '/api/now/table/incident',
-     'number → state, assignee', 'd_dig', 350, 'Published', ''),
-    ('da-post-callback-request', 'Post_Callback_Request', 'Web Services', 'POST', 'https://api.mcmgroup.example/callback',
-     'number, window → ref', 'd_ret', 200, 'Published', ''),
-    ('da-get-delivery-status', 'Get_Delivery_Status', 'Web Services', 'GET', 'https://api.mcmgroup.example/track',
-     'orderId → status, eta', 'd_ret', 1240, 'Slow', ''),
-    ('da-legacy-balance-lookup', 'Legacy_Balance_Lookup', 'Web Services', 'GET', 'https://legacy.mcm.local/bal',
-     'accountId → balance', 'd_man', None, 'Failing', 'Connection refused (503)'),
-]
-
 # Matches frontend/src/mcm/dnclists-redesign.ts's DNC_LISTS_FALLBACK exactly
 # — the single 'UK-Internal-DNC' list (2 numbers) scripts.ts's ensureOB()
 # used to seed DB.dncLists in-memory on first page load.
@@ -485,37 +465,13 @@ def run():
                 (contact_id, tenant_id, list_id, contact),
             )
 
-    for da_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error in DATA_ACTIONS:
-        cur.execute(
-            """
-            INSERT INTO data_actions (id, tenant_id, name, integration, method, endpoint, contract, division,
-                                       avg_latency_ms, status, last_error)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT (id) DO NOTHING
-            """,
-            (da_id, tenant_id, name, integration, method, endpoint, contract, division, avg_latency_ms, status, last_error),
-        )
-
-    # Structured contract rows for the Contracts tab. Not seed *content* —
-    # every field here is parsed out of the action's own contract string
-    # above by the same backend parser the API uses, so this only
-    # materialises what data_actions.contract already says. Runs on every
-    # boot (cheap, and idempotent via the ON CONFLICT) so actions created
-    # before data_action_contracts existed get backfilled too.
-    cur.execute('SELECT id, contract FROM data_actions WHERE tenant_id = %s', (tenant_id,))
-    for action in cur.fetchall():
-        for field in dataact.parse_contract(action['contract']):
-            cur.execute(
-                """
-                INSERT INTO data_action_contracts
-                    (tenant_id, data_action_id, direction, field_name, field_type, position)
-                VALUES (%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (data_action_id, direction, field_name) DO UPDATE
-                    SET field_type = EXCLUDED.field_type, position = EXCLUDED.position
-                """,
-                (tenant_id, action['id'], field['direction'], field['field_name'],
-                 field['field_type'], field['position']),
-            )
+    # Integrations Phase 2 cleanup: no Data Actions are seeded here. They,
+    # like installed_integrations/integration_credentials/bot_connectors/
+    # data_action_runs, only ever come from a real, explicit user action
+    # through dataact.py's own API (create_action() already derives
+    # data_action_contracts from the contract string via
+    # _sync_contract_fields() at creation time, so there is nothing left for
+    # a boot-time backfill here to do).
 
     for dnc_id, name, numbers in DNC_LISTS:
         cur.execute(

@@ -48,7 +48,7 @@ export function GroupsPage() {
     <>
       <div className="phd">
         <div className="bc">
-          <a onClick={goToAdminIndex}>Admin</a> › Directory
+          <a onClick={goToAdminIndex}>Admin</a> › People &amp; Permissions
         </div>
         <div className="tt">
           <h1>Groups</h1>

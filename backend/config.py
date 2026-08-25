@@ -98,3 +98,18 @@ SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
 SMTP_USER = os.environ.get('SMTP_USER')
 SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD')
 ALERT_EMAIL_FROM = os.environ.get('ALERT_EMAIL_FROM')
+
+# --- Salesforce integration (Integrations Phase 1), optional — same
+# pattern as Telnyx/SMTP above: salesforce_oauth.py checks these before
+# any connect/refresh/API call and never fails fast at import, so the app
+# (and every other Integrations tab) keeps working with no Salesforce
+# Connected App configured at all. See backend/.env.example for how to
+# get real values, and SALESFORCE_INTEGRATION.md for the full flow.
+SALESFORCE_CLIENT_ID = os.environ.get('OG_SALESFORCE_CLIENT_ID')
+SALESFORCE_CLIENT_SECRET = os.environ.get('OG_SALESFORCE_CLIENT_SECRET')
+SALESFORCE_LOGIN_BASE_URL = os.environ.get('OG_SALESFORCE_LOGIN_BASE_URL', 'https://login.salesforce.com')
+# Fernet key (Fernet.generate_key()) used to encrypt/decrypt stored
+# Salesforce access/refresh tokens at rest — see salesforce_oauth.py's
+# _encrypt/_decrypt. Not Salesforce-specific by name, so a future Phase 2
+# integration can reuse the same key rather than needing its own.
+INTEGRATION_ENCRYPTION_KEY = os.environ.get('OG_INTEGRATION_ENCRYPTION_KEY')
