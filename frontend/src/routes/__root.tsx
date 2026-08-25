@@ -8,7 +8,7 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ToastContainer, type ToastPosition } from "react-toastify";
+import { ToastContainer, toast as toastify, type Id } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 import appCss from "../styles.css?url";
@@ -117,33 +117,48 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
-// react-toastify's top-right layout goes full-bleed (width:100vw, flush
-// against the top edge) below its own 480px breakpoint, which is where it
-// collided with the MCM app shell's fixed top bar (see styles.css) — and
-// even once that overlap was fixed, a wordy legacy alert message (this
-// app's simulated Alert Rules produce long ones) still ate a large chunk
-// of a phone's limited vertical space, worse each time another one
-// stacked on top. Anchoring at the bottom on mobile keeps every toast
-// clear of both the header AND the page content people are looking at,
-// which is where iOS/Android's own system notifications and most mobile
-// apps' toasts live for exactly this reason.
-function useIsNarrowViewport(breakpointPx: number): boolean {
-  const [isNarrow, setIsNarrow] = useState(false);
+// react-toastify's `stacked` mode renders each toast as a card in a single
+// deck — newest on top, older ones collapsed behind it showing only a thin
+// sliver of edge (see .Toastify__toast--stacked rules in styles.css) —
+// rather than piling full-height toasts one under another. That's what
+// "overlapping based on time" and "swipe to dismiss and see next" need:
+// dismissing (click, autoClose, or the built-in swipe from `draggable`)
+// the top card animates the next one into place, so N alerts can never
+// add up to N toast-heights of screen the way plain stacking did.
+function useActiveToastCount(): number {
+  const [count, setCount] = useState(0);
   useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${breakpointPx}px)`);
-    setIsNarrow(mql.matches);
-    const onChange = (e: MediaQueryListEvent) => setIsNarrow(e.matches);
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, [breakpointPx]);
-  return isNarrow;
+    const activeIds = new Set<Id>();
+    const unsubscribe = toastify.onChange((item) => {
+      if (item.status === "added") activeIds.add(item.id);
+      else if (item.status === "removed") activeIds.delete(item.id);
+      setCount(activeIds.size);
+    });
+    return unsubscribe;
+  }, []);
+  return count;
+}
+
+// "Clear all" is not a built-in react-toastify control — toast.dismiss()
+// with no id dismisses every active toast, so this just needs a button
+// that shows once there's more than one to clear.
+function ClearAllToasts() {
+  const count = useActiveToastCount();
+  if (count < 2) return null;
+  return (
+    <button
+      type="button"
+      className="mcm-toast-clear-all"
+      onClick={() => toastify.dismiss()}
+    >
+      Clear all ({count})
+    </button>
+  );
 }
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const bridgedRef = useRef(false);
-  const isMobile = useIsNarrowViewport(480);
-  const toastPosition: ToastPosition = isMobile ? "bottom-center" : "top-right";
 
   useEffect(() => {
     if (bridgedRef.current) return;
@@ -159,7 +174,8 @@ function RootComponent() {
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
       <ToastContainer
-        position={toastPosition}
+        position="top-right"
+        stacked
         autoClose={3000}
         hideProgressBar={false}
         newestOnTop
@@ -168,14 +184,12 @@ function RootComponent() {
         draggable
         theme="light"
         toastClassName="mcm-toast"
-        // Caps how many toasts can be on screen at once — without this, a
-        // burst of this app's simulated alerts (queue backlog, agent-away,
-        // ...) firing close together stacks indefinitely and, at mobile
-        // toast widths/heights, can genuinely cover the whole viewport.
-        // Older ones queue and appear as newer ones clear instead of all
-        // piling up together.
-        limit={isMobile ? 2 : 4}
+        // Bounds how many toasts can exist at once — the stacked deck itself
+        // keeps the screen clear regardless of count, this is just a backstop
+        // against an unbounded pile-up if alerts fire faster than autoClose.
+        limit={8}
       />
+      <ClearAllToasts />
     </QueryClientProvider>
   );
 }
