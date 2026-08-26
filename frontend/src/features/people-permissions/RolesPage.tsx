@@ -180,6 +180,11 @@ function RoleDrawer({
     }));
   }
 
+  const allPerms = Object.entries(PERMISSION_DOMAINS).flatMap(([domain, actions]) => actions.map((a) => `${domain}:${a}`));
+  function setAllPerms(on: boolean) {
+    setDraft((d) => ({ ...d, perms: on ? [...allPerms] : [] }));
+  }
+
   function validate(): string[] {
     const errs: string[] = [];
     const name = draft.name.trim();
@@ -248,19 +253,26 @@ function RoleDrawer({
             <input value={draft.desc} onChange={(e) => setDraft((d) => ({ ...d, desc: e.target.value }))} />
           </div>
 
-          <div className="sect">Permissions (domain : entity : action)</div>
+          <div className="sect-row">
+            <div className="sect">Permissions (domain : entity : action)</div>
+            <span style={{ fontSize: 11.5, color: "#8794a8" }}>
+              {draft.perms.length} / {allPerms.length} selected
+            </span>
+            <div className="permseg lg">
+              <button type="button" onClick={() => setAllPerms(true)}>Select all</button>
+              <button type="button" onClick={() => setAllPerms(false)}>Clear all</button>
+            </div>
+          </div>
           {Object.entries(PERMISSION_DOMAINS).map(([domain, actions]) => {
             const domainPerms = actions.map((a) => `${domain}:${a}`);
             return (
               <div key={domain} style={{ marginBottom: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="perm-domain-hd">
                   <b style={{ fontSize: 12, color: "#152550" }}>{domain}</b>
-                  <span className="lnk" style={{ fontSize: 11, cursor: "pointer" }} onClick={() => setAll(domain, true)}>
-                    all
-                  </span>
-                  <span className="lnk" style={{ fontSize: 11, cursor: "pointer" }} onClick={() => setAll(domain, false)}>
-                    none
-                  </span>
+                  <div className="permseg">
+                    <button type="button" onClick={() => setAll(domain, true)}>All</button>
+                    <button type="button" onClick={() => setAll(domain, false)}>None</button>
+                  </div>
                 </div>
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 4 }}>
                   {actions.map((action) => {

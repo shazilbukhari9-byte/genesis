@@ -60,6 +60,8 @@ export interface DirectoryData {
   groups: Group[];
   skills: SimpleEntity[];
   langs: SimpleEntity[];
+  titles: SimpleEntity[];
+  depts: SimpleEntity[];
   licenses: Record<string, number>;
 }
 
