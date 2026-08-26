@@ -157,15 +157,15 @@
 /* react-toastify's mobile breakpoint puts top-* containers flush at
    top:0, directly under the MCM app shell's fixed top bar (#top, 48px —
    see frontend/src/mcm/mcm.css). Offsetting below it keeps the (top)
-   stacked deck from starting underneath the header. */
+   stacked deck from starting underneath the header. This is the ONLY
+   normal position -- a single toast gets no extra headroom, so it never
+   leaves a dead gap of empty space above it (see the [data-toast-multi]
+   override below for the one case that does need room reserved). */
 @media (max-width: 480px) {
   .Toastify__toast-container.Toastify__toast-container--top-left,
   .Toastify__toast-container.Toastify__toast-container--top-center,
   .Toastify__toast-container.Toastify__toast-container--top-right {
-    /* 56px clears the app header; the extra 36px below that reserves room
-       for the "Clear all" pill so it never sits underneath the top toast
-       card (see .mcm-toast-clear-all's own mobile override below). */
-    top: 92px;
+    top: 56px;
   }
 
   /* This app's legacy Alert Rules produce genuinely long messages ("Agent
@@ -188,14 +188,25 @@
    react-toastify's own stylesheet never gives the collapsed cards' `:before`
    "peek" pseudo-element a background/border/shadow of its own -- it's
    transparent by default, so a collapsed card sitting behind the top one is
-   visually indistinguishable from empty page background, which is exactly
-   why "is there another notification?" wasn't answerable at a glance. Give
-   it a real card face so the peek is actually visible. Reserve extra room
-   above the deck (via --toastify-toast-offset) for the "Clear all" pill so
-   it renders ABOVE the stack instead of underneath the top toast, where its
-   lower z-index made it invisible. */
+   visually indistinguishable from empty page background. Give it a real
+   card face so the peek is actually visible -- this is the primary "is
+   there another one" signal; the count pill below is the explicit backup. */
 .Toastify__toast-container[data-stacked='true'] {
   --toastify-toast-width: 320px;
+}
+@media (max-width: 480px) {
+  .Toastify__toast-container[data-stacked='true'] {
+    --toastify-toast-width: calc(100vw - 24px);
+    left: 12px !important;
+    right: 12px !important;
+    width: calc(100vw - 24px) !important;
+  }
+}
+/* Only reserve headroom for the "Clear all" pill once there's a second
+   toast for it to describe (useToastMultiFlag, __root.tsx, flags this on
+   <html> instead of unconditionally, which used to leave a permanent empty
+   gap above every single toast even when nothing occupied it). */
+html[data-toast-multi] .Toastify__toast-container[data-stacked='true'] {
   /* react-toastify bakes its var(--toastify-toast-offset) substitution into
      --toastify-toast-top's INHERITED computed value at :root, so overriding
      --toastify-toast-offset down here has no effect on `top` -- set `top`
@@ -203,12 +214,8 @@
   top: 44px;
 }
 @media (max-width: 480px) {
-  .Toastify__toast-container[data-stacked='true'] {
-    --toastify-toast-width: calc(100vw - 24px);
+  html[data-toast-multi] .Toastify__toast-container[data-stacked='true'] {
     top: 92px;
-    left: 12px !important;
-    right: 12px !important;
-    width: calc(100vw - 24px) !important;
   }
 }
 .mcm-toast.Toastify__toast {
@@ -223,14 +230,19 @@
 
 /* Floating "Clear all" pill (ClearAllToasts, __root.tsx) -- shown once 2+
    toasts are active, since a single toast is already easy to dismiss on
-   its own. Sits in the space reserved above the deck (see the stacked
-   container's `top` override above) so it's always visible, never
-   covered by the top toast card. */
+   its own. Names the count outright ("3 notifications") rather than
+   leaving "how many are there" to the stacked deck's peeking edges alone.
+   Sits in the space reserved above the deck (see the [data-toast-multi]
+   `top` override above) so it's always visible, never covered by the top
+   toast card. */
 .mcm-toast-clear-all {
   position: fixed;
   top: 8px;
   right: 16px;
   z-index: 9998;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   border: none;
   border-radius: 999px;
   background: #152550;
@@ -257,8 +269,25 @@
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
   font-size: 13px;
-  padding: 10px 14px;
+  padding: 10px 14px 10px 12px;
   min-height: 0;
+  /* A flat white card with only a hairline progress bar at the bottom read
+     as unfinished/plain -- a colored left accent (keyed to the same
+     success/error/warning/info tokens as the progress bar below) gives the
+     card a visible identity at a glance, not just on hover/after reading. */
+  border-left: 4px solid var(--toastify-color-info);
+}
+.mcm-toast.Toastify__toast--success {
+  border-left-color: var(--toastify-color-success);
+}
+.mcm-toast.Toastify__toast--error {
+  border-left-color: var(--toastify-color-error);
+}
+.mcm-toast.Toastify__toast--warning {
+  border-left-color: var(--toastify-color-warning);
+}
+.mcm-toast.Toastify__toast--default {
+  border-left-color: #ff4f1f;
 }
 .mcm-toast .Toastify__toast-body {
   padding: 2px 4px;
