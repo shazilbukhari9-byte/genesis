@@ -134,8 +134,15 @@ export const SUBSCRIPTION_SCRIPT: string = `
     plus: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>',
     minus: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><line x1="5" y1="12" x2="19" y2="12"></line></svg>',
     creditCard: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>',
-    x: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
+    x: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>',
+    arrowRight: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>'
   };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
 
   var TIER_ICON_BY_CLASS = { cx1: ICONS.phone, cx2: ICONS.chat, cx3: ICONS.barChart, cx4: ICONS.cpu, add: ICONS.folder };
 
@@ -294,6 +301,111 @@ export const SUBSCRIPTION_SCRIPT: string = `
     pbody.insertBefore(el, pbody.firstChild);
   }
 
+  /* The Overview tab isn't actually a summary — window.renderSubsFx builds
+     each section's full detail markup (Licence Pools cards, the usage
+     chart, the invoices table, the AI Tokens panel) exactly once and
+     reuses those same HTML blocks verbatim in both Overview and each
+     section's own dedicated tab. So Overview was literally all four detail
+     pages stacked on one screen, on top of its own banner/KPI/alert
+     summary — not a condensed view of them.
+     This replaces those four full-detail blocks (Overview only — the
+     dedicated Licences/Usage/Invoices/AI Tokens tabs keep the original
+     full markup untouched) with one row of compact cards built from the
+     same window.SUBS_LAST_OVERVIEW data renderSubsFx itself just used,
+     each of which jumps to its full tab on click via the existing tab
+     button's own onclick (no new navigation logic — just simulates the
+     same click a user would make). */
+  function condenseOverviewTab() {
+    var pane = document.querySelector(".subs-tabpane[data-tab='overview']");
+    var overview = window.SUBS_LAST_OVERVIEW;
+    if (!pane || !overview || !overview.pool) return;
+
+    var pool = overview.pool || {};
+    var usedMap = overview.usedMap || {};
+    var totalPurchased = Object.keys(pool).reduce(function(a, l) { return a + pool[l]; }, 0);
+    var totalUsed = Object.keys(pool).reduce(function(a, l) { return a + (usedMap[l] || 0); }, 0);
+    var atRiskCount = (overview.atRisk || []).length;
+    var usageTotal = Math.round(overview.usageTotal || 0);
+    var inv = overview.inv || [];
+    var latestInv = inv[0];
+    var aiUsed = overview.aiUsed || 0, aiPurchased = overview.aiPurchased || 0,
+        aiRemaining = overview.aiRemaining || 0, aiPct = overview.aiPct || 0;
+
+    var cards = [
+      {
+        title: 'Licence Pool',
+        big: '\\u00a3' + (overview.totalSeats || 0).toLocaleString(),
+        sub: totalUsed + ' / ' + totalPurchased + ' seats assigned' + (atRiskCount > 0 ? ' \\u00b7 ' + atRiskCount + ' at capacity' : ''),
+        tone: atRiskCount > 0 ? 'err' : 'ok',
+        tabIndex: 1
+      },
+      {
+        title: 'Usage-Based Charges',
+        big: '\\u00a3' + usageTotal.toLocaleString(),
+        sub: 'Voice \\u00b7 messaging \\u00b7 storage \\u00b7 AI this period',
+        tone: '',
+        tabIndex: 2
+      },
+      {
+        title: 'Invoices',
+        big: latestInv ? '\\u00a3' + latestInv.tot.toLocaleString() : '\\u2014',
+        sub: latestInv ? esc(latestInv.lbl) + ' \\u00b7 ' + esc(latestInv.status) : 'No invoices yet',
+        tone: latestInv && latestInv.status !== 'Paid' ? 'warn' : 'ok',
+        tabIndex: 3
+      },
+      {
+        title: 'AI Experience Tokens',
+        big: aiPct + '%',
+        sub: aiUsed.toLocaleString() + ' used \\u00b7 ' + aiRemaining.toLocaleString() + ' of ' + aiPurchased.toLocaleString() + ' remaining',
+        tone: aiPct >= 70 ? 'warn' : 'ok',
+        tabIndex: 4
+      }
+    ];
+
+    var linksHtml = '<div class="subs-ov-links">' + cards.map(function(c) {
+      return '<div class="subs-ov-card' + (c.tone ? ' t-' + c.tone : '') + '" data-tabidx="' + c.tabIndex + '" tabindex="0" role="button">' +
+        '<span class="ov-title">' + esc(c.title) + '</span>' +
+        '<b class="ov-big">' + c.big + '</b>' +
+        '<span class="ov-sub">' + c.sub + '</span>' +
+        '<span class="ov-link">View details ' + ICONS.arrowRight + '</span>' +
+        '</div>';
+    }).join('') + '</div>';
+
+    // Remove the four full-detail sections (each is a ".subs-sec" heading
+    // followed by its one content sibling) — identified by heading text
+    // rather than position, since alertHtml is conditionally empty and
+    // would otherwise shift indices.
+    var sectionTitles = ['Licence Pools', 'Usage-Based Charges', 'Invoices', 'AI Experience Tokens'];
+    var anchor = null;
+    pane.querySelectorAll('.subs-sec').forEach(function(heading) {
+      if (sectionTitles.indexOf(heading.textContent) === -1) return;
+      if (!anchor) anchor = heading;
+      var content = heading.nextElementSibling;
+      heading.remove();
+      if (content) content.remove();
+    });
+
+    var linksEl = document.createElement('div');
+    linksEl.innerHTML = linksHtml;
+    var linksNode = linksEl.firstChild;
+    if (anchor && anchor.parentElement === pane) {
+      pane.insertBefore(linksNode, anchor);
+    } else {
+      pane.appendChild(linksNode);
+    }
+
+    pane.querySelectorAll('.subs-ov-card').forEach(function(card) {
+      card.onclick = function() {
+        var tabs = document.querySelectorAll('.tabs .tb');
+        var btn = tabs[parseInt(card.getAttribute('data-tabidx'), 10)];
+        if (btn) btn.click();
+      };
+      card.onkeydown = function(e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.onclick(); }
+      };
+    });
+  }
+
   /* Placeholder dataset shaped exactly like SubsAPI.getOverview()'s real
      resolved value (same field names renderSubsFx destructures) — used
      only when the real call fails validation or times out, so the page
@@ -387,6 +499,7 @@ export const SUBSCRIPTION_SCRIPT: string = `
         ensureRemoveSeatsButtons();
         ensureManageCardsButton();
         renderSubStatusBanner();
+        condenseOverviewTab();
         return result;
       } catch (e) {
         // Last-resort net: even with getOverview() now always resolving,
