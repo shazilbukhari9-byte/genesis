@@ -32,6 +32,15 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS ext TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email) WHERE email IS NOT NULL;
 
+-- Real invite flow (People & Permissions' "Create & invite"/"Send invite" --
+-- previously just set state='Pending invite' with no email, no password, and
+-- no way for the invited person to ever complete the loop). A token here is
+-- exchanged via POST /api/auth/accept-invite for a password + Active state,
+-- same shape as the sessions table's token+expiry pattern.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_token TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_expires_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_invite_token_unique ON users(invite_token) WHERE invite_token IS NOT NULL;
+
 -- People page (People & Permissions): role assignment, ACD skill
 -- proficiency, and spoken languages. roles stores roles.id values as a
 -- plain integer array (no FK — Postgres can't FK into an array column

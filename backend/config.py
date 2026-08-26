@@ -99,6 +99,10 @@ SMTP_USER = os.environ.get('SMTP_USER')
 SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD')
 ALERT_EMAIL_FROM = os.environ.get('ALERT_EMAIL_FROM')
 
+# Where accept-invite links point -- same default-to-prod-then-override
+# pattern as CORS_ORIGINS above.
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://genesis-eta-six.vercel.app')
+
 # --- Salesforce integration (Integrations Phase 1), optional — same
 # pattern as Telnyx/SMTP above: salesforce_oauth.py checks these before
 # any connect/refresh/API call and never fails fast at import, so the app

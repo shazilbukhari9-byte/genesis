@@ -16,7 +16,7 @@ from carrier import carrier_bp
 from flow import flow_bp
 from analytics import analytics_bp, CATALOG as REPORT_CATALOG
 from org_settings import org_settings_bp
-from auth import auth_bp, register_auth_guard
+from auth import auth_bp, register_auth_guard, send_people_invite
 from platform_config import platform_config_bp
 from telephony import telephony_bp
 from alerts import alerts_bp
@@ -1216,8 +1216,18 @@ def resource_create(resource):
     new_row = cur.fetchone()
     _log_resource_audit(cur, f'Create {_resource_label(resource)}', _resource_display_name(dict(new_row)))
     conn.commit()
+
+    # The real enforcement point behind "Create & invite" -- previously this
+    # only ever wrote the state string, no email, no password, no way for
+    # the invited person to ever get in (see send_people_invite in auth.py).
+    resp = dict(new_row)
+    if resource == 'people' and new_row.get('state') == 'Pending invite':
+        invite_token, invite_expires_at = send_people_invite(new_row['id'], new_row['name'], new_row['email'], cur, conn)
+        resp['invite_token'] = invite_token
+        resp['invite_expires_at'] = invite_expires_at.isoformat()
+
     conn.close()
-    return jsonify(dict(new_row)), 201
+    return jsonify(resp), 201
 
 
 def _propagate_skill_in_flows(cur, tenant_id, old_name, new_name):
@@ -1474,8 +1484,18 @@ def resource_update(resource, row_id):
             )
 
     conn.commit()
-    conn.close()
+
+    # Same enforcement point as resource_create above -- this is what makes
+    # the existing "Send invite" button (which just re-PUTs state='Pending
+    # invite') actually do something: every click generates a fresh token
+    # and re-sends, invalidating whatever link was sent before.
     resp = dict(row)
+    if resource == 'people' and 'state' in cols and data.get('state') == 'Pending invite':
+        invite_token, invite_expires_at = send_people_invite(row['id'], row['name'], row['email'], cur, conn)
+        resp['invite_token'] = invite_token
+        resp['invite_expires_at'] = invite_expires_at.isoformat()
+
+    conn.close()
     if rename_from is not None:
         resp['_propagatedHits'] = rename_hits
     return jsonify(resp)

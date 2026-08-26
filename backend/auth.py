@@ -15,9 +15,12 @@ from flask import Blueprint, jsonify, request, g
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from db import get_db
+from mailer import mail_configured, send_email
 import config
 
 auth_bp = Blueprint('auth', __name__)
+
+INVITE_TTL_DAYS = 7
 
 TOKEN_TTL_HOURS = config.TOKEN_TTL_HOURS
 
@@ -32,6 +35,11 @@ PUBLIC_PATHS = (
     # SSO — user hasn't authenticated yet, that's the whole point
     '/api/auth/sso/begin', '/api/auth/sso/callback',
     '/api/auth/sso/providers', '/api/auth/sso/check-domain',
+    # Invite acceptance — same reasoning: the invited person has no bearer
+    # token yet, that's the whole point of the flow. Both are POST-with-
+    # token-in-body (not a dynamic /invite/<token> URL segment), so they
+    # fit this exact-match allow-list without needing prefix matching.
+    '/api/auth/invite-info', '/api/auth/accept-invite',
     # OAuth token endpoint — client authenticates with its own credentials
     '/api/oauth/token', '/api/oauth/revoke',
     # Salesforce OAuth callback (Integrations Phase 1) — Salesforce
@@ -178,6 +186,119 @@ def signup():
         'expires_at': expires_at.isoformat(),
         'user': {'id': user['id'], 'name': user['name'], 'email': user['email'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
     }), 201
+
+
+def send_people_invite(user_id, name, email, cur, conn):
+    """The real enforcement point behind People & Permissions' "Create &
+    invite" / "Send invite" (backend/app.py's resource_create/resource_update
+    call this whenever a people write sets state='Pending invite') --
+    previously that just wrote the status string with no token, no email, and
+    no way for the invited person to ever actually get in. Generates a fresh
+    token (invalidating any previous one, so re-clicking "Send invite" is
+    always safe -- only the latest link works) and emails it if SMTP is
+    configured; if not, the token is still stored so an admin can hand-
+    deliver the accept-invite link manually and the flow still completes.
+
+    Returns (token, expires_at) so the caller can patch the API response it
+    already built from the pre-invite row -- that row was fetched via
+    RETURNING * before this function ran, so without this it would report
+    invite_token as still null even though it's genuinely set moments later."""
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=INVITE_TTL_DAYS)
+    cur.execute(
+        'UPDATE users SET invite_token = %s, invite_expires_at = %s WHERE id = %s',
+        (token, expires_at, user_id),
+    )
+    conn.commit()
+
+    if email and mail_configured():
+        link = f'{config.FRONTEND_URL}/accept-invite?token={token}'
+        body = (
+            f'Hi {name},\n\n'
+            f'You have been invited to MCM Cloud CX. Set up your password to activate your account:\n\n'
+            f'{link}\n\n'
+            f'This link expires in {INVITE_TTL_DAYS} days.'
+        )
+        try:
+            send_email(email, 'You are invited to MCM Cloud CX', body)
+        except Exception:
+            pass
+
+    return token, expires_at
+
+
+@auth_bp.route('/api/auth/invite-info', methods=['POST'])
+def invite_info():
+    """Looks up an invite token without requiring auth (the invited person
+    doesn't have a bearer token yet) -- lets the accept-invite page greet the
+    right person and confirm the link is still valid before showing the
+    password form."""
+    data = request.get_json(force=True) or {}
+    token = data.get('token')
+    if not token:
+        return jsonify({'ok': False, 'error': 'token required'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT name, email, invite_expires_at FROM users WHERE invite_token = %s', (token,))
+    user = cur.fetchone()
+    conn.close()
+    if user is None:
+        return jsonify({'ok': False, 'error': 'invalid or already-used invite link'}), 404
+    if user['invite_expires_at'] is None or user['invite_expires_at'] < datetime.now(timezone.utc):
+        return jsonify({'ok': False, 'error': 'this invite link has expired'}), 410
+
+    return jsonify({'ok': True, 'name': user['name'], 'email': user['email']})
+
+
+@auth_bp.route('/api/auth/accept-invite', methods=['POST'])
+def accept_invite():
+    """Exchanges a valid invite token for a password + Active state, then
+    signs the person in immediately (same response shape as login()/signup()
+    above) -- this is the step that never existed before, which is why an
+    invited person could never actually get into their own account."""
+    data = request.get_json(force=True) or {}
+    token = data.get('token')
+    password = data.get('password')
+    if not token or not password:
+        return jsonify({'ok': False, 'error': 'token and password are required'}), 400
+    if len(password) < 8:
+        return jsonify({'ok': False, 'error': 'password must be at least 8 characters'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        'SELECT id, name, email, presence, tenant_id, invite_expires_at FROM users WHERE invite_token = %s',
+        (token,),
+    )
+    user = cur.fetchone()
+    if user is None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'invalid or already-used invite link'}), 404
+    if user['invite_expires_at'] is None or user['invite_expires_at'] < datetime.now(timezone.utc):
+        conn.close()
+        return jsonify({'ok': False, 'error': 'this invite link has expired'}), 410
+
+    cur.execute(
+        "UPDATE users SET password_hash = %s, state = 'Active', invite_token = NULL, invite_expires_at = NULL WHERE id = %s",
+        (generate_password_hash(password), user['id']),
+    )
+
+    session_token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=TOKEN_TTL_HOURS)
+    cur.execute(
+        'INSERT INTO sessions (token, user_id, expires_at) VALUES (%s, %s, %s)',
+        (session_token, user['id'], expires_at),
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'ok': True,
+        'token': session_token,
+        'expires_at': expires_at.isoformat(),
+        'user': {'id': user['id'], 'name': user['name'], 'email': user['email'], 'presence': user['presence'], 'tenant_id': user['tenant_id']},
+    })
 
 
 @auth_bp.route('/api/auth/me')

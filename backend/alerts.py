@@ -8,34 +8,26 @@ the wiring: it persists the alert into the real audit_log table and
 emails each notified user via SMTP.
 
 SMTP_* env vars are optional (config.py leaves them unset by default) —
-_configured() is checked before ever sending, so an alert still logs to
+mail_configured() is checked before ever sending, so an alert still logs to
 audit_log with no email account configured, just without the email step.
+The actual SMTP plumbing lives in mailer.py, shared with auth.py's invite
+emails.
 """
 
-import smtplib
-from email.message import EmailMessage
 from flask import Blueprint, jsonify, request, g
 
 from db import get_db
-import config
+from mailer import mail_configured, send_email
 
 alerts_bp = Blueprint('alerts', __name__)
 
 
 def _configured():
-    return bool(config.SMTP_HOST and config.SMTP_USER and config.SMTP_PASSWORD and config.ALERT_EMAIL_FROM)
+    return mail_configured()
 
 
 def _send_email(to_addr, subject, body):
-    msg = EmailMessage()
-    msg['Subject'] = subject
-    msg['From'] = config.ALERT_EMAIL_FROM
-    msg['To'] = to_addr
-    msg.set_content(body)
-    with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT) as server:
-        server.starttls()
-        server.login(config.SMTP_USER, config.SMTP_PASSWORD)
-        server.send_message(msg)
+    return send_email(to_addr, subject, body)
 
 
 @alerts_bp.route('/api/alerts/status')
