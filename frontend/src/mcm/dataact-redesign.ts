@@ -500,7 +500,7 @@ export const DATAACT_SCRIPT: string = `
     }).then(function(result) {
       if (btn) { btn.disabled = false; btn.textContent = 'Run action'; }
       out.innerHTML = '<pre style="background:#152550;color:#b8f5d0;border-radius:8px;padding:12px;font-size:12px">' +
-        escapeHtml(JSON.stringify({ action: a ? a.name : sel.value, status: result.status, avgLatencyMs: result.avgLatencyMs, lastError: result.lastError || undefined }, null, 2)) + '</pre>';
+        escapeHtml(JSON.stringify({ action: a ? a.name : sel.value, status: result.status, avgLatencyMs: result.avgLatencyMs, lastError: result.lastError || undefined, output: result.output || undefined }, null, 2)) + '</pre>';
     }).catch(function(err) {
       if (btn) { btn.disabled = false; btn.textContent = 'Run action'; }
       out.innerHTML = '<div style="color:#b3261e;font-size:12.5px">\\u2717 ' + escapeHtml((err && err.message) || 'Test failed \\u2014 please try again') + '</div>';
