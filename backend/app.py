@@ -1036,27 +1036,39 @@ def _log_resource_audit(cur, action, detail):
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
 
-def _validate_people_email(cur, tenant_id, email, exclude_row_id=None):
-    """Returns an error string, or None if the email is acceptable.
+def _people_duplicate_exists(cur, tenant_id, column, value, exclude_row_id=None):
+    sql = f'SELECT id FROM users WHERE tenant_id = %s AND lower({column}) = lower(%s)'
+    params = [tenant_id, value]
+    if exclude_row_id is not None:
+        sql += ' AND id != %s'
+        params.append(exclude_row_id)
+    cur.execute(sql, params)
+    return cur.fetchone() is not None
+
+
+def _validate_people_fields(cur, tenant_id, name, email, exclude_row_id=None):
+    """Returns an error string, or None if name/email are both acceptable.
     Frontend runs the same format + duplicate checks first (PeoplePage.tsx's
     validate()) so this is the real enforcement point, not the only one --
     the generic resource_create/resource_update routes below have no
     per-field validation at all otherwise, so a bulk CSV import (which
     posts straight to /api/people per row with no client-side check of its
     own) or any other direct API call could save an unparseable "email"
-    like a bare username, or silently collide with an existing person's
-    address."""
-    email = (email or '').strip()
-    if not _EMAIL_RE.match(email):
-        return 'A valid email address is required'
-    dup_sql = 'SELECT id FROM users WHERE tenant_id = %s AND lower(email) = lower(%s)'
-    dup_params = [tenant_id, email]
-    if exclude_row_id is not None:
-        dup_sql += ' AND id != %s'
-        dup_params.append(exclude_row_id)
-    cur.execute(dup_sql, dup_params)
-    if cur.fetchone() is not None:
-        return f'Email {email} is already in use'
+    like a bare username, or a name/email that collides with an existing
+    person's, whether or not that field is even being changed in this
+    request (name is checked only when supplied, same as email)."""
+    if name is not None:
+        name = name.strip()
+        if len(name) < 2:
+            return 'Full name is required'
+        if _people_duplicate_exists(cur, tenant_id, 'name', name, exclude_row_id):
+            return f'Name "{name}" is already used by another person'
+    if email is not None:
+        email = (email or '').strip()
+        if not _EMAIL_RE.match(email):
+            return 'A valid email address is required'
+        if _people_duplicate_exists(cur, tenant_id, 'email', email, exclude_row_id):
+            return f'Email {email} is already in use'
     return None
 
 
@@ -1158,8 +1170,8 @@ def resource_create(resource):
     conn = get_db()
     cur = conn.cursor()
 
-    if resource == 'people' and 'email' in cols:
-        error = _validate_people_email(cur, g.tenant_id, data['email'])
+    if resource == 'people' and ('name' in cols or 'email' in cols):
+        error = _validate_people_fields(cur, g.tenant_id, data.get('name'), data.get('email'))
         if error:
             conn.close()
             return jsonify({'ok': False, 'error': error}), 400
@@ -1348,8 +1360,8 @@ def resource_update(resource, row_id):
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
 
-    if resource == 'people' and 'email' in cols:
-        error = _validate_people_email(cur, g.tenant_id, data['email'], exclude_row_id=row_id)
+    if resource == 'people' and ('name' in cols or 'email' in cols):
+        error = _validate_people_fields(cur, g.tenant_id, data.get('name'), data.get('email'), exclude_row_id=row_id)
         if error:
             conn.close()
             return jsonify({'ok': False, 'error': error}), 400

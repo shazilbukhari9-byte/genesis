@@ -518,7 +518,11 @@ function PersonDrawer({
   // here so blurring away from a bad value and then saving anyway can't
   // show a different message than the one already on screen.
   function validateNameField(value: string): string | undefined {
-    return value.trim().length < 2 ? "Full name is required." : undefined;
+    const name = value.trim();
+    if (name.length < 2) return "Full name is required.";
+    const dup = people.find((p) => p.name.trim().toLowerCase() === name.toLowerCase() && p.id !== existingId);
+    if (dup) return `Name is already used by another person (${dup.email}).`;
+    return undefined;
   }
   function validateEmailField(value: string): string | undefined {
     const email = value.trim().toLowerCase();
@@ -563,11 +567,14 @@ function PersonDrawer({
 
   function validate(): string[] {
     const errs: string[] = [];
-    if (draft.name.trim().length < 2) errs.push("Full name is required.");
+    const name = draft.name.trim();
+    if (name.length < 2) errs.push("Full name is required.");
+    const dupName = people.find((p) => p.name.trim().toLowerCase() === name.toLowerCase() && p.id !== existingId);
+    if (dupName) errs.push(`Name is already used by another person (${dupName.email}).`);
     const email = draft.email.trim().toLowerCase();
     if (!EMAIL_RE.test(email)) errs.push("A valid email address is required.");
-    const dup = people.find((p) => p.email.toLowerCase() === email && p.id !== existingId);
-    if (dup) errs.push(`Email is already used by ${dup.name}.`);
+    const dupEmail = people.find((p) => p.email.toLowerCase() === email && p.id !== existingId);
+    if (dupEmail) errs.push(`Email is already used by ${dupEmail.name}.`);
     return errs;
   }
 
