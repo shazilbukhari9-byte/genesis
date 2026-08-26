@@ -262,6 +262,19 @@ function defaultDirectory(): DirectoryData {
     { id: "g_social", name: "Coffee Chat", type: "Social", ext: "", ring: "Sequential", members: ["u_fkhan", "u_spetrova"], vm: false },
   ];
 
+  const titles: SimpleEntity[] = [
+    { id: "tt_head", name: "Head of CX" },
+    { id: "tt_manager", name: "Contact Centre Manager" },
+    { id: "tt_lead", name: "Team Leader" },
+    { id: "tt_advisor", name: "Advisor" },
+  ];
+
+  const depts: SimpleEntity[] = [
+    { id: "dp_ops", name: "Operations" },
+    { id: "dp_cc", name: "Customer Care" },
+    { id: "dp_it", name: "IT" },
+  ];
+
   return {
     people,
     roles,
@@ -269,6 +282,8 @@ function defaultDirectory(): DirectoryData {
     groups,
     skills,
     langs,
+    titles,
+    depts,
     licenses: { "CX 1": 40, "CX 2": 60, "CX 3": 25, "CX 4": 10, Communicate: 50 },
   };
 }
@@ -312,14 +327,18 @@ export async function fetchDirectory(): Promise<DirectoryData> {
     // keep local licenses
   }
   try {
-    const [skills, langs] = await Promise.all([
+    const [skills, langs, titles, depts] = await Promise.all([
       apiFetch<BackendSimpleEntity[]>("/api/simple-entities?kind=skill"),
       apiFetch<BackendSimpleEntity[]>("/api/simple-entities?kind=lang"),
+      apiFetch<BackendSimpleEntity[]>("/api/simple-entities?kind=title"),
+      apiFetch<BackendSimpleEntity[]>("/api/simple-entities?kind=dept"),
     ]);
     data.skills = skills.map(fromBackendSimpleEntity);
     data.langs = langs.map(fromBackendSimpleEntity);
+    data.titles = titles.map(fromBackendSimpleEntity);
+    data.depts = depts.map(fromBackendSimpleEntity);
   } catch {
-    // keep local skills/langs
+    // keep local skills/langs/titles/depts
   }
   try {
     const roles = await apiFetch<BackendRole[]>("/api/roles?limit=500");
@@ -426,7 +445,20 @@ export async function deleteGroup(id: string, name: string): Promise<DirectoryDa
   return fetchDirectory();
 }
 
-export type SimpleEntityKind = "skills" | "langs";
+export type SimpleEntityKind = "skills" | "langs" | "titles" | "depts";
+
+const SIMPLE_ENTITY_BACKEND_KIND: Record<SimpleEntityKind, string> = {
+  skills: "skill",
+  langs: "lang",
+  titles: "title",
+  depts: "dept",
+};
+const SIMPLE_ENTITY_LABEL: Record<SimpleEntityKind, string> = {
+  skills: "skill",
+  langs: "language",
+  titles: "job title",
+  depts: "department",
+};
 
 // users.skills (jsonb, keyed by skill name) and users.langs (text[] of
 // language names) reference these entities by name, so renaming or deleting
@@ -437,13 +469,17 @@ export type SimpleEntityKind = "skills" | "langs";
 // / queue language requirement (languages), matching the UI prototype's
 // propagateSkill()/propagateLang() — _propagatedHits reports how many of
 // those non-user references were touched, for the same "updated everywhere"
-// toast the prototype shows.
+// toast the prototype shows. Titles/departments propagate the same way
+// (users.title/dept, plus the Directory module's dir_people.title/dept —
+// see _propagate_simple_entity in backend/app.py), just without the
+// jsonb/array complexity skills/langs need since it's a single scalar
+// column.
 export async function upsertSimpleEntity(
   kind: SimpleEntityKind,
   entity: Omit<SimpleEntity, "id"> & { id?: string },
 ): Promise<{ data: DirectoryData; propagatedHits: number }> {
-  const backendKind = kind === "skills" ? "skill" : "lang";
-  const label = kind === "skills" ? "skill" : "language";
+  const backendKind = SIMPLE_ENTITY_BACKEND_KIND[kind];
+  const label = SIMPLE_ENTITY_LABEL[kind];
   let propagatedHits = 0;
   if (entity.id) {
     const updated = await apiFetch<{ _propagatedHits?: number }>(`/api/simple-entities/${entity.id}`, {
@@ -466,7 +502,7 @@ export async function deleteSimpleEntity(
   kind: SimpleEntityKind,
   id: string,
 ): Promise<{ data: DirectoryData; propagatedHits: number }> {
-  const label = kind === "skills" ? "skill" : "language";
+  const label = SIMPLE_ENTITY_LABEL[kind];
   const result = await apiFetch<{ _propagatedHits?: number }>(`/api/simple-entities/${id}`, { method: "DELETE" });
   logAudit("Delete " + label, `#${id}`);
   return { data: await fetchDirectory(), propagatedHits: result._propagatedHits ?? 0 };

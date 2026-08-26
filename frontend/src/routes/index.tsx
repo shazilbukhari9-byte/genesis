@@ -37,6 +37,8 @@ import { DivisionsPage } from "../features/people-permissions/DivisionsPage";
 import { GroupsPage } from "../features/people-permissions/GroupsPage";
 import { SkillsPage } from "../features/people-permissions/SkillsPage";
 import { LangsPage } from "../features/people-permissions/LangsPage";
+import { TitlesPage } from "../features/people-permissions/TitlesPage";
+import { DepartmentsPage } from "../features/people-permissions/DepartmentsPage";
 import { LicencesPage } from "../features/people-permissions/LicencesPage";
 import { SsoPage } from "../features/sso/SsoPage";
 import { OAuthClientsPage } from "../features/oauth-clients/OAuthClientsPage";
@@ -86,6 +88,10 @@ declare global {
     __hideSkills?: () => void;
     __showLangs?: () => void;
     __hideLangs?: () => void;
+    __showTitles?: () => void;
+    __hideTitles?: () => void;
+    __showDepts?: () => void;
+    __hideDepts?: () => void;
     __showLicences?: () => void;
     __hideLicences?: () => void;
     __showSso?: () => void;
@@ -238,6 +244,14 @@ function McmCloudCx() {
     const langs = mountLegacyReactPage("langsRoot", <LangsPage />);
     window.__showLangs = langs.show;
     window.__hideLangs = langs.hide;
+
+    const titles = mountLegacyReactPage("titlesRoot", <TitlesPage />);
+    window.__showTitles = titles.show;
+    window.__hideTitles = titles.hide;
+
+    const depts = mountLegacyReactPage("deptsRoot", <DepartmentsPage />);
+    window.__showDepts = depts.show;
+    window.__hideDepts = depts.hide;
 
     const licences = mountLegacyReactPage("licencesRoot", <LicencesPage />);
     window.__showLicences = licences.show;
@@ -491,7 +505,7 @@ function McmCloudCx() {
     // appendChild() calls pile up on top of live, orphaned ones instead of
     // starting clean.
     const allPages = [
-      orgSettings, purchases, auditLog, people, roles, divisions, groups, skills, langs, licences,
+      orgSettings, purchases, auditLog, people, roles, divisions, groups, skills, langs, titles, depts, licences,
       sso, oauth, recpol, evalforms, calibrations, forecasts,
     ];
     const allScripts = [
