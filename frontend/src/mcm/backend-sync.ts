@@ -648,6 +648,28 @@ export const BACKEND_SYNC_SCRIPT: string = `
           });
           origRender();
         }).catch(function() {});
+
+      /* Forecasts — gates the "Generate Schedule" button (genSchedule's
+         DB.forecasts.length check) and feeds schedGrid()'s coverage row
+         (reads DB.forecasts[0].data). DB.forecasts was always seeded as a
+         permanently-empty local array (ensureWFM's DB.forecasts=[]) with
+         nothing else in the legacy script ever populating it — real
+         forecasts only ever existed in Postgres via the migrated React
+         Forecasts page (features/quality/ForecastsPage.tsx), which the
+         legacy script has no visibility into. That's why the button was
+         always stuck on "Generate a forecast first" (→ click routes to the
+         Forecasts page) regardless of how many real forecasts existed. The
+         raw /api/forecasts row shape (id, tenant_id, week, status,
+         generated_at, data) already matches what schedGrid() reads
+         directly — data is the same {[planningGroupId]: {vol, aht, days}}
+         JSONB genForecast() writes — so no per-field mapping is needed. */
+      fetch(SUBS_API_BASE + '/api/forecasts?limit=1', { headers: authH() })
+        .then(function(r) { return r.json(); })
+        .then(function(rows) {
+          if (!Array.isArray(rows) || !rows.length) return;
+          DB.forecasts = rows;
+          origRender();
+        }).catch(function() {});
     };
 
     /* ── Activity Code create ── */
