@@ -20,8 +20,8 @@ export function SimpleEntityPage({
   kind: SimpleEntityKind;
   title: string;
   label: string;
-  hideKey: "__hideSkills" | "__hideLangs";
-  helpKey: "skills" | "langs";
+  hideKey: "__hideSkills" | "__hideLangs" | "__hideTitles" | "__hideDepts";
+  helpKey: "skills" | "langs" | "titles" | "depts";
 }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Draft | null>(null);
@@ -69,7 +69,12 @@ export function SimpleEntityPage({
   const list = data?.[kind] ?? [];
   const people: Person[] = data?.people ?? [];
   const assignedCount = (name: string) =>
-    people.filter((p) => (kind === "skills" ? name in p.skills : p.langs.includes(name))).length;
+    people.filter((p) => {
+      if (kind === "skills") return name in p.skills;
+      if (kind === "langs") return p.langs.includes(name);
+      if (kind === "titles") return p.title === name;
+      return p.dept === name;
+    }).length;
 
   function openDrawer(entity: Draft): void {
     setEditing(entity);

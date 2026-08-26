@@ -30,22 +30,50 @@ function inferToastKind(message: string): ToastKind {
 // as literal text by react-toastify by default. These are all developer-
 // authored strings, never raw user input, so rendering them as HTML carries
 // no more risk than the legacy toast's own t.innerHTML = m did.
-function ToastMessage({ html }: { html: string }) {
-  // eslint-disable-next-line react/no-danger
-  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+function ToastMessage({ html, clickable }: { html: string; clickable?: boolean }) {
+  return (
+    <span
+      // eslint-disable-next-line react/no-danger
+      dangerouslySetInnerHTML={{ __html: html }}
+      style={clickable ? { cursor: "pointer" } : undefined}
+    />
+  );
+}
+
+// Alert-rule firings (scripts.ts's alertTick) are the only window.toast
+// callers that also write a real, durable row -- every other window.toast
+// call in this codebase is ephemeral UI feedback (a save confirmation, a
+// validation error) with nothing behind it to navigate to. alertTick always
+// prefixes its message with the bell emoji, so that's the one reliable
+// signal for "this popup corresponds to something in the Audit Log" without
+// having to touch every one of scripts.ts's ~100 other toast() call sites.
+const NOTIFICATION_PREFIX = "\u{1F514}"; // 🔔
+
+function isNotificationToast(text: string): boolean {
+  return text.startsWith(NOTIFICATION_PREFIX);
+}
+
+function openAuditLog() {
+  window.openPage?.("auditlog");
 }
 
 export function bridgeGlobalToast() {
   window.toast = (message: string, type?: ToastKind) => {
     const text = String(message ?? "");
     const kind = type ?? inferToastKind(text);
-    const content = <ToastMessage html={text} />;
+    const clickable = isNotificationToast(text);
+    const content = <ToastMessage html={text} clickable={clickable} />;
     // toastId keyed on the message text: react-toastify no-ops a toast()
     // call whose id is already showing, instead of stacking a duplicate.
     // Without this, retrying the same failing action (e.g. Save Card with
     // the same invalid input) piled up an identical toast on top of the
     // last one every click, since each call was otherwise a fresh toast.
-    const options = { toastId: text };
+    // onClick only navigates for the alert-backed toasts identified above —
+    // a plain "Saved" or validation-error toast has nowhere useful to send
+    // you and stays click-to-dismiss only (react-toastify's own default).
+    const options = clickable
+      ? { toastId: text, onClick: openAuditLog }
+      : { toastId: text };
     switch (kind) {
       case "success":
         toastify.success(content, options);
@@ -68,5 +96,6 @@ export function bridgeGlobalToast() {
 declare global {
   interface Window {
     toast?: (message: string, type?: ToastKind) => void;
+    openPage?: (id: string) => void;
   }
 }

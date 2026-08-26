@@ -13,8 +13,9 @@ import {
   importAllDirectoryData,
   resetDemoData,
   upsertPerson,
+  upsertSimpleEntity,
 } from "./store";
-import type { Person } from "./types";
+import type { Person, SimpleEntity } from "./types";
 
 const QUERY_KEY = ["people-directory"];
 const SAMPLE_CSV =
@@ -390,6 +391,8 @@ export function PeoplePage() {
           licenses={Object.keys(data?.licenses ?? {})}
           skills={data?.skills ?? []}
           langs={data?.langs ?? []}
+          titles={data?.titles ?? []}
+          depts={data?.depts ?? []}
           saving={saveMutation.isPending}
           onClose={() => setEditing(null)}
           onSave={(value) => saveMutation.mutate(value)}
@@ -431,7 +434,9 @@ function CsvImportDrawer({ onClose, onImported }: { onClose: () => void; onImpor
             Columns: <code>name,email,title,department,division,license,skills</code>
             <br />
             Skills use <code>Skill:proficiency</code> separated by <code>;</code> — e.g. <code>Billing:5;Sales:3</code>. Name
-            and email are mandatory. Unknown divisions fall back to Home.
+            and email are mandatory. Unknown divisions fall back to Home. Title/department must already exist in
+            Job Titles / Departments (People &amp; Permissions) — add them there first if a row's value isn't
+            recognised, rather than importing an arbitrary new one per row.
           </div>
           <div className="fld">
             <textarea
@@ -474,6 +479,123 @@ function CsvImportDrawer({ onClose, onImported }: { onClose: () => void; onImpor
 const STATIONS = ["WebRTC softphone", "Physical phone", "Remote station"];
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+// Title/Department used to be plain free-text inputs with no predefined
+// list — anyone could type anything, with no reuse or validation (the
+// gap this was built to close). Backed by the same managed picklist
+// (simple_entities, kind='title'/'dept') Skills/Languages already use,
+// with an inline "+ Add new" that swaps to a small text field right here
+// instead of a browser prompt() — matching the drawer's own established
+// inline-error pattern rather than reaching for a native dialog nothing
+// else in this codebase uses.
+function PicklistField({
+  label,
+  kind,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  kind: "titles" | "depts";
+  value: string;
+  options: SimpleEntity[];
+  onChange: (name: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  const createMutation = useMutation({
+    mutationFn: (name: string) => upsertSimpleEntity(kind, { name, desc: "" }),
+    onSuccess: ({ data: updated }) => {
+      queryClient.setQueryData(QUERY_KEY, updated);
+      onChange(newName.trim());
+      setAdding(false);
+      setNewName("");
+      setError(undefined);
+    },
+  });
+
+  // A person's existing value might not be in the picklist (data saved
+  // before this feature existed, or via CSV import before validation) —
+  // keep it selectable rather than silently blanking the field out.
+  const displayOptions =
+    value && !options.some((o) => o.name.toLowerCase() === value.toLowerCase())
+      ? [{ id: "__current__", name: value }, ...options]
+      : options;
+
+  function confirmNew() {
+    const trimmed = newName.trim();
+    if (trimmed.length < 2) {
+      setError(`${label} must be at least 2 characters.`);
+      return;
+    }
+    const existing = options.find((o) => o.name.toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      onChange(existing.name);
+      setAdding(false);
+      setNewName("");
+      setError(undefined);
+      return;
+    }
+    createMutation.mutate(trimmed);
+  }
+
+  if (adding) {
+    return (
+      <div className="fld">
+        <label>{label}</label>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            autoFocus
+            value={newName}
+            onChange={(e) => {
+              setNewName(e.target.value);
+              if (error) setError(undefined);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); confirmNew(); }
+              if (e.key === "Escape") { setAdding(false); setNewName(""); setError(undefined); }
+            }}
+            placeholder={`New ${label.toLowerCase()}`}
+          />
+          <LegacyBtn secondary style={{ height: 34, flex: "none" }} onClick={confirmNew} disabled={createMutation.isPending}>
+            {createMutation.isPending ? "Adding…" : "Add"}
+          </LegacyBtn>
+          <LegacyBtn
+            secondary
+            style={{ height: 34, flex: "none" }}
+            onClick={() => { setAdding(false); setNewName(""); setError(undefined); }}
+            disabled={createMutation.isPending}
+          >
+            Cancel
+          </LegacyBtn>
+        </div>
+        {error && <div style={{ fontSize: 11.5, color: "#b3261e", marginTop: 4 }}>{error}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fld">
+      <label>{label}</label>
+      <select
+        value={value}
+        onChange={(e) => {
+          if (e.target.value === "__new__") { setAdding(true); return; }
+          onChange(e.target.value);
+        }}
+      >
+        <option value="">— None —</option>
+        {displayOptions.map((o) => (
+          <option key={o.id} value={o.name}>{o.name}</option>
+        ))}
+        <option value="__new__">+ Add new…</option>
+      </select>
+    </div>
+  );
+}
+
 function PersonDrawer({
   person,
   people,
@@ -482,6 +604,8 @@ function PersonDrawer({
   licenses,
   skills,
   langs,
+  titles,
+  depts,
   saving,
   onClose,
   onSave,
@@ -494,6 +618,8 @@ function PersonDrawer({
   licenses: string[];
   skills: { id: string; name: string }[];
   langs: { id: string; name: string }[];
+  titles: SimpleEntity[];
+  depts: SimpleEntity[];
   saving: boolean;
   onClose: () => void;
   onSave: (value: Person | Omit<Person, "id" | "created">) => void;
@@ -501,11 +627,41 @@ function PersonDrawer({
 }) {
   const [draft, setDraft] = useState(person);
   const [errors, setErrors] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<{ name: string | undefined; email: string | undefined }>({
+    name: undefined,
+    email: undefined,
+  });
   const isNew = !("id" in draft);
   const existingId = "id" in draft ? draft.id : undefined;
 
   function set<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
+  }
+
+  // Field-level checks, run on blur so a typo is flagged the moment focus
+  // leaves the field rather than only after Create & invite is clicked —
+  // the same two rules validate() re-checks at submit time, kept in sync
+  // here so blurring away from a bad value and then saving anyway can't
+  // show a different message than the one already on screen.
+  function validateNameField(value: string): string | undefined {
+    const name = value.trim();
+    if (name.length < 2) return "Full name is required.";
+    const dup = people.find((p) => p.name.trim().toLowerCase() === name.toLowerCase() && p.id !== existingId);
+    if (dup) return `Name is already used by another person (${dup.email}).`;
+    return undefined;
+  }
+  function validateEmailField(value: string): string | undefined {
+    const email = value.trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return "A valid email address is required.";
+    const dup = people.find((p) => p.email.toLowerCase() === email && p.id !== existingId);
+    if (dup) return `Email is already used by ${dup.name}.`;
+    return undefined;
+  }
+  function handleNameBlur() {
+    setFieldErrors((f) => ({ ...f, name: validateNameField(draft.name) }));
+  }
+  function handleEmailBlur() {
+    setFieldErrors((f) => ({ ...f, email: validateEmailField(draft.email) }));
   }
 
   function setSkill(name: string, proficiency: number) {
@@ -537,11 +693,14 @@ function PersonDrawer({
 
   function validate(): string[] {
     const errs: string[] = [];
-    if (draft.name.trim().length < 2) errs.push("Full name is required.");
+    const name = draft.name.trim();
+    if (name.length < 2) errs.push("Full name is required.");
+    const dupName = people.find((p) => p.name.trim().toLowerCase() === name.toLowerCase() && p.id !== existingId);
+    if (dupName) errs.push(`Name is already used by another person (${dupName.email}).`);
     const email = draft.email.trim().toLowerCase();
     if (!EMAIL_RE.test(email)) errs.push("A valid email address is required.");
-    const dup = people.find((p) => p.email.toLowerCase() === email && p.id !== existingId);
-    if (dup) errs.push(`Email is already used by ${dup.name}.`);
+    const dupEmail = people.find((p) => p.email.toLowerCase() === email && p.id !== existingId);
+    if (dupEmail) errs.push(`Email is already used by ${dupEmail.name}.`);
     return errs;
   }
 
@@ -549,6 +708,7 @@ function PersonDrawer({
     const errs = validate();
     if (errs.length) {
       setErrors(errs);
+      setFieldErrors({ name: validateNameField(draft.name), email: validateEmailField(draft.email) });
       return;
     }
     onSave({ ...draft, name: draft.name.trim(), email: draft.email.trim().toLowerCase() });
@@ -588,20 +748,48 @@ function PersonDrawer({
           <div className="sect">Identity</div>
           <div className="fld">
             <label>Full name *</label>
-            <input value={draft.name} onChange={(e) => set("name", e.target.value)} />
+            <input
+              value={draft.name}
+              onChange={(e) => {
+                set("name", e.target.value);
+                if (fieldErrors.name) setFieldErrors((f) => ({ ...f, name: undefined }));
+              }}
+              onBlur={handleNameBlur}
+              style={fieldErrors.name ? { borderColor: "#e0827a" } : undefined}
+            />
+            {fieldErrors.name && (
+              <div style={{ fontSize: 11.5, color: "#b3261e", marginTop: 4 }}>{fieldErrors.name}</div>
+            )}
           </div>
           <div className="fld">
             <label>Email *</label>
-            <input value={draft.email} onChange={(e) => set("email", e.target.value)} />
+            <input
+              value={draft.email}
+              onChange={(e) => {
+                set("email", e.target.value);
+                if (fieldErrors.email) setFieldErrors((f) => ({ ...f, email: undefined }));
+              }}
+              onBlur={handleEmailBlur}
+              style={fieldErrors.email ? { borderColor: "#e0827a" } : undefined}
+            />
+            {fieldErrors.email && (
+              <div style={{ fontSize: 11.5, color: "#b3261e", marginTop: 4 }}>{fieldErrors.email}</div>
+            )}
           </div>
-          <div className="fld">
-            <label>Title</label>
-            <input value={draft.title} onChange={(e) => set("title", e.target.value)} />
-          </div>
-          <div className="fld">
-            <label>Department</label>
-            <input value={draft.dept} onChange={(e) => set("dept", e.target.value)} />
-          </div>
+          <PicklistField
+            label="Title"
+            kind="titles"
+            value={draft.title}
+            options={titles}
+            onChange={(v) => set("title", v)}
+          />
+          <PicklistField
+            label="Department"
+            kind="depts"
+            value={draft.dept}
+            options={depts}
+            onChange={(v) => set("dept", v)}
+          />
 
           <div className="sect">Access</div>
           <div className="fld">

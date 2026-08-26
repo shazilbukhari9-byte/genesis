@@ -47,6 +47,38 @@ def _fix_arrays(row):
     return row
 
 
+def _validate_title_dept(cur, tenant_id, data, current=None):
+    """dir_people.title/dept share the same managed picklist as users.title/
+    dept (simple_entities, kind='title'|'dept') -- see backend/app.py's
+    _validate_people_fields for the People & Permissions side of this same
+    check. entity_create/entity_update otherwise write every column through
+    unchecked, which is how this table ended up with arbitrary free-text
+    titles/departments in the first place. Blank is still fine (both
+    columns are nullable); only a non-blank value has to match the list.
+
+    `current` (the existing row, update-only) lets an edit to some other
+    field skip this check when title/dept aren't actually changing -- this
+    table already has plenty of free-text values that predate the
+    picklist, and re-saving a person's phone number shouldn't suddenly
+    fail because their existing title isn't a recognised entry yet."""
+    for kind in ('title', 'dept'):
+        if kind not in data:
+            continue
+        if current is not None and data[kind] == current.get(kind):
+            continue
+        value = (data[kind] or '').strip()
+        if not value:
+            continue
+        cur.execute(
+            'SELECT id FROM simple_entities WHERE tenant_id = %s AND kind = %s AND lower(name) = lower(%s)',
+            (tenant_id, kind, value),
+        )
+        if cur.fetchone() is None:
+            label = 'job title' if kind == 'title' else 'department'
+            return f'"{value}" is not a recognised {label} -- add it first or pick an existing one'
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Generic CRUD factory — handles people, groups, locations, profile-fields,
 # external-contacts, workspaces. Each declares its table, columns, and
@@ -196,6 +228,15 @@ def entity_create(entity):
         return jsonify({'ok': False, 'error': 'unknown entity'}), 404
 
     data = request.get_json(force=True) or {}
+    conn = get_db()
+    cur = conn.cursor()
+
+    if entity == 'people':
+        error = _validate_title_dept(cur, g.tenant_id, data)
+        if error:
+            conn.close()
+            return jsonify({'ok': False, 'error': error}), 400
+
     cols = ['tenant_id']
     vals = [g.tenant_id]
 
@@ -207,8 +248,6 @@ def entity_create(entity):
             cols.append(c)
             vals.append(v)
 
-    conn = get_db()
-    cur = conn.cursor()
     ph = ', '.join('%s' for _ in cols)
     sql = f"INSERT INTO {spec['table']} ({', '.join(cols)}) VALUES ({ph}) RETURNING *"
     cur.execute(sql, vals)
@@ -242,13 +281,21 @@ def entity_update(entity, row_id):
     conn = get_db()
     cur = conn.cursor()
 
+    check_cols = 'id, title, dept' if entity == 'people' else 'id'
     cur.execute(
-        f"SELECT id FROM {spec['table']} WHERE id = %s AND tenant_id = %s",
+        f"SELECT {check_cols} FROM {spec['table']} WHERE id = %s AND tenant_id = %s",
         (row_id, g.tenant_id),
     )
-    if cur.fetchone() is None:
+    current = cur.fetchone()
+    if current is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
+
+    if entity == 'people':
+        error = _validate_title_dept(cur, g.tenant_id, data, current=current)
+        if error:
+            conn.close()
+            return jsonify({'ok': False, 'error': error}), 400
 
     vals += [row_id, g.tenant_id]
     sql = f"UPDATE {spec['table']} SET {', '.join(sets)} WHERE id = %s AND tenant_id = %s RETURNING *"

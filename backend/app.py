@@ -16,7 +16,7 @@ from carrier import carrier_bp
 from flow import flow_bp
 from analytics import analytics_bp, CATALOG as REPORT_CATALOG
 from org_settings import org_settings_bp
-from auth import auth_bp, register_auth_guard
+from auth import auth_bp, register_auth_guard, send_people_invite
 from platform_config import platform_config_bp
 from telephony import telephony_bp
 from alerts import alerts_bp
@@ -1033,6 +1033,70 @@ def _log_resource_audit(cur, action, detail):
     )
 
 
+_EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+_UNSET = object()  # distinguishes "field not supplied" from an explicit None/'' clear
+
+
+def _people_duplicate_exists(cur, tenant_id, column, value, exclude_row_id=None):
+    sql = f'SELECT id FROM users WHERE tenant_id = %s AND lower({column}) = lower(%s)'
+    params = [tenant_id, value]
+    if exclude_row_id is not None:
+        sql += ' AND id != %s'
+        params.append(exclude_row_id)
+    cur.execute(sql, params)
+    return cur.fetchone() is not None
+
+
+def _picklist_value_exists(cur, tenant_id, kind, name):
+    cur.execute(
+        'SELECT id FROM simple_entities WHERE tenant_id = %s AND kind = %s AND lower(name) = lower(%s)',
+        (tenant_id, kind, name),
+    )
+    return cur.fetchone() is not None
+
+
+def _validate_people_fields(cur, tenant_id, name, email, title=_UNSET, dept=_UNSET, exclude_row_id=None):
+    """Returns an error string, or None if every supplied field is
+    acceptable. Frontend runs the same checks first (PeoplePage.tsx's
+    validate()) so this is the real enforcement point, not the only one --
+    the generic resource_create/resource_update routes below have no
+    per-field validation at all otherwise, so a bulk CSV import (which
+    posts straight to /api/people per row with no client-side check of its
+    own) or any other direct API call could save an unparseable "email"
+    like a bare username, a name/email that collides with an existing
+    person's, or a title/department that isn't one of the managed picklist
+    values -- whether or not that field is even being changed in this
+    request (each is checked only when supplied).
+
+    title/dept default to a sentinel (_UNSET), not None, because None/blank
+    is itself a valid value for them (both columns are nullable and the
+    form never marked them required) -- callers pass the sentinel to mean
+    "field not supplied at all" and an explicit '' or None to mean "clear
+    it", and only a genuinely non-blank value gets checked against the
+    picklist."""
+    if name is not None:
+        name = name.strip()
+        if len(name) < 2:
+            return 'Full name is required'
+        if _people_duplicate_exists(cur, tenant_id, 'name', name, exclude_row_id):
+            return f'Name "{name}" is already used by another person'
+    if email is not None:
+        email = (email or '').strip()
+        if not _EMAIL_RE.match(email):
+            return 'A valid email address is required'
+        if _people_duplicate_exists(cur, tenant_id, 'email', email, exclude_row_id):
+            return f'Email {email} is already in use'
+    if title is not _UNSET and (title or '').strip():
+        if not _picklist_value_exists(cur, tenant_id, 'title', title.strip()):
+            return f'"{title.strip()}" is not a recognised job title -- add it first or pick an existing one'
+    if dept is not _UNSET and (dept or '').strip():
+        if not _picklist_value_exists(cur, tenant_id, 'dept', dept.strip()):
+            return f'"{dept.strip()}" is not a recognised department -- add it first or pick an existing one'
+    return None
+
+
 def _prep_value(col, value, spec):
     """psycopg2 only auto-adapts dict -> jsonb (see db.py); a bare Python
     list adapts to a Postgres ARRAY literal instead, which several TEXT[]
@@ -1128,21 +1192,42 @@ def resource_create(resource):
     if not cols:
         return jsonify({'ok': False, 'error': 'no writable fields supplied'}), 400
 
+    conn = get_db()
+    cur = conn.cursor()
+
+    if resource == 'people' and ('name' in cols or 'email' in cols or 'title' in cols or 'dept' in cols):
+        error = _validate_people_fields(
+            cur, g.tenant_id, data.get('name'), data.get('email'),
+            title=data.get('title') if 'title' in cols else _UNSET,
+            dept=data.get('dept') if 'dept' in cols else _UNSET,
+        )
+        if error:
+            conn.close()
+            return jsonify({'ok': False, 'error': error}), 400
+
     values = [_prep_value(c, data[c], spec) for c in cols]
     if _tenant_scoped(spec):
         cols = cols + ['tenant_id']
         values = values + [g.tenant_id]
 
-    conn = get_db()
-    cur = conn.cursor()
     placeholders = ', '.join('%s' for _ in cols)
     sql = f"INSERT INTO {spec['table']} ({', '.join(cols)}) VALUES ({placeholders}) RETURNING *"
     cur.execute(sql, values)
     new_row = cur.fetchone()
     _log_resource_audit(cur, f'Create {_resource_label(resource)}', _resource_display_name(dict(new_row)))
     conn.commit()
+
+    # The real enforcement point behind "Create & invite" -- previously this
+    # only ever wrote the state string, no email, no password, no way for
+    # the invited person to ever get in (see send_people_invite in auth.py).
+    resp = dict(new_row)
+    if resource == 'people' and new_row.get('state') == 'Pending invite':
+        invite_token, invite_expires_at = send_people_invite(new_row['id'], new_row['name'], new_row['email'], cur, conn)
+        resp['invite_token'] = invite_token
+        resp['invite_expires_at'] = invite_expires_at.isoformat()
+
     conn.close()
-    return jsonify(dict(new_row)), 201
+    return jsonify(resp), 201
 
 
 def _propagate_skill_in_flows(cur, tenant_id, old_name, new_name):
@@ -1233,6 +1318,25 @@ def _propagate_simple_entity(cur, tenant_id, kind, old_name, new_name):
 
         hits += _propagate_skill_in_flows(cur, tenant_id, old_name, new_name)
         hits += _propagate_skill_in_queues(cur, tenant_id, old_name, new_name)
+    elif kind in ('title', 'dept'):
+        # A single scalar column on both users and dir_people (the Directory
+        # module's own, separately-stored copy of the same fields) -- much
+        # simpler than skills/langs' jsonb/array handling. Propagating into
+        # both tables keeps a rename consistent everywhere the value shows
+        # up, even though new values are still written independently per
+        # surface (see dir_people's own validation in directory.py).
+        col = kind
+        new_value = new_name if new_name is not None else None
+        cur.execute(
+            f'UPDATE users SET {col} = %s WHERE tenant_id = %s AND {col} = %s',
+            (new_value, tenant_id, old_name),
+        )
+        hits += cur.rowcount
+        cur.execute(
+            f'UPDATE dir_people SET {col} = %s WHERE tenant_id = %s AND {col} = %s',
+            (new_value, tenant_id, old_name),
+        )
+        hits += cur.rowcount
     else:
         if new_name is not None:
             cur.execute(
@@ -1304,15 +1408,38 @@ def resource_update(resource, row_id):
 
     conn = get_db()
     cur = conn.cursor()
-    check_sql = f"SELECT id FROM {spec['table']} WHERE id = %s"
+    # people also fetches title/dept here so the picklist check below can be
+    # skipped when they're unchanged (see the comment there) -- every other
+    # resource just needs the existence check.
+    check_cols = 'id, title, dept' if resource == 'people' else 'id'
+    check_sql = f"SELECT {check_cols} FROM {spec['table']} WHERE id = %s"
     check_params = [row_id]
     if _tenant_scoped(spec):
         check_sql += ' AND tenant_id = %s'
         check_params.append(g.tenant_id)
     cur.execute(check_sql, check_params)
-    if cur.fetchone() is None:
+    current = cur.fetchone()
+    if current is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
+
+    if resource == 'people' and ('name' in cols or 'email' in cols or 'title' in cols or 'dept' in cols):
+        # Only validate title/dept against the picklist when the value is
+        # actually changing -- these columns held arbitrary free text before
+        # this picklist existed, so re-saving a person's *unrelated* field
+        # (e.g. their licence) must not suddenly fail just because their
+        # pre-existing title/dept isn't a recognised picklist entry yet.
+        title_changed = 'title' in cols and data.get('title') != current['title']
+        dept_changed = 'dept' in cols and data.get('dept') != current['dept']
+        error = _validate_people_fields(
+            cur, g.tenant_id, data.get('name'), data.get('email'),
+            title=data.get('title') if title_changed else _UNSET,
+            dept=data.get('dept') if dept_changed else _UNSET,
+            exclude_row_id=row_id,
+        )
+        if error:
+            conn.close()
+            return jsonify({'ok': False, 'error': error}), 400
 
     # ACD Skills / Languages are referenced from users by *name*, not by id —
     # users.skills is a jsonb object keyed by skill name and users.langs a
@@ -1357,8 +1484,18 @@ def resource_update(resource, row_id):
             )
 
     conn.commit()
-    conn.close()
+
+    # Same enforcement point as resource_create above -- this is what makes
+    # the existing "Send invite" button (which just re-PUTs state='Pending
+    # invite') actually do something: every click generates a fresh token
+    # and re-sends, invalidating whatever link was sent before.
     resp = dict(row)
+    if resource == 'people' and 'state' in cols and data.get('state') == 'Pending invite':
+        invite_token, invite_expires_at = send_people_invite(row['id'], row['name'], row['email'], cur, conn)
+        resp['invite_token'] = invite_token
+        resp['invite_expires_at'] = invite_expires_at.isoformat()
+
+    conn.close()
     if rename_from is not None:
         resp['_propagatedHits'] = rename_hits
     return jsonify(resp)

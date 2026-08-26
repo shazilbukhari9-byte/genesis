@@ -623,3 +623,91 @@ class TestRunHistoryPersistence:
 
     def test_cleanup(self, client, auth_headers):
         client.delete(f'/api/dataact/{pytest.run_probe_id}', headers=auth_headers)
+
+
+class TestRunHistoryDeletion:
+    """DELETE /api/dataact/runs[/<id>] — the way an operator clears Run
+    History. Deliberately last in this file: clear_runs() empties the whole
+    tenant's history, so running it earlier would pull the rug out from
+    under TestRunHistoryPersistence above.
+    """
+
+    def _make_run(self, client, auth_headers, name):
+        created = client.post('/api/dataact', headers=auth_headers,
+                              json={'name': name, 'endpoint': '/rh'})
+        aid = created.get_json()['id']
+        resp = client.post(f'/api/dataact/{aid}/test', headers=auth_headers)
+        assert resp.status_code == 200, resp.get_json()
+        return aid, resp.get_json()['run']['id']
+
+    def test_delete_single_run(self, client, auth_headers, db_conn, tenant_id):
+        aid, run_id = self._make_run(client, auth_headers, 'RH Delete One')
+
+        resp = client.delete(f'/api/dataact/runs/{run_id}', headers=auth_headers)
+        assert resp.status_code == 200, resp.get_json()
+        assert resp.get_json()['ok'] is True
+
+        cur = db_conn.cursor()
+        cur.execute('SELECT id FROM data_action_runs WHERE id = %s AND tenant_id = %s', (run_id, tenant_id))
+        assert cur.fetchone() is None, 'run still present in PostgreSQL after delete'
+        client.delete(f'/api/dataact/{aid}', headers=auth_headers)
+
+    def test_delete_unknown_run_is_404(self, client, auth_headers):
+        assert client.delete('/api/dataact/runs/99999999', headers=auth_headers).status_code == 404
+
+    def test_runs_path_is_not_swallowed_by_action_id_route(self, client, auth_headers):
+        """'/runs' must route to clear_runs(), never be captured as an
+        action_id by DELETE /<action_id> — which would 404 instead."""
+        resp = client.delete('/api/dataact/runs', headers=auth_headers)
+        assert resp.status_code == 200, resp.get_json()
+        assert 'deleted' in resp.get_json(), 'hit the wrong route — no deleted count returned'
+
+    def test_clear_runs_empties_history_and_reports_count(self, client, auth_headers, db_conn, tenant_id):
+        aid1, _ = self._make_run(client, auth_headers, 'RH Clear A')
+        aid2, _ = self._make_run(client, auth_headers, 'RH Clear B')
+        assert len(client.get('/api/dataact/runs', headers=auth_headers).get_json()) >= 2
+
+        resp = client.delete('/api/dataact/runs', headers=auth_headers)
+        assert resp.status_code == 200, resp.get_json()
+        assert resp.get_json()['deleted'] >= 2
+
+        assert client.get('/api/dataact/runs', headers=auth_headers).get_json() == []
+        cur = db_conn.cursor()
+        cur.execute('SELECT count(*) AS n FROM data_action_runs WHERE tenant_id = %s', (tenant_id,))
+        assert cur.fetchone()['n'] == 0
+        client.delete(f'/api/dataact/{aid1}', headers=auth_headers)
+        client.delete(f'/api/dataact/{aid2}', headers=auth_headers)
+
+    def test_clear_runs_on_empty_history_is_a_no_op(self, client, auth_headers):
+        resp = client.delete('/api/dataact/runs', headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.get_json()['deleted'] == 0
+
+    def test_cross_tenant_delete_single_is_404(self, client, auth_headers, other_tenant_headers, db_conn, tenant_id):
+        """Another tenant must not be able to delete our run — and the row
+        must genuinely survive, not just return a 404 while deleting."""
+        aid, run_id = self._make_run(client, auth_headers, 'RH Cross Tenant')
+
+        assert client.delete(f'/api/dataact/runs/{run_id}', headers=other_tenant_headers).status_code == 404
+
+        cur = db_conn.cursor()
+        cur.execute('SELECT id FROM data_action_runs WHERE id = %s AND tenant_id = %s', (run_id, tenant_id))
+        assert cur.fetchone() is not None, 'another tenant deleted our run history'
+        client.delete(f'/api/dataact/{aid}', headers=auth_headers)
+
+    def test_cross_tenant_clear_leaves_our_history_intact(self, client, auth_headers, other_tenant_headers, db_conn, tenant_id):
+        aid, run_id = self._make_run(client, auth_headers, 'RH Cross Clear')
+
+        resp = client.delete('/api/dataact/runs', headers=other_tenant_headers)
+        assert resp.status_code == 200
+        assert resp.get_json()['deleted'] == 0, "cleared another tenant's rows"
+
+        cur = db_conn.cursor()
+        cur.execute('SELECT id FROM data_action_runs WHERE id = %s AND tenant_id = %s', (run_id, tenant_id))
+        assert cur.fetchone() is not None, "another tenant's clear wiped our history"
+        client.delete(f'/api/dataact/{aid}', headers=auth_headers)
+        client.delete('/api/dataact/runs', headers=auth_headers)
+
+    @pytest.mark.parametrize('path', ['/api/dataact/runs', '/api/dataact/runs/1'])
+    def test_auth_required(self, client, path):
+        assert client.delete(path).status_code == 401

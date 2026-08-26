@@ -139,11 +139,25 @@ function useActiveToastCount(): number {
   return count;
 }
 
-// "Clear all" is not a built-in react-toastify control — toast.dismiss()
-// with no id dismisses every active toast, so this just needs a button
-// that shows once there's more than one to clear.
-function ClearAllToasts() {
+// A single toast needs no extra chrome — the reserved gap above the deck
+// (for the pill below) only makes sense once there's a second card to peek
+// out from behind it. Flagging that on <html> lets styles.css move the
+// whole deck down with a plain CSS selector instead of duplicating this
+// count-check as inline React styles on the container.
+function useToastMultiFlag() {
   const count = useActiveToastCount();
+  useEffect(() => {
+    document.documentElement.toggleAttribute("data-toast-multi", count >= 2);
+  }, [count]);
+  return count;
+}
+
+// "Clear all" is not a built-in react-toastify control — toast.dismiss()
+// with no id dismisses every active toast, so this doubles as the stack's
+// only "how many are there" indicator: it names the count outright rather
+// than relying on how visible the collapsed cards' peeking edges are.
+function ClearAllToasts() {
+  const count = useToastMultiFlag();
   if (count < 2) return null;
   return (
     <button
@@ -151,7 +165,7 @@ function ClearAllToasts() {
       className="mcm-toast-clear-all"
       onClick={() => toastify.dismiss()}
     >
-      Clear all ({count})
+      {count} notifications · Clear all
     </button>
   );
 }
