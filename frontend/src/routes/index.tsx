@@ -22,6 +22,7 @@ import { PROMPTS_SCRIPT } from "../mcm/prompts-redesign";
 import { CALLROUTING_SCRIPT } from "../mcm/callrouting-redesign";
 import { EMERGENCY_SCRIPT } from "../mcm/emergency-redesign";
 import { GALLERY_SCRIPT } from "../mcm/gallery-redesign";
+import { GAMIFICATION_SCRIPT } from "../mcm/gamification-redesign";
 import { INTEGRATIONS_THEME_SCRIPT } from "../mcm/integrations-theme";
 import { INTEGRATIONS_RESPONSIVE_SCRIPT } from "../mcm/integrations-responsive";
 import { RESPONSIVE_NAV_SCRIPT } from "../mcm/responsive-nav";
@@ -341,6 +342,15 @@ function McmCloudCx() {
     certsScript.textContent = CERTS_SCRIPT;
     document.body.appendChild(certsScript);
 
+    // Wraps window.renderGamif with the missing Division/Status filters,
+    // Columns popover, Export button, and pagination footer — all present
+    // in the prototype's own static markup for this page but never built
+    // into the real render function. See mcm/gamification-redesign.ts.
+    const gamificationScript = document.createElement("script");
+    gamificationScript.type = "text/javascript";
+    gamificationScript.textContent = GAMIFICATION_SCRIPT;
+    document.body.appendChild(gamificationScript);
+
     // Wraps window.openPage to intercept 'contactlists' — it's DYN4-routed
     // in scripts.ts (like 'canned' was DYN9-routed), so a plain
     // window.renderContactLists reassignment alone wouldn't be picked up.
@@ -499,7 +509,7 @@ function McmCloudCx() {
       directoryScript, appsScript, cannedScript, syncScript, certsScript, contactListsScript,
       dataactScript, dncListsScript, subscriptionScript, recpolScript, evalformsScript,
       calibrationsScript, forecastsScript, integrationsThemeScript, integrationsResponsiveScript,
-      sessionGuardScript,
+      sessionGuardScript, gamificationScript,
     ];
     return () => {
       ranRef.current = false;
