@@ -83,7 +83,16 @@ button{font-family:inherit}
 #anav .lk:hover{background:#f4f7fb;color:#152550}
 #anav .lk.on{background:#fff2ec;border-left-color:#FF4F1F;color:#c9401a;font-weight:600}
 /* content */
-#cnt{flex:1;overflow-y:auto;background:#eef1f5}
+/* scrollbar-gutter:stable reserves the scrollbar's width whether or not
+   #cnt actually has enough content to need it, so the header/tabs/table
+   above never get a few extra px of room just because the current
+   section (e.g. Catalogue) happens to be shorter than the last one (e.g.
+   Installed) - the classic cause of a header that visibly shifts a few
+   px when switching between two pages with different content heights.
+   Not applied to the *Root containers below: those each belong to one
+   feature only, so it's scoped to #cnt, the container every Integrations/
+   Data Actions/Bot Connectors tab renders into. */
+#cnt{flex:1;overflow-y:auto;scrollbar-gutter:stable;background:#eef1f5}
 #orgsetRoot{flex:1;overflow-y:auto;background:#eef1f5}
 #auditlogRoot{flex:1;overflow-y:auto;background:#eef1f5}
 #peopleRoot{flex:1;overflow-y:auto;background:#eef1f5}
@@ -116,7 +125,14 @@ button{font-family:inherit}
 .ws-sec-hdr .lnk{font-weight:500!important;margin-left:auto}
 .ws-list-box{box-shadow:0 1px 4px rgba(21,37,80,.07);border-radius:10px!important;padding:10px 16px!important}
 .tabs{display:flex;gap:2px;margin-top:12px}
-.tabs .tb{padding:8px 14px;font-size:12.5px;color:#5b6a7d;cursor:pointer;border-bottom:3px solid transparent}
+/* white-space:nowrap keeps a long label (e.g. Integrations' "Client
+   Applications") from wrapping onto a second line inside its own tab,
+   which inflated that one page's tab-bar height and pushed its .pbody
+   down further than every other .phd .tabs page at the same width -
+   the same protection .phd .rt .btn already has for action buttons.
+   .tabs's own overflow-x:auto (mobile breakpoint below) is what handles
+   the case where the tabs don't all fit, via horizontal scroll instead. */
+.tabs .tb{padding:8px 14px;font-size:12.5px;color:#5b6a7d;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
 .tabs .tb:hover{color:#152550}
 .tabs .tb.on{color:#c9401a;border-bottom-color:#FF4F1F;font-weight:600}
 .pbody{padding:18px 24px 40px}
@@ -522,6 +538,7 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
   font-weight: 500;
   transition: background .12s, color .12s;
   position: relative;
+  white-space: nowrap;
 }
 .phd .tabs .tb:hover { background: #f4f7fb; color: #152550; }
 .phd .tabs .tb.on {
