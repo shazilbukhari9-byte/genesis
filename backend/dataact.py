@@ -450,6 +450,57 @@ def list_runs():
     return jsonify(rows)
 
 
+# Both routes below are declared as static '/runs...' rules while a
+# '/<action_id>' DELETE rule also exists further down. That is safe for the
+# same reason GET /runs already coexists with GET /<action_id> above:
+# Werkzeug ranks a rule with no dynamic segment ahead of one with a string
+# converter, so '/runs' can never be swallowed as an action_id.
+
+
+@dataact_bp.route('/runs/<int:run_id>', methods=['DELETE'])
+def delete_run(run_id):
+    """Remove a single Run History entry. Tenant-scoped like every other
+    route here, so one tenant can never delete another's history."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        'SELECT action_name FROM data_action_runs WHERE id = %s AND tenant_id = %s',
+        (run_id, g.tenant_id),
+    )
+    existing = cur.fetchone()
+    if existing is None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'not found'}), 404
+
+    cur.execute('DELETE FROM data_action_runs WHERE id = %s AND tenant_id = %s', (run_id, g.tenant_id))
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Data action run deleted', existing['action_name'], g.tenant_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@dataact_bp.route('/runs', methods=['DELETE'])
+def clear_runs():
+    """Clear this tenant's whole Run History. Deliberately reports how many
+    rows went (`deleted`) rather than a bare ok, since this is the one
+    destructive route here whose scope isn't obvious from the URL — the
+    caller, and the audit_log entry, both get the actual number."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('DELETE FROM data_action_runs WHERE tenant_id = %s', (g.tenant_id,))
+    deleted = cur.rowcount
+    cur.execute(
+        'INSERT INTO audit_log (who, action, detail, tenant_id, created_at) VALUES (%s,%s,%s,%s, now())',
+        (g.user_name, 'Data action run history cleared', f'{deleted} run(s)', g.tenant_id),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'deleted': deleted})
+
+
 @dataact_bp.route('', methods=['GET'])
 def list_actions():
     """?integration=<name>, ?division=<code>, ?status=<Draft|Published|Slow|Failing>
