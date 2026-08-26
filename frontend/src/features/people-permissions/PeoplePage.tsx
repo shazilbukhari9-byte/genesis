@@ -501,11 +501,37 @@ function PersonDrawer({
 }) {
   const [draft, setDraft] = useState(person);
   const [errors, setErrors] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<{ name: string | undefined; email: string | undefined }>({
+    name: undefined,
+    email: undefined,
+  });
   const isNew = !("id" in draft);
   const existingId = "id" in draft ? draft.id : undefined;
 
   function set<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
+  }
+
+  // Field-level checks, run on blur so a typo is flagged the moment focus
+  // leaves the field rather than only after Create & invite is clicked —
+  // the same two rules validate() re-checks at submit time, kept in sync
+  // here so blurring away from a bad value and then saving anyway can't
+  // show a different message than the one already on screen.
+  function validateNameField(value: string): string | undefined {
+    return value.trim().length < 2 ? "Full name is required." : undefined;
+  }
+  function validateEmailField(value: string): string | undefined {
+    const email = value.trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return "A valid email address is required.";
+    const dup = people.find((p) => p.email.toLowerCase() === email && p.id !== existingId);
+    if (dup) return `Email is already used by ${dup.name}.`;
+    return undefined;
+  }
+  function handleNameBlur() {
+    setFieldErrors((f) => ({ ...f, name: validateNameField(draft.name) }));
+  }
+  function handleEmailBlur() {
+    setFieldErrors((f) => ({ ...f, email: validateEmailField(draft.email) }));
   }
 
   function setSkill(name: string, proficiency: number) {
@@ -549,6 +575,7 @@ function PersonDrawer({
     const errs = validate();
     if (errs.length) {
       setErrors(errs);
+      setFieldErrors({ name: validateNameField(draft.name), email: validateEmailField(draft.email) });
       return;
     }
     onSave({ ...draft, name: draft.name.trim(), email: draft.email.trim().toLowerCase() });
@@ -588,11 +615,33 @@ function PersonDrawer({
           <div className="sect">Identity</div>
           <div className="fld">
             <label>Full name *</label>
-            <input value={draft.name} onChange={(e) => set("name", e.target.value)} />
+            <input
+              value={draft.name}
+              onChange={(e) => {
+                set("name", e.target.value);
+                if (fieldErrors.name) setFieldErrors((f) => ({ ...f, name: undefined }));
+              }}
+              onBlur={handleNameBlur}
+              style={fieldErrors.name ? { borderColor: "#e0827a" } : undefined}
+            />
+            {fieldErrors.name && (
+              <div style={{ fontSize: 11.5, color: "#b3261e", marginTop: 4 }}>{fieldErrors.name}</div>
+            )}
           </div>
           <div className="fld">
             <label>Email *</label>
-            <input value={draft.email} onChange={(e) => set("email", e.target.value)} />
+            <input
+              value={draft.email}
+              onChange={(e) => {
+                set("email", e.target.value);
+                if (fieldErrors.email) setFieldErrors((f) => ({ ...f, email: undefined }));
+              }}
+              onBlur={handleEmailBlur}
+              style={fieldErrors.email ? { borderColor: "#e0827a" } : undefined}
+            />
+            {fieldErrors.email && (
+              <div style={{ fontSize: 11.5, color: "#b3261e", marginTop: 4 }}>{fieldErrors.email}</div>
+            )}
           </div>
           <div className="fld">
             <label>Title</label>
