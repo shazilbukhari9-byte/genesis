@@ -1033,6 +1033,33 @@ def _log_resource_audit(cur, action, detail):
     )
 
 
+_EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+def _validate_people_email(cur, tenant_id, email, exclude_row_id=None):
+    """Returns an error string, or None if the email is acceptable.
+    Frontend runs the same format + duplicate checks first (PeoplePage.tsx's
+    validate()) so this is the real enforcement point, not the only one --
+    the generic resource_create/resource_update routes below have no
+    per-field validation at all otherwise, so a bulk CSV import (which
+    posts straight to /api/people per row with no client-side check of its
+    own) or any other direct API call could save an unparseable "email"
+    like a bare username, or silently collide with an existing person's
+    address."""
+    email = (email or '').strip()
+    if not _EMAIL_RE.match(email):
+        return 'A valid email address is required'
+    dup_sql = 'SELECT id FROM users WHERE tenant_id = %s AND lower(email) = lower(%s)'
+    dup_params = [tenant_id, email]
+    if exclude_row_id is not None:
+        dup_sql += ' AND id != %s'
+        dup_params.append(exclude_row_id)
+    cur.execute(dup_sql, dup_params)
+    if cur.fetchone() is not None:
+        return f'Email {email} is already in use'
+    return None
+
+
 def _prep_value(col, value, spec):
     """psycopg2 only auto-adapts dict -> jsonb (see db.py); a bare Python
     list adapts to a Postgres ARRAY literal instead, which several TEXT[]
@@ -1128,13 +1155,20 @@ def resource_create(resource):
     if not cols:
         return jsonify({'ok': False, 'error': 'no writable fields supplied'}), 400
 
+    conn = get_db()
+    cur = conn.cursor()
+
+    if resource == 'people' and 'email' in cols:
+        error = _validate_people_email(cur, g.tenant_id, data['email'])
+        if error:
+            conn.close()
+            return jsonify({'ok': False, 'error': error}), 400
+
     values = [_prep_value(c, data[c], spec) for c in cols]
     if _tenant_scoped(spec):
         cols = cols + ['tenant_id']
         values = values + [g.tenant_id]
 
-    conn = get_db()
-    cur = conn.cursor()
     placeholders = ', '.join('%s' for _ in cols)
     sql = f"INSERT INTO {spec['table']} ({', '.join(cols)}) VALUES ({placeholders}) RETURNING *"
     cur.execute(sql, values)
@@ -1313,6 +1347,12 @@ def resource_update(resource, row_id):
     if cur.fetchone() is None:
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
+
+    if resource == 'people' and 'email' in cols:
+        error = _validate_people_email(cur, g.tenant_id, data['email'], exclude_row_id=row_id)
+        if error:
+            conn.close()
+            return jsonify({'ok': False, 'error': error}), 400
 
     # ACD Skills / Languages are referenced from users by *name*, not by id —
     # users.skills is a jsonb object keyed by skill name and users.langs a
