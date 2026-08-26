@@ -290,6 +290,7 @@ CREATE TABLE IF NOT EXISTS queues (
 -- on; the admin-only fields live in config so nothing else has to change.
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS division TEXT;
 ALTER TABLE queues ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}'::jsonb;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_queues_tenant_name ON queues (tenant_id, lower(name));
 
 CREATE TABLE IF NOT EXISTS campaigns (
   id SERIAL PRIMARY KEY,
@@ -367,6 +368,7 @@ CREATE TABLE IF NOT EXISTS flows (
   name TEXT NOT NULL,
   graph JSONB NOT NULL DEFAULT '{"nodes":[],"links":[]}'::jsonb
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_flows_tenant_name ON flows (tenant_id, lower(name));
 
 CREATE TABLE IF NOT EXISTS call_routes (
   id SERIAL PRIMARY KEY,
@@ -383,6 +385,13 @@ CREATE TABLE IF NOT EXISTS call_routes (
   enabled BOOLEAN NOT NULL DEFAULT true,
   description TEXT
 );
+
+-- Admin > Architect > Call Routing edits a division per route too (a plain
+-- division code, same bare-TEXT convention as queues.division above — no FK
+-- table of division codes is enforced there either). schedule_id is added
+-- further down, once schedule_groups exists (see below).
+ALTER TABLE call_routes ADD COLUMN IF NOT EXISTS division TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_call_routes_tenant_pattern ON call_routes (tenant_id, match_type, lower(pattern));
 
 -- both queried as "WHERE tenant_id = %s ... ORDER BY priority, name" (carrier.py)
 CREATE INDEX IF NOT EXISTS idx_trunks_tenant_priority ON trunks(tenant_id, priority);
@@ -613,8 +622,14 @@ CREATE TABLE IF NOT EXISTS emergency_groups (
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   flows TEXT[] NOT NULL DEFAULT '{}',
-  active BOOLEAN NOT NULL DEFAULT false
+  active BOOLEAN NOT NULL DEFAULT false,
+  division TEXT,
+  members INTEGER[] NOT NULL DEFAULT '{}',
+  emergency_contacts JSONB NOT NULL DEFAULT '[]'::jsonb,
+  notification_rules JSONB NOT NULL DEFAULT '[]'::jsonb,
+  escalation_tiers JSONB NOT NULL DEFAULT '[]'::jsonb
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_emergency_groups_tenant_name ON emergency_groups (tenant_id, lower(name));
 
 -- Admin > Contact Center > Email Settings — verified sending domains and
 -- the inbound addresses routed off each one.
@@ -691,6 +706,11 @@ CREATE TABLE IF NOT EXISTS schedule_groups (
   holidays TEXT,
   state TEXT NOT NULL DEFAULT 'Open'
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_schedule_groups_tenant_name ON schedule_groups (tenant_id, lower(name));
+
+-- call_routes is defined earlier in this file, before schedule_groups
+-- existed to reference.
+ALTER TABLE call_routes ADD COLUMN IF NOT EXISTS schedule_id INTEGER REFERENCES schedule_groups(id);
 
 -- Admin > Contact Center > Scripts (the list Script Editor opens into).
 -- Only name/type/published persist — the visual drag-drop canvas itself
@@ -1274,10 +1294,13 @@ CREATE TABLE IF NOT EXISTS prompts (
   tts TEXT NOT NULL DEFAULT '',
   lang TEXT NOT NULL DEFAULT 'en-GB',
   audio_name TEXT,
+  audio_data TEXT,
+  audio_mime TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_prompts_tenant ON prompts(tenant_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_prompts_tenant_name ON prompts (tenant_id, lower(name));
 
 DROP TRIGGER IF EXISTS trg_prompts_touch ON prompts;
 CREATE TRIGGER trg_prompts_touch BEFORE UPDATE ON prompts
@@ -1838,3 +1861,63 @@ CREATE TABLE IF NOT EXISTS dnc_numbers (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dnc_numbers_list_phone ON dnc_numbers(list_id, phone);
 CREATE INDEX IF NOT EXISTS idx_dnc_numbers_tenant_phone ON dnc_numbers(tenant_id, phone);
+
+-- ============================================================
+-- Integrations Phase 1 — real Salesforce OAuth connection (see
+-- backend/salesforce_oauth.py / backend/salesforce_client.py). Backs the
+-- Installed tab's Connect/Disconnect/Test Connection controls on the
+-- Salesforce CTI row, and dataact.py's real execution branch for the
+-- CRM_Lookup_Customer data action. Deliberately two NEW tables rather than
+-- any change to installed_integrations/integration_credentials/
+-- data_actions/data_action_runs — none of those needed a schema change.
+-- ============================================================
+
+-- One row per installed Salesforce connection's OAuth tokens. Tokens are
+-- Fernet-encrypted before storage (see salesforce_oauth.py's _encrypt/
+-- _decrypt) — this table never holds a plaintext access/refresh token,
+-- unlike sso_providers.client_secret above, which the schema comment on
+-- that table already admits is a prototype shortcut not to be repeated.
+-- 1:1 with installed_integrations via the UNIQUE constraint — reconnecting
+-- updates the existing row rather than accumulating history.
+CREATE TABLE IF NOT EXISTS salesforce_connections (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  installed_integration_id INTEGER NOT NULL REFERENCES installed_integrations(id) ON DELETE CASCADE,
+  access_token_encrypted TEXT,
+  refresh_token_encrypted TEXT,
+  instance_url TEXT,
+  token_type TEXT,
+  scope TEXT,
+  expires_at TIMESTAMPTZ,
+  -- Not Connected | Connecting | Connected | Authentication Failed |
+  -- Token Expired | Disconnected — set only by salesforce_oauth.py's route
+  -- handlers, never client-writable (this table has no resources.py
+  -- registry entry, so it isn't reachable through the generic CRUD routes).
+  connection_status TEXT NOT NULL DEFAULT 'Not Connected',
+  last_error TEXT NOT NULL DEFAULT '',
+  connected_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (installed_integration_id)
+);
+CREATE INDEX IF NOT EXISTS idx_salesforce_connections_tenant ON salesforce_connections(tenant_id);
+
+DROP TRIGGER IF EXISTS trg_salesforce_connections_touch ON salesforce_connections;
+CREATE TRIGGER trg_salesforce_connections_touch BEFORE UPDATE ON salesforce_connections
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+
+-- Short-lived OAuth CSRF state, mirroring sso_states above exactly (same
+-- single-use-then-delete pattern). redirect_uri is the Genesis frontend
+-- page to bounce back to once the callback finishes — Salesforce's
+-- redirect lands on this backend with no bearer token attached, so tenant/
+-- integration identity for the callback comes from this row, never from
+-- client-supplied input.
+CREATE TABLE IF NOT EXISTS salesforce_oauth_states (
+  state TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  installed_integration_id INTEGER NOT NULL REFERENCES installed_integrations(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id),
+  redirect_uri TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
