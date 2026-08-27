@@ -45,3 +45,6 @@ frontend/.env.local
 # Database (PostgreSQL engine + backups)
 database/pg/
 database/backups/
+
+# TanStack Router codegen — regenerated on every dev/build run
+frontend/src/routeTree.gen.ts
