@@ -347,7 +347,7 @@ REGISTRY = {
         table="gamification_profiles",
         order="name",
         fields=["tenant_id", "name", "applies_to", "target", "m1", "t1", "w1", "m2", "t2", "w2",
-                 "leaderboard", "badges", "challenges", "reset_period", "status"],
+                 "leaderboard", "badges", "challenges", "reset_period", "status", "division"],
         search=["name"],
         perm=None,
     ),

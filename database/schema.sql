@@ -504,8 +504,10 @@ CREATE TABLE IF NOT EXISTS gamification_profiles (
   badges BOOLEAN NOT NULL DEFAULT true,
   challenges BOOLEAN NOT NULL DEFAULT true,
   reset_period TEXT NOT NULL DEFAULT 'Weekly',
-  status TEXT NOT NULL DEFAULT 'Active'
+  status TEXT NOT NULL DEFAULT 'Active',
+  division TEXT NOT NULL DEFAULT ''    -- '' = not division-scoped, else d_home/d_ret/d_dig/d_col/d_man
 );
+ALTER TABLE gamification_profiles ADD COLUMN IF NOT EXISTS division TEXT NOT NULL DEFAULT '';
 
 -- Admin > Integrations > Integrations page's "Installed" tab. Scoped to
 -- just that tab for now — Catalogue/Client Applications/Credentials stay
