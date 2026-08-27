@@ -12,6 +12,7 @@ import { DIRECTORY_SCRIPT } from "../mcm/directory-redesign";
 import { APPS_SCRIPT } from "../mcm/apps-redesign";
 import { BACKEND_SYNC_SCRIPT } from "../mcm/backend-sync";
 import { CANNED_SCRIPT } from "../mcm/canned-redesign";
+import { SCRIPTS_SCRIPT } from "../mcm/scripts-redesign";
 import { CERTS_SCRIPT } from "../mcm/certs-redesign";
 import { CONTACTLISTS_SCRIPT } from "../mcm/contactlists-redesign";
 import { DATAACT_SCRIPT } from "../mcm/dataact-redesign";
@@ -359,6 +360,16 @@ function McmCloudCx() {
     cannedScript.type = "text/javascript";
     cannedScript.textContent = CANNED_SCRIPT;
     document.body.appendChild(cannedScript);
+
+    // Same pattern again — overrides scripts.ts's mock-only Scripts list
+    // and single shared demo Script Editor canvas with a fully backend-
+    // connected list (real create/publish/delete) and a per-script editor
+    // (real save/publish/add-page/add-component/delete-component). See
+    // mcm/scripts-redesign.ts.
+    const scriptsScript = document.createElement("script");
+    scriptsScript.type = "text/javascript";
+    scriptsScript.textContent = SCRIPTS_SCRIPT;
+    document.body.appendChild(scriptsScript);
 
     // Alert Rules + Adherence/WFM backend sync — wraps the window.*
     // functions MCM_SCRIPT already defined with API fetch/persist logic.

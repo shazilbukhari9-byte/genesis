@@ -724,9 +724,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_schedule_groups_tenant_name ON schedule_gro
 ALTER TABLE call_routes ADD COLUMN IF NOT EXISTS schedule_id INTEGER REFERENCES schedule_groups(id);
 
 -- Admin > Contact Center > Scripts (the list Script Editor opens into).
--- Only name/type/published persist — the visual drag-drop canvas itself
--- (scriptView(), window.SCR) is a deep in-place editor, same known gap
--- as Architect's flow-node editing.
+-- name/type/published plus the visual canvas itself (content: pages,
+-- components per page, variables — the same shape as window.SCR) persist
+-- here, so Script Editor is a real per-script editor rather than always
+-- showing one shared static demo (see scripts-redesign.ts).
 CREATE TABLE IF NOT EXISTS scripts (
   id SERIAL PRIMARY KEY,
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -734,6 +735,7 @@ CREATE TABLE IF NOT EXISTS scripts (
   type TEXT,
   published BOOLEAN NOT NULL DEFAULT false
 );
+ALTER TABLE scripts ADD COLUMN IF NOT EXISTS content JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 -- Now that flows/queues exist, wire the interactions.flow_id FK too.
 DO $$

@@ -1566,12 +1566,63 @@ def resource_delete(resource, row_id):
                 ),
             )
 
+    # A deleted script would otherwise linger as a dangling id inside every
+    # queue.config.script that pointed at it — same "clear the reference,
+    # don't leave a dangling id" reasoning as roles/skills above.
+    if resource == 'scripts':
+        cur.execute(
+            "UPDATE queues SET config = jsonb_set(config, '{script}', 'null'::jsonb) "
+            "WHERE tenant_id = %s AND (config ->> 'script')::int = %s",
+            (g.tenant_id, row_id),
+        )
+
     conn.commit()
     conn.close()
     resp = {'ok': True}
     if removed is not None:
         resp['_propagatedHits'] = delete_hits
     return jsonify(resp)
+
+
+# ---------------------------------------------------------------------------
+# Admin > Contact Center > Scripts — "default on queues" assignment.
+# queues has no dedicated script column (see database/schema.sql); the
+# assignment lives at config.script, touched with jsonb_set so the rest of
+# a queue's config (rings, lang, ...) round-trips untouched.
+# ---------------------------------------------------------------------------
+@app.route('/api/scripts/<int:script_id>/queues')
+def script_assigned_queues(script_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, name FROM queues WHERE tenant_id = %s AND (config ->> 'script')::int = %s ORDER BY name",
+        (g.tenant_id, script_id),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/queues/<int:queue_id>/script', methods=['PUT'])
+def set_queue_script(queue_id):
+    data = request.get_json(force=True) or {}
+    script_id = data.get('script_id')
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('SELECT id FROM queues WHERE id = %s AND tenant_id = %s', (queue_id, g.tenant_id))
+    if cur.fetchone() is None:
+        conn.close()
+        return jsonify({'ok': False, 'error': 'not found'}), 404
+
+    cur.execute(
+        "UPDATE queues SET config = jsonb_set(config, '{script}', %s) WHERE id = %s AND tenant_id = %s RETURNING config",
+        (PgJson(script_id), queue_id, g.tenant_id),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'config': row['config']})
 
 
 if __name__ == '__main__':

@@ -295,7 +295,11 @@ REGISTRY = {
     "scripts": dict(
         table="scripts",
         order="name",
-        fields=["tenant_id", "name", "type", "published"],
+        # content is the visual canvas (pages/components/variables — the same
+        # shape as frontend window.SCR); a plain dict, so it round-trips as
+        # jsonb via db.py's register_adapter(dict, Json) with no json_fields
+        # entry needed (that's only for JSONB columns storing a bare list).
+        fields=["tenant_id", "name", "type", "published", "content"],
         search=["name"],
         perm=None,
     ),
