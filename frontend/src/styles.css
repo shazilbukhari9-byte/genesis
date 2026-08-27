@@ -157,10 +157,9 @@
 /* react-toastify's mobile breakpoint puts top-* containers flush at
    top:0, directly under the MCM app shell's fixed top bar (#top, 48px —
    see frontend/src/mcm/mcm.css). Offsetting below it keeps the (top)
-   stacked deck from starting underneath the header. This is the ONLY
-   normal position -- a single toast gets no extra headroom, so it never
-   leaves a dead gap of empty space above it (see the [data-toast-multi]
-   override below for the one case that does need room reserved). */
+   stacked deck from starting underneath the header. Superseded whenever a
+   toast is actually showing by the [data-toast-active] override below,
+   which reserves extra room for the "Clear all" pill. */
 @media (max-width: 480px) {
   .Toastify__toast-container.Toastify__toast-container--top-left,
   .Toastify__toast-container.Toastify__toast-container--top-center,
@@ -192,21 +191,40 @@
    card face so the peek is actually visible -- this is the primary "is
    there another one" signal; the count pill below is the explicit backup. */
 .Toastify__toast-container[data-stacked='true'] {
-  --toastify-toast-width: 320px;
+  /* Capped to the viewport instead of a flat 320px: on a narrower desktop
+     window (a split-screen browser, a smaller laptop) a fixed 320px card
+     could span most of the visible width, reading as "covering the whole
+     screen" instead of sitting docked to one side. min() keeps a real
+     margin on every window size while still hitting 320px on anything
+     reasonably wide. */
+  --toastify-toast-width: min(320px, calc(100vw - 48px));
 }
 @media (max-width: 480px) {
+  /* Previously stretched edge-to-edge (left:12px AND right:12px) on every
+     screen this rule applies to -- fine for a true ~375px phone where a
+     320px-wide card leaves an awkward sliver of unused space either side,
+     but on anything wider within this breakpoint (a resized/split desktop
+     window, a small tablet) it read as "spanning the whole screen" instead
+     of docked to one side. Anchoring to the right only, capped at 320px,
+     keeps it a normal one-sided toast on any window that isn't genuinely
+     phone-narrow, while still shrinking to fit on one that is. */
   .Toastify__toast-container[data-stacked='true'] {
-    --toastify-toast-width: calc(100vw - 24px);
-    left: 12px !important;
+    --toastify-toast-width: min(320px, calc(100vw - 24px));
+    /* react-toastify's own mobile rule sets left: env(safe-area-inset-left)
+       (effectively 0) -- left + right + width all non-auto at once is
+       over-constrained, and per spec `left` wins over `right` in LTR,
+       silently pinning the deck to the left edge no matter what `right`
+       says. Cancel it explicitly so `right` actually takes effect. */
+    left: auto !important;
     right: 12px !important;
-    width: calc(100vw - 24px) !important;
+    width: min(320px, calc(100vw - 24px)) !important;
   }
 }
-/* Only reserve headroom for the "Clear all" pill once there's a second
-   toast for it to describe (useToastMultiFlag, __root.tsx, flags this on
-   <html> instead of unconditionally, which used to leave a permanent empty
-   gap above every single toast even when nothing occupied it). */
-html[data-toast-multi] .Toastify__toast-container[data-stacked='true'] {
+/* Reserve headroom for the "Clear all" pill whenever a toast is showing
+   (useToastActiveFlag, __root.tsx, flags this on <html>) -- the pill itself
+   is shown for any active toast too (see ClearAllToasts), so this space is
+   never sitting empty. */
+html[data-toast-active] .Toastify__toast-container[data-stacked='true'] {
   /* react-toastify bakes its var(--toastify-toast-offset) substitution into
      --toastify-toast-top's INHERITED computed value at :root, so overriding
      --toastify-toast-offset down here has no effect on `top` -- set `top`
@@ -214,7 +232,7 @@ html[data-toast-multi] .Toastify__toast-container[data-stacked='true'] {
   top: 44px;
 }
 @media (max-width: 480px) {
-  html[data-toast-multi] .Toastify__toast-container[data-stacked='true'] {
+  html[data-toast-active] .Toastify__toast-container[data-stacked='true'] {
     top: 92px;
   }
 }
@@ -228,13 +246,13 @@ html[data-toast-multi] .Toastify__toast-container[data-stacked='true'] {
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16);
 }
 
-/* Floating "Clear all" pill (ClearAllToasts, __root.tsx) -- shown once 2+
-   toasts are active, since a single toast is already easy to dismiss on
-   its own. Names the count outright ("3 notifications") rather than
-   leaving "how many are there" to the stacked deck's peeking edges alone.
-   Sits in the space reserved above the deck (see the [data-toast-multi]
-   `top` override above) so it's always visible, never covered by the top
-   toast card. */
+/* Floating "Clear all" pill (ClearAllToasts, __root.tsx) -- shown for any
+   active toast, not just 2+, so it's a reliable, always-in-the-same-place
+   control instead of something that only sometimes exists. Names the count
+   outright ("3 notifications") rather than leaving "how many are there" to
+   the stacked deck's peeking edges alone. Sits in the space reserved above
+   the deck (see the [data-toast-active] `top` override above) so it's
+   always visible, never covered by the top toast card. */
 .mcm-toast-clear-all {
   position: fixed;
   top: 8px;
