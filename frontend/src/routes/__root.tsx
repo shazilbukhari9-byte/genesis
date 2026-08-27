@@ -139,19 +139,36 @@ function useActiveToastCount(): number {
   return count;
 }
 
-// "Clear all" is not a built-in react-toastify control — toast.dismiss()
-// with no id dismisses every active toast, so this just needs a button
-// that shows once there's more than one to clear.
-function ClearAllToasts() {
+// The reserved gap above the deck exists so the "Clear all" pill always has
+// somewhere to sit that isn't underneath the top toast card. Gating this on
+// count (only reserving it for 2+) was tried first, but that just traded
+// "dead space above a single toast" for "no way to clear the one toast
+// that's there" -- reserving it whenever a toast exists, and showing the
+// pill every time too, means the space is always doing something.
+function useToastActiveFlag() {
   const count = useActiveToastCount();
-  if (count < 2) return null;
+  useEffect(() => {
+    document.documentElement.toggleAttribute("data-toast-active", count >= 1);
+  }, [count]);
+  return count;
+}
+
+// "Clear all" is not a built-in react-toastify control — toast.dismiss()
+// with no id dismisses every active toast. Shown for any active toast (not
+// just 2+) so it's a reliable, always-in-the-same-place control rather than
+// something that only sometimes exists -- and it names the count outright
+// rather than relying on how visible the collapsed cards' peeking edges are.
+function ClearAllToasts() {
+  const count = useToastActiveFlag();
+  if (count < 1) return null;
+  const label = count === 1 ? "1 notification" : `${count} notifications`;
   return (
     <button
       type="button"
       className="mcm-toast-clear-all"
       onClick={() => toastify.dismiss()}
     >
-      Clear all ({count})
+      {label} · Clear all
     </button>
   );
 }

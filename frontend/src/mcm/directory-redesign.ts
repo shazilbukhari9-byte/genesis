@@ -93,17 +93,58 @@ export const DIRECTORY_SCRIPT: string = `
     var h = { 'Content-Type': 'application/json' };
     if (token) h.Authorization = 'Bearer ' + token;
     return fetch(API_BASE + path, Object.assign({ headers: h }, init || {})).then(function (r) {
-      if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+      if (!r.ok) {
+        return r.json().catch(function () { return {}; }).then(function (b) {
+          var err = new Error(b.error || (r.status + ' ' + r.statusText));
+          err.status = r.status;
+          throw err;
+        });
+      }
       return r.status === 204 ? null : r.json();
     });
   }
   /* Every read/write goes through this: try the API when enabled, otherwise
-     (or on failure) resolve from the local store. One place to change. */
+     (or on failure) resolve from the local store. One place to change. --
+     except a 4xx: that's the backend actively rejecting the request (e.g.
+     _validate_title_dept in backend/directory.py), not an outage, so
+     falling back to "succeed locally anyway" would silently persist data
+     the API just refused and show a false "Saved" toast. Only network/5xx
+     failures fall back; a real rejection propagates so the caller can
+     show the actual reason. */
   function via(path, init, local) {
     if (!USE_API) return Promise.resolve(local());
     return request(path, init).catch(function (e) {
+      if (e.status >= 400 && e.status < 500) throw e;
       console.warn('[directory] API fallback for ' + path, e.message);
       return local();
+    });
+  }
+
+  /* Job titles/departments share the same managed picklist (simple_entities,
+     kind='title'|'dept') as the People & Permissions module -- see that
+     module's TitlesPage/DepartmentsPage and store.ts's SimpleEntityKind.
+     That's a plain /api/simple-entities route, not one of this file's own
+     /api/directory/* endpoints, so it needs the API root rather than
+     request()'s directory-prefixed API_BASE. */
+  function requestCore(path, init) {
+    var base = window.__GENESIS_API_BASE || 'https://genesis-yysv.onrender.com';
+    var token = (window.APP && window.APP.token) || window.__authToken || localStorage.getItem('mcm_token');
+    var h = { 'Content-Type': 'application/json' };
+    if (token) h.Authorization = 'Bearer ' + token;
+    return fetch(base + path, Object.assign({ headers: h }, init || {})).then(function (r) {
+      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (b) { throw new Error(b.error || (r.status + ' ' + r.statusText)); });
+      return r.status === 204 ? null : r.json();
+    });
+  }
+  function fetchPicklistNames(kind) {
+    return requestCore('/api/simple-entities?kind=' + kind)
+      .then(function (rows) { return rows.map(function (r) { return r.name; }); })
+      .catch(function () { return []; });
+  }
+  function createPicklistEntry(kind, name) {
+    return requestCore('/api/simple-entities', {
+      method: 'POST',
+      body: JSON.stringify({ kind: kind, name: name, description: '' }),
     });
   }
 
@@ -165,6 +206,7 @@ export const DIRECTORY_SCRIPT: string = `
     };
   }
 
+  var PICKLIST_CACHE = { title: [], dept: [] };
   var cache = null;
   function db() {
     if (cache) return cache;
@@ -884,8 +926,17 @@ export const DIRECTORY_SCRIPT: string = `
 
   var FORMS = {
     people: function (r) {
+      // Options come from PICKLIST_CACHE, populated by openForm() just
+      // before this runs (see there) -- the same managed list People &
+      // Permissions' Titles/Departments admin pages manage, not free text.
+      // "+ Add new…" is a sentinel: selecting it swaps the <select> for an
+      // inline text input (see wirePicklistField, below openForm) rather
+      // than a native prompt() or a second nested overlay, since this
+      // module can only ever have one overlay open at a time.
+      var titleOpts = (r.title && PICKLIST_CACHE.title.indexOf(r.title) === -1 ? [r.title] : []).concat(PICKLIST_CACHE.title, ['+ Add new…']);
+      var deptOpts = (r.dept && PICKLIST_CACHE.dept.indexOf(r.dept) === -1 ? [r.dept] : []).concat(PICKLIST_CACHE.dept, ['+ Add new…']);
       return field('Full name', 'name', r.name || '') +
-        '<div class="dxr-two">' + field('Job title', 'title', r.title || '') + field('Department', 'dept', r.dept || '') + '</div>' +
+        '<div class="dxr-two">' + field('Job title', 'title', r.title || '', 'select', titleOpts) + field('Department', 'dept', r.dept || '', 'select', deptOpts) + '</div>' +
         '<div class="dxr-two">' + field('Email', 'email', r.email || '', 'email') + field('Extension', 'ext', r.ext || '') + '</div>' +
         '<div class="dxr-two">' + field('Direct dial', 'phone', r.phone || '') + field('Location', 'location', r.location || SVC.locationNames()[0], 'select', SVC.locationNames()) + '</div>' +
         '<div class="dxr-two">' + field('Presence', 'presence', r.presence || 'Available', 'select', Object.keys(PRES)) +
@@ -936,29 +987,101 @@ export const DIRECTORY_SCRIPT: string = `
     external: ['contact', 'External contact'], fields: ['field', 'Profile field'], workspaces: ['workspace', 'Document workspace']
   };
 
+  // Selecting "+ Add new…" swaps that one field's <select> for an inline
+  // text input + Add/Cancel, all inside the still-open form (this module's
+  // overlay() can only ever hold one overlay at a time — a second shell()
+  // for the "add" step would tear down the person form underneath it and
+  // lose whatever else was typed). Confirming creates the entry via the
+  // real /api/simple-entities picklist immediately, then swaps back to the
+  // <select> with the new value selected.
+  function wirePicklistField(kind, fieldName) {
+    var select = document.getElementById('dxr_f_' + fieldName);
+    if (!select) return;
+    var fld = select.closest('.dxr-fld');
+    var label = fieldName === 'title' ? 'Job title' : 'Department';
+
+    function selectMarkup(value) {
+      var opts = (kind === 'title' ? PICKLIST_CACHE.title : PICKLIST_CACHE.dept).concat(['+ Add new…']);
+      return '<label for="dxr_f_' + fieldName + '">' + esc(label) + '</label>' +
+        '<select class="dxr-sel" id="dxr_f_' + fieldName + '" data-f="' + fieldName + '">' +
+        opts.map(function (o) { return '<option value="' + esc(o) + '"' + (o === value ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') +
+        '</select>';
+    }
+
+    select.onchange = function () {
+      if (select.value !== '+ Add new…') return;
+      fld.innerHTML = '<label>' + esc(label) + '</label>' +
+        '<div style="display:flex;gap:6px">' +
+        '<input class="dxr-in" id="dxr_new_' + fieldName + '" placeholder="New ' + esc(label.toLowerCase()) + '" style="flex:1">' +
+        '<button class="dxr-btn" id="dxr_new_' + fieldName + '_ok">Add</button>' +
+        '<button class="dxr-btn" id="dxr_new_' + fieldName + '_cancel">Cancel</button></div>' +
+        '<div id="dxr_new_' + fieldName + '_err" style="display:none;color:#c53030;font-size:11.5px;margin-top:4px"></div>';
+      var input = document.getElementById('dxr_new_' + fieldName);
+      var errEl = document.getElementById('dxr_new_' + fieldName + '_err');
+      input.focus();
+      function cancel() {
+        fld.innerHTML = selectMarkup('');
+        wirePicklistField(kind, fieldName);
+      }
+      function confirmAdd() {
+        var name = input.value.trim();
+        if (name.length < 2) { errEl.style.display = ''; errEl.textContent = label + ' must be at least 2 characters.'; return; }
+        createPicklistEntry(kind, name).then(function () {
+          if (kind === 'title') { if (PICKLIST_CACHE.title.indexOf(name) === -1) PICKLIST_CACHE.title.push(name); }
+          else { if (PICKLIST_CACHE.dept.indexOf(name) === -1) PICKLIST_CACHE.dept.push(name); }
+          fld.innerHTML = selectMarkup(name);
+          wirePicklistField(kind, fieldName);
+        }).catch(function (e) {
+          errEl.style.display = '';
+          errEl.textContent = e.message || ('Could not add that ' + label.toLowerCase() + '.');
+        });
+      }
+      document.getElementById('dxr_new_' + fieldName + '_ok').onclick = confirmAdd;
+      document.getElementById('dxr_new_' + fieldName + '_cancel').onclick = cancel;
+      input.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); confirmAdd(); } if (e.key === 'Escape') cancel(); };
+    };
+  }
+
   function openForm(entity, rec) {
     rec = rec || {};
     var t = TITLES[entity];
-    shell(false, (rec.id ? 'Edit ' : 'New ') + t[0], t[1] + (rec.id ? ' · ' + (rec.name || rec.label) : ' — fields marked in the API map to your backend payload'),
-      FORMS[entity](rec),
-      '<button class="dxr-btn" onclick="MCMDirectory.ui.close()">Cancel</button>' +
-      '<button class="dxr-btn pri" id="dxr_save">' + (rec.id ? 'Save changes' : 'Create') + '</button>');
-    document.getElementById('dxr_save').onclick = function () {
-      var data = readForm();
-      var nameKey = entity === 'fields' ? 'label' : 'name';
-      if (!data[nameKey]) { toast('Give it a name first'); return; }
-      if (data.floorsText != null) { data.floors = data.floorsText.split('\\n').filter(Boolean); delete data.floorsText; }
-      if (data.requiredText != null) { data.required = data.requiredText === 'Required'; delete data.requiredText; }
-      if (entity === 'workspaces' && !rec.id) { data.docs = 0; data.size = '0 MB'; data.updated = today(); }
-      if (entity === 'external' && !rec.id) data.lastContact = today();
-      if (entity === 'people' && !rec.id) { data.started = today(); data.skills = []; data.langs = ['English']; data.queues = []; }
-      if (rec.id) data.id = rec.id;
-      SVC[entity].upsert(data).then(function () {
-        closeOverlay();
-        toast((rec.id ? 'Saved ' : 'Created ') + (data[nameKey]));
-        rerenderCurrent();
+    function render() {
+      shell(false, (rec.id ? 'Edit ' : 'New ') + t[0], t[1] + (rec.id ? ' · ' + (rec.name || rec.label) : ' — fields marked in the API map to your backend payload'),
+        FORMS[entity](rec),
+        '<button class="dxr-btn" onclick="MCMDirectory.ui.close()">Cancel</button>' +
+        '<button class="dxr-btn pri" id="dxr_save">' + (rec.id ? 'Save changes' : 'Create') + '</button>');
+      if (entity === 'people') {
+        wirePicklistField('title', 'title');
+        wirePicklistField('dept', 'dept');
+      }
+      document.getElementById('dxr_save').onclick = function () {
+        var data = readForm();
+        var nameKey = entity === 'fields' ? 'label' : 'name';
+        if (!data[nameKey]) { toast('Give it a name first'); return; }
+        if (data.floorsText != null) { data.floors = data.floorsText.split('\\n').filter(Boolean); delete data.floorsText; }
+        if (data.requiredText != null) { data.required = data.requiredText === 'Required'; delete data.requiredText; }
+        if (entity === 'workspaces' && !rec.id) { data.docs = 0; data.size = '0 MB'; data.updated = today(); }
+        if (entity === 'external' && !rec.id) data.lastContact = today();
+        if (entity === 'people' && !rec.id) { data.started = today(); data.skills = []; data.langs = ['English']; data.queues = []; }
+        if (rec.id) data.id = rec.id;
+        SVC[entity].upsert(data).then(function () {
+          closeOverlay();
+          toast((rec.id ? 'Saved ' : 'Created ') + (data[nameKey]));
+          rerenderCurrent();
+        }).catch(function (e) {
+          toast(e.message || 'Could not save.');
+        });
+      };
+    }
+    if (entity === 'people') {
+      Promise.all([fetchPicklistNames('title'), fetchPicklistNames('dept')]).then(function (res) {
+        PICKLIST_CACHE.title = res[0];
+        PICKLIST_CACHE.dept = res[1];
+        render();
       });
-    };
+      return;
+    }
+    render();
   }
 
   function chatDrawer(target) {

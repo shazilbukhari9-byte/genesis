@@ -157,7 +157,9 @@
 /* react-toastify's mobile breakpoint puts top-* containers flush at
    top:0, directly under the MCM app shell's fixed top bar (#top, 48px —
    see frontend/src/mcm/mcm.css). Offsetting below it keeps the (top)
-   stacked deck from starting underneath the header. */
+   stacked deck from starting underneath the header. Superseded whenever a
+   toast is actually showing by the [data-toast-active] override below,
+   which reserves extra room for the "Clear all" pill. */
 @media (max-width: 480px) {
   .Toastify__toast-container.Toastify__toast-container--top-left,
   .Toastify__toast-container.Toastify__toast-container--top-center,
@@ -181,31 +183,84 @@
    card is fully visible, older ones collapse behind it as a thin sliver of
    edge, so N toasts never add up to N toast-heights of screen no matter
    how many alerts fire. Dismissing the top card (click / autoClose / the
-   swipe gesture `draggable` already enables) reveals the next one. */
+   swipe gesture `draggable` already enables) reveals the next one.
+   react-toastify's own stylesheet never gives the collapsed cards' `:before`
+   "peek" pseudo-element a background/border/shadow of its own -- it's
+   transparent by default, so a collapsed card sitting behind the top one is
+   visually indistinguishable from empty page background. Give it a real
+   card face so the peek is actually visible -- this is the primary "is
+   there another one" signal; the count pill below is the explicit backup. */
 .Toastify__toast-container[data-stacked='true'] {
-  --toastify-toast-width: 320px;
+  /* Capped to the viewport instead of a flat 320px: on a narrower desktop
+     window (a split-screen browser, a smaller laptop) a fixed 320px card
+     could span most of the visible width, reading as "covering the whole
+     screen" instead of sitting docked to one side. min() keeps a real
+     margin on every window size while still hitting 320px on anything
+     reasonably wide. */
+  --toastify-toast-width: min(320px, calc(100vw - 48px));
 }
 @media (max-width: 480px) {
+  /* Previously stretched edge-to-edge (left:12px AND right:12px) on every
+     screen this rule applies to -- fine for a true ~375px phone where a
+     320px-wide card leaves an awkward sliver of unused space either side,
+     but on anything wider within this breakpoint (a resized/split desktop
+     window, a small tablet) it read as "spanning the whole screen" instead
+     of docked to one side. Anchoring to the right only, capped at 320px,
+     keeps it a normal one-sided toast on any window that isn't genuinely
+     phone-narrow, while still shrinking to fit on one that is. */
   .Toastify__toast-container[data-stacked='true'] {
-    --toastify-toast-width: calc(100vw - 24px);
-    left: 12px !important;
+    --toastify-toast-width: min(320px, calc(100vw - 24px));
+    /* react-toastify's own mobile rule sets left: env(safe-area-inset-left)
+       (effectively 0) -- left + right + width all non-auto at once is
+       over-constrained, and per spec `left` wins over `right` in LTR,
+       silently pinning the deck to the left edge no matter what `right`
+       says. Cancel it explicitly so `right` actually takes effect. */
+    left: auto !important;
     right: 12px !important;
-    width: calc(100vw - 24px) !important;
+    width: min(320px, calc(100vw - 24px)) !important;
+  }
+}
+/* Reserve headroom for the "Clear all" pill whenever a toast is showing
+   (useToastActiveFlag, __root.tsx, flags this on <html>) -- the pill itself
+   is shown for any active toast too (see ClearAllToasts), so this space is
+   never sitting empty. */
+html[data-toast-active] .Toastify__toast-container[data-stacked='true'] {
+  /* react-toastify bakes its var(--toastify-toast-offset) substitution into
+     --toastify-toast-top's INHERITED computed value at :root, so overriding
+     --toastify-toast-offset down here has no effect on `top` -- set `top`
+     directly instead. */
+  top: 44px;
+}
+@media (max-width: 480px) {
+  html[data-toast-active] .Toastify__toast-container[data-stacked='true'] {
+    top: 92px;
   }
 }
 .mcm-toast.Toastify__toast {
   margin-bottom: 0;
 }
+.mcm-toast.Toastify__toast--stacked:before {
+  background: var(--toastify-color-light, #fff);
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: var(--toastify-toast-bd-radius, 10px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16);
+}
 
-/* Floating "Clear all" pill (ClearAllToasts, __root.tsx) -- shown once 2+
-   toasts are active, since a single toast is already easy to dismiss on
-   its own. Anchored under the stacked deck's top-right corner on both
-   desktop and mobile. */
+/* Floating "Clear all" pill (ClearAllToasts, __root.tsx) -- shown for any
+   active toast, not just 2+, so it's a reliable, always-in-the-same-place
+   control instead of something that only sometimes exists. Names the count
+   outright ("3 notifications") rather than leaving "how many are there" to
+   the stacked deck's peeking edges alone. Sits in the space reserved above
+   the deck (see the [data-toast-active] `top` override above) so it's
+   always visible, never covered by the top toast card. */
 .mcm-toast-clear-all {
   position: fixed;
-  top: 12px;
-  right: 12px;
+  top: 8px;
+  right: 16px;
   z-index: 9998;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   border: none;
   border-radius: 999px;
   background: #152550;
@@ -222,7 +277,7 @@
 }
 @media (max-width: 480px) {
   .mcm-toast-clear-all {
-    top: calc(56px + 8px);
+    top: 60px;
     right: 16px;
     font-size: 11.5px;
     padding: 5px 12px;
@@ -232,8 +287,25 @@
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
   font-size: 13px;
-  padding: 10px 14px;
+  padding: 10px 14px 10px 12px;
   min-height: 0;
+  /* A flat white card with only a hairline progress bar at the bottom read
+     as unfinished/plain -- a colored left accent (keyed to the same
+     success/error/warning/info tokens as the progress bar below) gives the
+     card a visible identity at a glance, not just on hover/after reading. */
+  border-left: 4px solid var(--toastify-color-info);
+}
+.mcm-toast.Toastify__toast--success {
+  border-left-color: var(--toastify-color-success);
+}
+.mcm-toast.Toastify__toast--error {
+  border-left-color: var(--toastify-color-error);
+}
+.mcm-toast.Toastify__toast--warning {
+  border-left-color: var(--toastify-color-warning);
+}
+.mcm-toast.Toastify__toast--default {
+  border-left-color: #ff4f1f;
 }
 .mcm-toast .Toastify__toast-body {
   padding: 2px 4px;

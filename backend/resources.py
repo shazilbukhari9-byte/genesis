@@ -133,7 +133,7 @@ REGISTRY = {
         order="priority, name",
         fields=["tenant_id", "name", "match_type", "pattern", "destination_type",
                  "flow_id", "queue_id", "user_id", "external_number", "priority",
-                 "enabled", "description"],
+                 "enabled", "description", "schedule_id", "division"],
         search=["name", "pattern", "description"],
         perm=None,
     ),
@@ -169,9 +169,16 @@ REGISTRY = {
     "emergency-groups": dict(
         table="emergency_groups",
         order="name",
-        fields=["tenant_id", "name", "flows", "active"],
+        fields=["tenant_id", "name", "flows", "active", "division", "members",
+                 "emergency_contacts", "notification_rules", "escalation_tiers"],
         search=["name"],
         perm=None,
+        # emergency_contacts/notification_rules/escalation_tiers are each a
+        # JSONB column storing a *list* at its top level — see eval-forms'
+        # json_fields note in _prep_value (app.py) for why that needs this
+        # opt-out. flows/members stay bare Python lists on purpose: they're
+        # real Postgres TEXT[]/INTEGER[] columns, not JSONB.
+        json_fields=["emergency_contacts", "notification_rules", "escalation_tiers"],
     ),
     "email-domains": dict(
         table="email_domains",
@@ -218,7 +225,7 @@ REGISTRY = {
     "prompts": dict(
         table="prompts",
         order="name",
-        fields=["tenant_id", "name", "description", "tts", "lang", "audio_name"],
+        fields=["tenant_id", "name", "description", "tts", "lang", "audio_name", "audio_data", "audio_mime"],
         search=["name", "description"],
         perm=None,
     ),
@@ -340,7 +347,7 @@ REGISTRY = {
         table="gamification_profiles",
         order="name",
         fields=["tenant_id", "name", "applies_to", "target", "m1", "t1", "w1", "m2", "t2", "w2",
-                 "leaderboard", "badges", "challenges", "reset_period", "status"],
+                 "leaderboard", "badges", "challenges", "reset_period", "status", "division"],
         search=["name"],
         perm=None,
     ),

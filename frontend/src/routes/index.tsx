@@ -17,6 +17,12 @@ import { CONTACTLISTS_SCRIPT } from "../mcm/contactlists-redesign";
 import { DATAACT_SCRIPT } from "../mcm/dataact-redesign";
 import { DNCLISTS_SCRIPT } from "../mcm/dnclists-redesign";
 import { SUBSCRIPTION_SCRIPT } from "../mcm/subscription-redesign";
+import { FLOWS_SCRIPT } from "../mcm/flows-redesign";
+import { PROMPTS_SCRIPT } from "../mcm/prompts-redesign";
+import { CALLROUTING_SCRIPT } from "../mcm/callrouting-redesign";
+import { EMERGENCY_SCRIPT } from "../mcm/emergency-redesign";
+import { GALLERY_SCRIPT } from "../mcm/gallery-redesign";
+import { GAMIFICATION_SCRIPT } from "../mcm/gamification-redesign";
 import { INTEGRATIONS_THEME_SCRIPT } from "../mcm/integrations-theme";
 import { INTEGRATIONS_RESPONSIVE_SCRIPT } from "../mcm/integrations-responsive";
 import { RESPONSIVE_NAV_SCRIPT } from "../mcm/responsive-nav";
@@ -34,6 +40,8 @@ import { DivisionsPage } from "../features/people-permissions/DivisionsPage";
 import { GroupsPage } from "../features/people-permissions/GroupsPage";
 import { SkillsPage } from "../features/people-permissions/SkillsPage";
 import { LangsPage } from "../features/people-permissions/LangsPage";
+import { TitlesPage } from "../features/people-permissions/TitlesPage";
+import { DepartmentsPage } from "../features/people-permissions/DepartmentsPage";
 import { LicencesPage } from "../features/people-permissions/LicencesPage";
 import { SsoPage } from "../features/sso/SsoPage";
 import { OAuthClientsPage } from "../features/oauth-clients/OAuthClientsPage";
@@ -83,6 +91,10 @@ declare global {
     __hideSkills?: () => void;
     __showLangs?: () => void;
     __hideLangs?: () => void;
+    __showTitles?: () => void;
+    __hideTitles?: () => void;
+    __showDepts?: () => void;
+    __hideDepts?: () => void;
     __showLicences?: () => void;
     __hideLicences?: () => void;
     __showSso?: () => void;
@@ -236,6 +248,14 @@ function McmCloudCx() {
     window.__showLangs = langs.show;
     window.__hideLangs = langs.hide;
 
+    const titles = mountLegacyReactPage("titlesRoot", <TitlesPage />);
+    window.__showTitles = titles.show;
+    window.__hideTitles = titles.hide;
+
+    const depts = mountLegacyReactPage("deptsRoot", <DepartmentsPage />);
+    window.__showDepts = depts.show;
+    window.__hideDepts = depts.hide;
+
     const licences = mountLegacyReactPage("licencesRoot", <LicencesPage />);
     window.__showLicences = licences.show;
     window.__hideLicences = licences.hide;
@@ -355,6 +375,15 @@ function McmCloudCx() {
     certsScript.textContent = CERTS_SCRIPT;
     document.body.appendChild(certsScript);
 
+    // Wraps window.renderGamif with the missing Division/Status filters,
+    // Columns popover, Export button, and pagination footer — all present
+    // in the prototype's own static markup for this page but never built
+    // into the real render function. See mcm/gamification-redesign.ts.
+    const gamificationScript = document.createElement("script");
+    gamificationScript.type = "text/javascript";
+    gamificationScript.textContent = GAMIFICATION_SCRIPT;
+    document.body.appendChild(gamificationScript);
+
     // Wraps window.openPage to intercept 'contactlists' — it's DYN4-routed
     // in scripts.ts (like 'canned' was DYN9-routed), so a plain
     // window.renderContactLists reassignment alone wouldn't be picked up.
@@ -371,6 +400,50 @@ function McmCloudCx() {
     dataactScript.type = "text/javascript";
     dataactScript.textContent = DATAACT_SCRIPT;
     document.body.appendChild(dataactScript);
+
+    // Makes Architect's Publish button persist the flow graph/status to
+    // the backend (was local-only — reverted on reload). See
+    // mcm/flows-redesign.ts.
+    const flowsScript = document.createElement("script");
+    flowsScript.type = "text/javascript";
+    flowsScript.textContent = FLOWS_SCRIPT;
+    document.body.appendChild(flowsScript);
+
+    // Patches window.SNAP.prompts (Prompts) with real, backend-connected
+    // data — same visual page, dead Add/Export/row-edit made real, no
+    // more single shared "Saved — prototype only" stub. See
+    // mcm/prompts-redesign.ts.
+    const promptsScript = document.createElement("script");
+    promptsScript.type = "text/javascript";
+    promptsScript.textContent = PROMPTS_SCRIPT;
+    document.body.appendChild(promptsScript);
+
+    // Makes Call Routing (the "Call Routing" button on the Flows page)
+    // real: Edit, Enable/Disable, search/filters/pagination, and a
+    // schedule/division/queue-fallback editor, replacing what was a
+    // bare Create+Delete list with no other controls. See
+    // mcm/callrouting-redesign.ts.
+    const callRoutingScript = document.createElement("script");
+    callRoutingScript.type = "text/javascript";
+    callRoutingScript.textContent = CALLROUTING_SCRIPT;
+    document.body.appendChild(callRoutingScript);
+
+    // Patches window.renderEmergencyFx (Emergency Groups) with a real
+    // "+ Add Group" (was a static toast, no create action at all). See
+    // mcm/emergency-redesign.ts.
+    const emergencyScript = document.createElement("script");
+    emergencyScript.type = "text/javascript";
+    emergencyScript.textContent = EMERGENCY_SCRIPT;
+    document.body.appendChild(emergencyScript);
+
+    // Makes the Screen Gallery's search, category filter, Refresh, and
+    // Back (the breadcrumb) real, and fixes 4 blank workspace-tile
+    // thumbnails and a filter-to-zero-results blank page. See
+    // mcm/gallery-redesign.ts.
+    const galleryScript = document.createElement("script");
+    galleryScript.type = "text/javascript";
+    galleryScript.textContent = GALLERY_SCRIPT;
+    document.body.appendChild(galleryScript);
 
     // Wraps window.openPage to intercept 'dnclists' — it's DYN4-routed
     // in scripts.ts (like 'contactlists'), so a plain window.renderDnc
@@ -461,7 +534,7 @@ function McmCloudCx() {
     // appendChild() calls pile up on top of live, orphaned ones instead of
     // starting clean.
     const allPages = [
-      orgSettings, purchases, auditLog, people, roles, divisions, groups, skills, langs, licences,
+      orgSettings, purchases, auditLog, people, roles, divisions, groups, skills, langs, titles, depts, licences,
       sso, oauth, recpol, evalforms, calibrations, forecasts,
     ];
     const allScripts = [
@@ -470,7 +543,7 @@ function McmCloudCx() {
       directoryScript, appsScript, cannedScript, syncScript, certsScript, contactListsScript,
       dataactScript, dncListsScript, subscriptionScript, recpolScript, evalformsScript,
       calibrationsScript, forecastsScript, integrationsThemeScript, integrationsResponsiveScript,
-      sessionGuardScript,
+      sessionGuardScript, gamificationScript,
     ];
     return () => {
       ranRef.current = false;
