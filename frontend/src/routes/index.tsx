@@ -20,6 +20,8 @@ import { SUBSCRIPTION_SCRIPT } from "../mcm/subscription-redesign";
 import { INTEGRATIONS_THEME_SCRIPT } from "../mcm/integrations-theme";
 import { INTEGRATIONS_RESPONSIVE_SCRIPT } from "../mcm/integrations-responsive";
 import { RESPONSIVE_NAV_SCRIPT } from "../mcm/responsive-nav";
+import { GLOBAL_SIDEBAR_SCRIPT } from "../mcm/global-sidebar";
+import { SCRIPT_EDITOR_RESPONSIVE_SCRIPT } from "../mcm/script-editor-responsive";
 import { NOTIFICATIONS_SCRIPT } from "../mcm/notifications-redesign";
 import { SESSION_GUARD_SCRIPT } from "../mcm/session-guard";
 import { bridgeGlobalToast } from "../lib/global-toast";
@@ -283,6 +285,23 @@ function McmCloudCx() {
     responsiveNavScript.textContent = RESPONSIVE_NAV_SCRIPT;
     document.body.appendChild(responsiveNavScript);
 
+    // Mirrors the top #nav tabs and the current page's own sub-tabs into
+    // #anav so every section shows a left sidebar, not just Admin — no
+    // dependency on MCM_SCRIPT having run first (retries internally),
+    // safe to inject anywhere. See mcm/global-sidebar.ts.
+    const globalSidebarScript = document.createElement("script");
+    globalSidebarScript.type = "text/javascript";
+    globalSidebarScript.textContent = GLOBAL_SIDEBAR_SCRIPT;
+    document.body.appendChild(globalSidebarScript);
+
+    // Adds the mobile Components/Canvas/Properties switcher above the
+    // Script Editor's .archmain row — no dependency on MCM_SCRIPT having
+    // run first (retries internally), safe to inject anywhere.
+    const scriptEditorResponsiveScript = document.createElement("script");
+    scriptEditorResponsiveScript.type = "text/javascript";
+    scriptEditorResponsiveScript.textContent = SCRIPT_EDITOR_RESPONSIVE_SCRIPT;
+    document.body.appendChild(scriptEditorResponsiveScript);
+
     // Points the notifications bell at real audit_log data instead of the
     // legacy in-memory-only DB.audit list — no dependency on MCM_SCRIPT
     // having run first (retries internally), safe to inject anywhere.
@@ -446,7 +465,8 @@ function McmCloudCx() {
       sso, oauth, recpol, evalforms, calibrations, forecasts,
     ];
     const allScripts = [
-      script, customPagesRouterScript, responsiveNavScript, notificationsScript, authorgScript,
+      script, customPagesRouterScript, responsiveNavScript, globalSidebarScript, scriptEditorResponsiveScript,
+      notificationsScript, authorgScript,
       directoryScript, appsScript, cannedScript, syncScript, certsScript, contactListsScript,
       dataactScript, dncListsScript, subscriptionScript, recpolScript, evalformsScript,
       calibrationsScript, forecastsScript, integrationsThemeScript, integrationsResponsiveScript,

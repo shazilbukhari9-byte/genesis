@@ -81,15 +81,35 @@ export const BACKEND_SYNC_SCRIPT: string = `
       }
     };
 
-    /* Delete */
-    var origDel = window.delAlertFx;
-    if (origDel) window.delAlertFx = function(id) {
+    /* Delete — self-contained rather than wrapping origDel(): origDel's own
+       confirmBox() call is async (waits for the user to click Confirm in a
+       drawer), but a plain wrapper here has no way to know when that
+       actually happens, so it used to fire the backend DELETE immediately
+       on click — before, or even if, the user confirmed. Native confirm()
+       blocks synchronously, so the delete below only runs after a real
+       yes. */
+    window.delAlertFx = function(id) {
       var a = DB.alertRules.filter(function(x) { return x.id === id; })[0];
-      var dbId = a && a.dbId;
-      origDel(id);
+      if (!a) return;
+      if (!confirm('Delete alert rule "' + a.name + '"?')) return;
+      var dbId = a.dbId;
+      DB.alertRules = DB.alertRules.filter(function(x) { return x.id !== id; });
+      if (window.toast) window.toast('Rule deleted');
+      if (window.renderAlertsFx) window.renderAlertsFx();
       if (dbId && window.__authToken) {
         fetch(SUBS_API_BASE + '/api/alerts/rules/' + dbId, {
           method: 'DELETE', headers: authH()
+        }).catch(function() {});
+      }
+    };
+
+    /* Quick enable/disable toggle (Alert Rules list "⋮" menu) — bypasses the
+       edit drawer's form fields entirely, so it needs its own direct sync
+       rather than reusing saveAlertFx. */
+    window.saveAlertFxToggleSync = function(a) {
+      if (a && a.dbId && window.__authToken) {
+        fetch(SUBS_API_BASE + '/api/alerts/rules/' + a.dbId, {
+          method: 'PUT', headers: authHJson(), body: JSON.stringify(toApi(a))
         }).catch(function() {});
       }
     };
@@ -488,6 +508,27 @@ export const BACKEND_SYNC_SCRIPT: string = `
       if (!DB.msgcfg) return false;
       return true;
     }
+    /* Queue ids in DB.queues are regenerated fresh every page load (see
+       fromBackendQueue's zUid() in scripts.ts), so a raw local id saved as
+       queue_id today won't match any queue next session — only dbId is
+       stable across reloads. These two helpers translate between "this
+       session's local queue id" (what qName()/qOpts() in scripts.ts match
+       against) and "the queue's stable backend id" (what actually round-trips
+       through the message_channels.queue_id column) at the save/hydrate
+       boundary, so "Routes to" keeps resolving to a real queue name instead
+       of the "—" fallback after a reload. */
+    function resolveQueueDbId(localId) {
+      if (!localId) return localId;
+      var q = (DB.queues || []).filter(function(x) { return x.id === localId; })[0];
+      return (q && q.dbId) ? q.dbId : localId;
+    }
+    function resolveQueueLocalId(serverId) {
+      if (!serverId) return serverId;
+      var q = (DB.queues || []).filter(function(x) { return x.dbId === serverId || String(x.dbId) === String(serverId); })[0];
+      if (q) return q.id;
+      q = (DB.queues || []).filter(function(x) { return x.id === serverId; })[0];
+      return q ? q.id : serverId;
+    }
     var origRender = window.renderMsgFx;
     if (origRender) window.renderMsgFx = function() {
       origRender();
@@ -507,19 +548,19 @@ export const BACKEND_SYNC_SCRIPT: string = `
               if (cfg.position) DB.msgcfg.widget.position = cfg.position;
               if (cfg.offline) DB.msgcfg.widget.offline = cfg.offline;
               DB.msgcfg.widget.enabled = r.enabled;
-              if (r.queue_id) DB.msgcfg.widget.queue = r.queue_id;
+              if (r.queue_id) DB.msgcfg.widget.queue = resolveQueueLocalId(r.queue_id);
             } else if (r.channel_type === 'sms') {
               var found = false;
               DB.msgcfg.sms.forEach(function(s) {
                 if (s.label === r.name || s.num === (cfg.num || '')) {
                   s.dbId = r.id; found = true;
                   s.enabled = r.enabled;
-                  if (r.queue_id) s.queue = r.queue_id;
+                  if (r.queue_id) s.queue = resolveQueueLocalId(r.queue_id);
                 }
               });
               if (!found) DB.msgcfg.sms.push({
                 id: String(r.id), dbId: r.id, num: cfg.num || '',
-                label: r.name, queue: r.queue_id || '', enabled: r.enabled
+                label: r.name, queue: resolveQueueLocalId(r.queue_id) || '', enabled: r.enabled
               });
             } else if (r.channel_type === 'whatsapp') {
               DB.msgcfg.wa.dbId = r.id;
@@ -527,7 +568,7 @@ export const BACKEND_SYNC_SCRIPT: string = `
               if (cfg.num) DB.msgcfg.wa.num = cfg.num;
               if (cfg.status) DB.msgcfg.wa.status = cfg.status;
               DB.msgcfg.wa.enabled = r.enabled;
-              if (r.queue_id) DB.msgcfg.wa.queue = r.queue_id;
+              if (r.queue_id) DB.msgcfg.wa.queue = resolveQueueLocalId(r.queue_id);
             }
           });
           origRender();
@@ -542,7 +583,7 @@ export const BACKEND_SYNC_SCRIPT: string = `
       var body = {
         channel_type: 'widget', name: w.name,
         config: { name: w.name, color: w.color, greeting: w.greeting, position: w.position, offline: w.offline },
-        queue_id: w.queue || '', enabled: w.enabled !== false
+        queue_id: resolveQueueDbId(w.queue) || '', enabled: w.enabled !== false
       };
       if (w.dbId) {
         fetch(SUBS_API_BASE + '/api/message-channels/' + w.dbId, {
@@ -566,7 +607,7 @@ export const BACKEND_SYNC_SCRIPT: string = `
       var body = {
         channel_type: 'sms', name: s.label,
         config: { num: s.num },
-        queue_id: s.queue || '', enabled: s.enabled !== false
+        queue_id: resolveQueueDbId(s.queue) || '', enabled: s.enabled !== false
       };
       if (s.dbId) {
         fetch(SUBS_API_BASE + '/api/message-channels/' + s.dbId, {
@@ -589,7 +630,7 @@ export const BACKEND_SYNC_SCRIPT: string = `
       var body = {
         channel_type: 'whatsapp', name: w.name,
         config: { num: w.num, name: w.name, status: w.status },
-        queue_id: w.queue || '', enabled: w.enabled !== false
+        queue_id: resolveQueueDbId(w.queue) || '', enabled: w.enabled !== false
       };
       if (w.dbId) {
         fetch(SUBS_API_BASE + '/api/message-channels/' + w.dbId, {

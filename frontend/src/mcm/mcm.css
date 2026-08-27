@@ -336,7 +336,51 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
 .hcols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 @media(max-width:1100px){.hcols{grid-template-columns:1fr}}
 
-.arch,.scv{width:100%;overflow:hidden}.archmain{overflow:hidden}.canvas{min-width:0}.archbar{flex-wrap:nowrap;overflow:hidden}#ws{overflow-x:hidden}
+.arch,.scv{width:100%;overflow:hidden}.archmain{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}.canvas{min-width:0}.archbar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden}.archbar>*{flex-shrink:0}#ws{overflow-x:hidden}
+.scv>div{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.sc-panel-tabs{display:none}
+@media(max-width:880px){.archmain{min-width:0}.tbox,.props{flex:0 0 auto}
+  /* .sccanvas (Script Editor's canvas column — .scv, not .arch/.canvas) has
+     no width of its own; flex:1 shrinks it to fit whatever's left after the
+     fixed-width .tbox (240px) and .props (290px) panels, which on a phone
+     is only ~40-50px — nowhere near enough to show its 720px-wide .scpage
+     preview, which then has to double-scroll inside that sliver. Since
+     .archmain already scrolls horizontally for exactly this situation
+     (Architect Flow Editor uses the same pattern), giving .sccanvas its own
+     natural content width instead lets it join that same horizontal swipe
+     between Components / Canvas / Properties as one full-width panel each,
+     rather than being crushed to fit alongside the other two. */
+  .sccanvas{flex:0 0 auto;width:calc(100vw - 40px)}
+
+  /* .scpage (the script preview itself, inside .sccanvas) is a fixed
+     720px — wider than .sccanvas's own mobile width above, so its text and
+     button rows were overflowing and needing a second, inner horizontal
+     scroll on top of the swipe between panels. It has no fixed-width
+     children of its own (labels/fields/buttons are all relative/inline —
+     see .sccomp/.sclab/.scfield/.scbtn), so letting it fill .sccanvas's
+     actual width instead just reflows the same content to more lines.
+     .sccanvas needs a definite `width` (not just `min-width`) for this
+     `width:100%` to resolve against — a flex item left at its auto basis
+     with a 100%-width child is a circular size reference, and every engine
+     falls back differently (Chrome measured it ~900px, past the viewport,
+     re-introducing the exact overflow this is meant to remove). */
+  .scpage{width:100%}
+  .tbox,.sccanvas,.props{scroll-snap-align:start}
+  .archmain{scroll-snap-type:x mandatory}
+
+  /* Mobile-only "Components / Canvas / Properties" switcher — see
+     mcm/script-editor-responsive.ts, which inserts this bar right before
+     .archmain and keeps its active button synced to scroll position. */
+  .sc-panel-tabs{display:flex;gap:6px;padding:8px 10px;background:#fff;border-bottom:1px solid #dde3ec}
+  .sc-panel-tabs button{flex:1;padding:7px 0;font-size:12px;font-weight:600;border:1px solid #d5dce7;
+    border-radius:5px;background:#f4f7fb;color:#5b6a7d;cursor:pointer}
+  .sc-panel-tabs button.on{background:#152550;color:#fff;border-color:#152550}
+}
+@media(max-width:680px){
+.panel{min-width:130px}
+.pbody>div[style*="display:flex"]{flex-wrap:wrap;row-gap:10px}
+.dt td,.dt th{white-space:nowrap}
+}
 .pgbtn{background:#eef2f8!important;color:#33425c!important;border-color:#cfd7e3!important}.pgbtn.pri{background:#FF4F1F!important;color:#fff!important;border-color:#FF4F1F!important}
 
 .gal{padding:0}
@@ -819,7 +863,6 @@ body[data-mcm-section="integrations"] .int-banner.err{
    sidebar starts overlapping content (see responsive-nav.ts). */
 .anav-toggle{display:none;align-items:center;justify-content:center;width:32px;height:32px;border-radius:5px;color:#c0cde6;cursor:pointer;margin-right:6px;flex:none}
 .anav-toggle:hover{background:#1d3169;color:#fff}
-.anav-scrim{position:fixed;inset:48px 0 0 0;background:rgba(16,26,45,.45);z-index:99}
 
 @media(max-width:880px){
   .anav-toggle{display:flex}
@@ -830,6 +873,27 @@ body[data-mcm-section="integrations"] .int-banner.err{
   #anav{position:fixed;top:48px;left:-300px;bottom:0;z-index:100;width:82vw;max-width:300px;
     transition:left .2s ease;box-shadow:4px 0 20px rgba(16,30,60,.25)}
   body.anav-open #anav{left:0!important}
+
+  /* Dimmed backdrop behind the open drawer — a pure-CSS pseudo-element tied
+     directly to body.anav-open instead of a JS-created div, so it can never
+     be left un-created, removed twice, or out of sync with the class that
+     drives it (see responsive-nav.ts's installOutsideClickClose, which
+     handles the tap-to-close behavior this used to carry as its own
+     onclick). Explicit width/height (not `inset`) so it fully covers the
+     viewport even in host contexts with partial CSS-shorthand support.
+     Generated on #ws, not body: #ws is itself `position:fixed`, which
+     always opens its own stacking context regardless of z-index — so
+     #anav's z-index:100 was only ever being compared against *that*
+     context's stacking level, never directly against a backdrop hung off
+     body. In practice the backdrop (in DOM/paint order terms, effectively
+     a sibling of #ws rather than of #anav) was winning every hit-test
+     inside the drawer's own bounds, silently swallowing every tap there —
+     the drawer only ever *looked* interactive. Putting the pseudo-element
+     on #ws instead makes it a true sibling of #anav within the same
+     stacking context, where z-index:99 vs #anav's 100 is finally a real,
+     correctly-resolved comparison. */
+  body.anav-open #ws::before{content:'';position:fixed;top:48px;left:0;width:100vw;height:calc(100vh - 48px);
+    background:rgba(16,26,45,.45);z-index:99}
 
   /* Global search crowds out the nav tabs before either becomes usable —
      dropping it is a smaller loss than the tabs it would otherwise starve. */
@@ -880,13 +944,39 @@ body[data-mcm-section="integrations"] .int-banner.err{
   #drw{width:100%!important;max-width:100%}
 
   /* Side-by-side form rows (drawer fields, filter bars) stack instead of
-     compressing into unreadably narrow columns. */
+     compressing into unreadably narrow columns. A plain `1fr` track is
+     really `minmax(auto,1fr)` — its floor is the widest child's min-content,
+     not 0 — so a single-line child that can't wrap (e.g. Message Routing's
+     <pre> deployment snippet, which is deliberately white-space:pre so it
+     can be copy-pasted intact) forces the whole track, and so the grid,
+     wider than the viewport instead of leaving that one child to scroll
+     internally via its own overflow:auto. minmax(0,1fr) removes that floor. */
   .frow{flex-direction:column;gap:0}
-  .two{grid-template-columns:1fr}
-  .iscroll{grid-template-columns:1fr}
+  .two{grid-template-columns:minmax(0,1fr)}
+  .iscroll{grid-template-columns:minmax(0,1fr)}
 
   .uc-label{width:120px}
   .kv span{width:90px}
+
+  /* ACD Setup Guide's Grid View (scripts.ts's renderAcdSetup) uses
+     grid-template-columns:repeat(auto-fill,minmax(220px,1fr)) inline, which
+     collapses to a single column under ~452px — on a phone that's most of
+     the guide's 8 step cards stacked one per row. Forcing exactly 2 columns
+     keeps it a grid at every mobile width instead of degrading to the same
+     single-column list the view toggle exists to be an alternative to. */
+  .acd-grid{grid-template-columns:repeat(2,1fr)!important;gap:8px!important}
+
+  /* ACD Setup Guide's List View: each step card is a single flex row (icon
+     circle + title/description + a trailing action area — ".acd-step-
+     actions", flex-shrink:0). Step 8's actions are 4 buttons ("Simulate
+     Call", "Flow Test Call", "Queue routing test", "Agent Workspace")
+     instead of the usual single Review/Configure button, and flex-shrink:0
+     held that whole unbroken-on-one-line group (~518px) to its full width
+     no matter how narrow the card got, overflowing the page. Letting the
+     row wrap and giving the actions their own full-width line lets those
+     buttons wrap onto normal multi-row button groups instead. */
+  .acd-step{flex-wrap:wrap}
+  .acd-step-actions{flex:1 1 100%}
 }
 
 @media(max-width:520px){

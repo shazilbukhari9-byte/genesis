@@ -16,18 +16,42 @@ export const RESPONSIVE_NAV_SCRIPT: string = `
 
   function closeAnav() {
     document.body.classList.remove('anav-open');
-    var scrim = document.getElementById('anavScrim');
-    if (scrim) scrim.remove();
+  }
+
+  // openPage() flags the current page's link with .lk.on but never rebuilds
+  // #anav's DOM on navigation, so the accordion's own one-time collapse pass
+  // (setupAccordion, below) can't know which section that link ends up in.
+  // Recomputing it here instead, on every open, means the sidebar always
+  // lands on the section you're already in rather than making you find and
+  // tap its header first.
+  function expandActiveGroup() {
+    var anav = document.getElementById('anav');
+    var active = anav && anav.querySelector('.lk.on');
+    if (!active) return;
+    var n = active.previousElementSibling;
+    while (n && !n.classList.contains('grp')) n = n.previousElementSibling;
+    if (n) setGroupOpen(n, true);
   }
 
   function openAnav() {
     document.body.classList.add('anav-open');
-    if (document.getElementById('anavScrim')) return;
-    var scrim = document.createElement('div');
-    scrim.id = 'anavScrim';
-    scrim.className = 'anav-scrim';
-    scrim.onclick = closeAnav;
-    document.body.appendChild(scrim);
+    expandActiveGroup();
+  }
+
+  // The dimmed backdrop is a pure-CSS body.anav-open::before (see mcm.css)
+  // rather than a JS-created div, so it's always in perfect sync with the
+  // 'anav-open' class with no separate DOM node to create, race against, or
+  // fail to clean up. Tapping it — or anywhere outside the drawer/toggle —
+  // closes the drawer via this single delegated listener.
+  function installOutsideClickClose() {
+    if (document.documentElement.dataset.anavOutsideClose) return;
+    document.documentElement.dataset.anavOutsideClose = '1';
+    document.addEventListener('click', function(e) {
+      if (!document.body.classList.contains('anav-open')) return;
+      var t = e.target;
+      if (t && t.closest && (t.closest('#anav') || t.closest('.anav-toggle'))) return;
+      closeAnav();
+    });
   }
 
   function ensureToggle() {
@@ -136,6 +160,7 @@ export const RESPONSIVE_NAV_SCRIPT: string = `
     window.filterNav = wrapped;
   }
 
+  installOutsideClickClose();
   ensureToggle();
   setupAccordion();
   wrapAnavRerenders();

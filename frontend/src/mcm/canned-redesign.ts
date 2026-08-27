@@ -238,7 +238,9 @@ export const CANNED_SCRIPT: string = `
       '<td style="max-width:380px;font-size:12px;color:#5b6b82">' + escapeHtml(preview) + '</td>' +
       '<td>' + (c.substitutionFields.length ? '<span class="canned-sub-count">' + c.substitutionFields.length + '</span>' : '\\u2014') + '</td>' +
       '<td style="font-size:12px;color:#8794a8">' + formatUpdated(c.updatedAt) + '</td>' +
-      '<td style="text-align:right" onclick="event.stopPropagation()">' +
+      '<td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">' +
+        '<button class="canned-row-btn" title="Copy text to clipboard" onclick="window.cannedCopy(\\'' + c.id + '\\')">\\uD83D\\uDCCB</button>' +
+        '<button class="canned-row-btn" title="Duplicate" onclick="window.cannedDuplicate(\\'' + c.id + '\\')">\\uD83D\\uDDD0</button>' +
         '<button class="canned-row-btn" title="Edit" onclick="window.cannedOpenEditor(\\'' + c.id + '\\')">' + '\\u270E' + '</button>' +
         '<button class="canned-row-btn canned-row-btn-danger" title="Delete" onclick="window.cannedDelete(\\'' + c.id + '\\')">' + '\\u2715' + '</button>' +
       '</td>' +
@@ -250,7 +252,7 @@ export const CANNED_SCRIPT: string = `
     var rows = list.length
       ? list.map(renderCannedRow).join('')
       : '<tr><td colspan="6" style="text-align:center;color:#8794a8;padding:28px 0">No canned responses match your search.</td></tr>';
-    return '<div class="tblw"><table class="dt"><thead><tr><th>Response</th><th>Category</th><th>Preview</th><th>Fields</th><th>Updated</th><th style="width:80px;text-align:right">Actions</th></tr></thead><tbody id="canned_tbody">' + rows + '</tbody></table></div>';
+    return '<div class="tblw"><table class="dt"><thead><tr><th>Response</th><th>Category</th><th>Preview</th><th>Fields</th><th>Updated</th><th style="width:150px;text-align:right">Actions</th></tr></thead><tbody id="canned_tbody">' + rows + '</tbody></table></div>';
   }
 
   function refreshCannedTable() {
@@ -298,6 +300,34 @@ export const CANNED_SCRIPT: string = `
     });
   };
 
+  window.cannedCopy = function(id) {
+    var c = CannedService.getById(id);
+    if (!c) return;
+    var done = function() { if (window.toast) window.toast('Copied <b>' + escapeHtml(c.name) + '</b> to clipboard'); };
+    var fail = function() { if (window.toast) window.toast('Could not copy \\u2014 clipboard access blocked'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(c.body).then(done).catch(fail);
+    } else {
+      fail();
+    }
+  };
+
+  window.cannedDuplicate = function(id) {
+    var c = CannedService.getById(id);
+    if (!c) return;
+    var all = CannedService.getAll();
+    var base = c.name + ' copy', name = base, n = 1;
+    while (all.some(function(x) { return x.name.toLowerCase() === name.toLowerCase(); })) { n++; name = base + ' ' + n; }
+    CannedService.create({ name: name, category: c.category, body: c.body }).then(function() {
+      return CannedService.refresh();
+    }).then(function() {
+      renderCannedPage();
+      if (window.toast) window.toast('Duplicated as <b>' + escapeHtml(name) + '</b>');
+    }).catch(function(err) {
+      if (window.toast) window.toast('\\u2717 Duplicate failed \\u2014 ' + escapeHtml((err && err.message) || 'please try again'));
+    });
+  };
+
   /* ─── Add / Edit drawer ─── */
   window.cannedOpenEditor = function(id) {
     var existing = id ? CannedService.getById(id) : null;
@@ -317,19 +347,37 @@ export const CANNED_SCRIPT: string = `
 
     var wrap = document.createElement('div');
     wrap.innerHTML =
-      '<div id="drw" style="height:auto;top:12%;bottom:auto;border-radius:8px 0 0 8px">' +
-        '<div class="dh"><h2>' + (isNew ? 'Add' : 'Edit') + ' Canned Response</h2><div class="x" onclick="closeDrawer()">\\u00D7</div></div>' +
-        '<div class="db">' +
+      '<div id="drw" style="height:auto;max-height:88vh;top:6%;bottom:auto;border-radius:8px 0 0 8px;display:flex;flex-direction:column">' +
+        '<div class="dh" style="flex:0 0 auto"><h2>' + (isNew ? 'Add' : 'Edit') + ' Canned Response</h2><div class="x" onclick="closeDrawer()">\\u00D7</div></div>' +
+        '<div class="db" style="flex:1 1 auto;overflow-y:auto">' +
           '<div id="cnerr" style="display:none;background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;border-radius:5px;padding:8px 11px;font-size:12.5px;margin-bottom:10px"></div>' +
           '<div class="fld"><label>Name *</label><input id="cn_name" value="' + escapeHtml(c.name) + '"></div>' +
           '<div class="fld"><label>Category</label><select id="cn_category">' + renderCategoryOptions(c.category) + '</select></div>' +
-          '<div class="fld"><label>Text (supports {{Contact.FirstName}} style substitutions)</label><textarea id="cn_body" style="height:110px" oninput="window.cannedPreviewFields()">' + escapeHtml(c.body) + '</textarea></div>' +
+          '<div class="fld"><label>Text (supports {{Contact.FirstName}} style substitutions)</label><textarea id="cn_body" style="height:110px" oninput="window.cannedPreviewFields()">' + escapeHtml(c.body) + '</textarea>' +
+          '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">' +
+            ['Contact.FirstName', 'Contact.LastName', 'Contact.Email', 'Agent.FirstName', 'Invoice.Number'].map(function(t) {
+              return '<span class="canned-field-chip" style="cursor:pointer" onclick="window.cannedInsertToken(\\'' + t + '\\')" title="Insert into text">+ {{' + t + '}}</span>';
+            }).join('') +
+          '</div></div>' +
           '<div class="fld"><label>Substitution fields</label><div id="cn_fields" class="canned-field-list">' + fieldsHtml + '</div></div>' +
           (isNew ? '' : '<button class="btn gh" onclick="window.cannedDelete(\\'' + c.id + '\\')">Delete</button>') +
         '</div>' +
-        '<div class="df"><button class="btn sec" onclick="closeDrawer()">Cancel</button><button class="btn" onclick="window.cannedSave(\\'' + (c.id || '') + '\\')">Save</button></div>' +
+        '<div class="df" style="flex:0 0 auto"><button class="btn sec" onclick="closeDrawer()">Cancel</button><button class="btn" onclick="window.cannedSave(\\'' + (c.id || '') + '\\')">Save</button></div>' +
       '</div>';
     document.body.appendChild(wrap.firstChild);
+  };
+
+  window.cannedInsertToken = function(token) {
+    var textarea = document.getElementById('cn_body');
+    if (!textarea) return;
+    var start = textarea.selectionStart == null ? textarea.value.length : textarea.selectionStart;
+    var end = textarea.selectionEnd == null ? textarea.value.length : textarea.selectionEnd;
+    var snippet = '{{' + token + '}}';
+    textarea.value = textarea.value.slice(0, start) + snippet + textarea.value.slice(end);
+    textarea.focus();
+    var pos = start + snippet.length;
+    textarea.setSelectionRange(pos, pos);
+    window.cannedPreviewFields();
   };
 
   window.cannedPreviewFields = function() {
