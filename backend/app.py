@@ -1615,6 +1615,16 @@ def set_queue_script(queue_id):
         conn.close()
         return jsonify({'ok': False, 'error': 'not found'}), 404
 
+    # config.script has no DB-level FK (it's a loose jsonb reference — see
+    # database/schema.sql), so this is the only thing stopping a client from
+    # pointing a queue at a script id that doesn't exist, or belongs to a
+    # different tenant.
+    if script_id is not None:
+        cur.execute('SELECT id FROM scripts WHERE id = %s AND tenant_id = %s', (script_id, g.tenant_id))
+        if cur.fetchone() is None:
+            conn.close()
+            return jsonify({'ok': False, 'error': 'script not found'}), 404
+
     cur.execute(
         "UPDATE queues SET config = jsonb_set(config, '{script}', %s) WHERE id = %s AND tenant_id = %s RETURNING config",
         (PgJson(script_id), queue_id, g.tenant_id),
