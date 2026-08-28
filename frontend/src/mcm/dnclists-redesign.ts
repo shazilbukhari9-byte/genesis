@@ -16,16 +16,14 @@ export const DNCLISTS_SCRIPT: string = `
   /* No seed/fallback list here on purpose -- same reasoning as
      contactlists-redesign.ts. The DNC_LISTS_FALLBACK copy of the demo
      'UK-Internal-DNC' list was rendered whenever the read failed OR came
-     back empty, so an empty tenant still showed it. localListStore starts
-     empty and only holds rows this browser created while offline. */
+     back empty, so an empty tenant still showed it. There is no local store
+     left to fall back to at all. */
 
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
-
-  function uid(prefix) { return (prefix || 'id') + Math.random().toString(36).slice(2, 10); }
 
   /* ─── Backend row \u2192 frontend shape ─── */
   function normalizeListRow(row) {
@@ -61,91 +59,63 @@ export const DNCLISTS_SCRIPT: string = `
     });
   }
 
-  /* Local-first mutable store, starting empty: it holds only rows this
-     browser created while the backend was unreachable, so a create/add/
-     remove/delete that succeeded locally is not silently discarded by the
-     next refresh(). It seeds nothing. Holds full list+numbers objects. */
-  var localListStore = [];
-
-  function summarize(list) {
-    return { id: list.id, name: list.name, numberCount: list.numbers.length };
-  }
+  /* Every read and write below is backend-confirmed. A localListStore used to
+     sit here that each .catch() fell back to, so a create, delete or
+     number-add the server had REJECTED still resolved successfully and the UI
+     reported it as done while PostgreSQL was unchanged. A DNC list silently
+     failing to save is the worst case in this section -- it is the
+     suppression list a dialer is legally required to honour -- so failures
+     now propagate to the caller, and every caller surfaces them. */
 
   function fetchLists() {
     return dncApiFetch('/api/dnclists').then(function(rows) {
-      // An empty array is a real answer -- this tenant has no DNC lists.
-      return Array.isArray(rows) ? rows.map(normalizeListRow) : localListStore.map(summarize);
-    }).catch(function() {
-      return localListStore.map(summarize);
+      if (!Array.isArray(rows)) throw new Error('Unexpected response from the server.');
+      // An empty array is a real answer: this tenant has no DNC lists.
+      return rows.map(normalizeListRow);
     });
   }
 
   function fetchListDetail(id) {
-    return dncApiFetch('/api/dnclists/' + encodeURIComponent(id)).then(normalizeListRow).catch(function() {
-      var local = localListStore.filter(function(l) { return l.id === id; })[0];
-      return local ? Object.assign(summarize(local), { numbers: local.numbers }) : null;
-    });
+    return dncApiFetch('/api/dnclists/' + encodeURIComponent(id)).then(normalizeListRow);
   }
 
   var listsCache = [];
+  var listsLoadError = '';
+  var listsLoaded = false;
 
   var DncListsService = {
     getAll: function() { return listsCache; },
+    getLoadError: function() { return listsLoadError; },
+    isLoaded: function() { return listsLoaded; },
     refresh: function() {
       return fetchLists().then(function(list) {
-        // Accept an empty list too, so deleting the last one clears the cache.
-        if (Array.isArray(list)) listsCache = list;
+        listsCache = list;
+        listsLoadError = '';
+        listsLoaded = true;
         return listsCache;
+      }).catch(function(err) {
+        listsLoadError = (err && err.message) || 'Could not load DNC lists.';
+        listsLoaded = true;
+        throw err;
       });
     },
     getDetail: function(id) { return fetchListDetail(id); },
     create: function(entry) {
-      return dncApiFetch('/api/dnclists', { method: 'POST', body: JSON.stringify(entry) }).then(normalizeListRow).catch(function() {
-        if (localListStore.some(function(l) { return l.name.toLowerCase() === entry.name.toLowerCase(); })) {
-          throw new Error('A unique name is required.');
-        }
-        var created = { id: uid('dnc-'), name: entry.name, numbers: [] };
-        localListStore.push(created);
-        return summarize(created);
-      });
+      return dncApiFetch('/api/dnclists', { method: 'POST', body: JSON.stringify(entry) }).then(normalizeListRow);
     },
     remove: function(id) {
-      return dncApiFetch('/api/dnclists/' + encodeURIComponent(id), { method: 'DELETE' }).catch(function() {
-        localListStore = localListStore.filter(function(l) { return l.id !== id; });
-        return { ok: true };
-      });
+      return dncApiFetch('/api/dnclists/' + encodeURIComponent(id), { method: 'DELETE' });
     },
     addNumbers: function(listId, numbers) {
-      return dncApiFetch('/api/dnclists/' + encodeURIComponent(listId) + '/numbers', { method: 'POST', body: JSON.stringify({ numbers: numbers }) })
-        .catch(function() {
-          var local = localListStore.filter(function(l) { return l.id === listId; })[0];
-          if (!local) return { ok: false, added: 0, invalid: numbers.length };
-          var added = 0, invalid = 0;
-          var existing = local.numbers.map(function(n) { return n.phone; });
-          numbers.forEach(function(n) {
-            n = (n || '').trim();
-            if (!/^\\+\\d{7,15}$/.test(n)) { invalid++; return; }
-            if (existing.indexOf(n) > -1) return;
-            local.numbers.push({ id: uid('dcn-'), phone: n });
-            existing.push(n);
-            added++;
-          });
-          return { ok: true, added: added, invalid: invalid };
-        });
+      return dncApiFetch('/api/dnclists/' + encodeURIComponent(listId) + '/numbers',
+        { method: 'POST', body: JSON.stringify({ numbers: numbers }) });
     },
     removeNumber: function(listId, numberId) {
-      return dncApiFetch('/api/dnclists/' + encodeURIComponent(listId) + '/numbers/' + encodeURIComponent(numberId), { method: 'DELETE' }).catch(function() {
-        var local = localListStore.filter(function(l) { return l.id === listId; })[0];
-        if (local) local.numbers = local.numbers.filter(function(n) { return n.id !== numberId; });
-        return { ok: true };
-      });
+      return dncApiFetch('/api/dnclists/' + encodeURIComponent(listId) + '/numbers/' + encodeURIComponent(numberId),
+        { method: 'DELETE' });
     },
     lookup: function(number) {
-      return dncApiFetch('/api/dnclists/lookup?number=' + encodeURIComponent(number)).catch(function() {
-        var hits = localListStore.filter(function(l) { return l.numbers.some(function(n) { return n.phone === number; }); })
-          .map(function(l) { return { id: l.id, name: l.name }; });
-        return { number: number, hits: hits };
-      });
+      return dncApiFetch('/api/dnclists/lookup?number=' + encodeURIComponent(number));
     }
   };
   window.DncListsService = DncListsService;
@@ -171,15 +141,28 @@ export const DNCLISTS_SCRIPT: string = `
   function renderListsTable() {
     var list = filteredLists();
     var total = DncListsService.getAll().length;
+    var loadErr = DncListsService.getLoadError();
     var rows;
-    if (list.length) {
+    if (!list.length && loadErr) {
+      rows = '<tr><td colspan="4" style="text-align:center;color:#b3261e;padding:24px">✗ ' + escapeHtml(loadErr) +
+        ' <button class="btn sec" style="height:26px;margin-left:8px" onclick="window.dncReload()">Retry</button></td></tr>';
+    } else if (!list.length && !DncListsService.isLoaded()) {
+      rows = '<tr><td colspan="4" style="text-align:center;color:#8794a8;padding:24px">Loading DNC lists…</td></tr>';
+    } else if (list.length) {
       rows = list.map(renderListRow).join('');
     } else if (total) {
       rows = '<tr><td colspan="4" style="text-align:center;color:#8794a8;padding:24px">No DNC lists match your search.</td></tr>';
     } else {
       rows = '<tr><td colspan="4" style="text-align:center;color:#8794a8;padding:24px">No DNC lists yet \\u2014 create one to get started.</td></tr>';
     }
-    return '<div class="tblw"><table class="dt"><thead><tr><th>List</th><th>Numbers</th><th>Used by campaigns</th><th></th></tr></thead><tbody id="dnc_tb">' + rows + '</tbody></table></div>';
+    // A refresh can fail while the cache still holds the previous read.
+    // Those rows are still worth showing, but not without saying they may
+    // be out of date.
+    var staleBanner = (list.length && loadErr)
+      ? '<div style="background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;border-radius:6px;padding:8px 11px;font-size:12.5px;margin-bottom:10px">\u2717 ' + escapeHtml(loadErr) +
+        ' The rows below are from the last successful load and may be out of date. <button class="btn sec" style="height:24px;margin-left:6px" onclick="window.dncReload()">Retry</button></div>'
+      : '';
+    return staleBanner + '<div class="tblw"><table class="dt"><thead><tr><th>List</th><th>Numbers</th><th>Used by campaigns</th><th></th></tr></thead><tbody id="dnc_tb">' + rows + '</tbody></table></div>';
   }
 
   function refreshListsTable() {
@@ -193,6 +176,9 @@ export const DNCLISTS_SCRIPT: string = `
     DncListsService.refresh().then(function() {
       refreshListsTable();
       if (window.toast) window.toast('DNC lists refreshed');
+    }).catch(function(err) {
+      refreshListsTable();
+      if (window.toast) window.toast('✗ ' + ((err && err.message) || 'Refresh failed'));
     });
   };
 
@@ -215,7 +201,11 @@ export const DNCLISTS_SCRIPT: string = `
   }
 
   function goListsIndex() {
-    DncListsService.refresh().then(function() { mount(renderDncListsPage()); });
+    // Paints on both outcomes so a failed read shows the real error.
+    DncListsService.refresh().then(
+      function() { mount(renderDncListsPage()); },
+      function() { mount(renderDncListsPage()); }
+    );
   }
 
   window.dncNew = function() {
@@ -324,9 +314,12 @@ export const DNCLISTS_SCRIPT: string = `
   }
 
   window.dncDropNum = function(id, numberId) {
+    // Only refreshes (and so only drops the row) once the API confirmed.
     DncListsService.removeNumber(id, numberId).then(function() {
       if (window.toast) window.toast('Removed');
       return refreshDetail(id);
+    }).catch(function(err) {
+      if (window.toast) window.toast('✗ Could not remove the number — ' + escapeHtml((err && err.message) || 'please try again'));
     });
   };
 
@@ -367,9 +360,12 @@ export const DNCLISTS_SCRIPT: string = `
     var l = DncListsService.getAll().filter(function(x) { return x.id === id; })[0];
     var name = l ? l.name : 'this list';
     dncConfirmBox('Delete DNC list <b>' + escapeHtml(name) + '</b>?', function() {
+      // Navigates away only after the API confirms the delete.
       DncListsService.remove(id).then(function() {
         if (window.toast) window.toast('Deleted');
         goListsIndex();
+      }).catch(function(err) {
+        if (window.toast) window.toast('✗ Delete failed — ' + escapeHtml((err && err.message) || 'please try again'));
       });
     });
   };
@@ -393,7 +389,13 @@ export const DNCLISTS_SCRIPT: string = `
 
   window.dncRunLookup = function() {
     var n = document.getElementById('dl_n').value.trim();
-    DncListsService.lookup(n).then(function(res) {
+    DncListsService.lookup(n).catch(function(err) {
+      var out = document.getElementById('dl_out');
+      if (out) out.innerHTML = '<div style="background:#fdecea;border:1px solid #f5c6c0;border-radius:6px;padding:9px 12px;color:#b3261e">✗ Lookup failed — ' +
+        escapeHtml((err && err.message) || 'please try again') + '</div>';
+      return null;
+    }).then(function(res) {
+      if (!res) return;
       var hits = res.hits || [];
       var out = document.getElementById('dl_out');
       if (!out) return;
@@ -438,9 +440,10 @@ export const DNCLISTS_SCRIPT: string = `
   };
 
   function applyDncListsRedesign() {
-    DncListsService.refresh().then(function() {
+    var paint = function() {
       if (window.APP && window.APP.page === 'dnclists' && !currentDetail) mount(renderDncListsPage());
-    });
+    };
+    DncListsService.refresh().then(paint, paint);
   }
 
   applyDncListsRedesign();
