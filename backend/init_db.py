@@ -247,43 +247,11 @@ CERTIFICATES = [
      '', '2024-01-01', '2034-01-01'),
 ]
 
-# Matches frontend/src/mcm/contactlists-redesign.ts's CONTACT_LISTS_FALLBACK
-# exactly — the same 2 lists (13 contacts total) scripts.ts's ensureOB()
-# used to seed DB.contactLists in-memory on first page load.
-CONTACT_LISTS = [
-    (
-        'cl-collections-q3-uk', 'Collections_Q3_UK', 'd_col',
-        ['FirstName', 'LastName', 'Phone', 'Balance', 'TimeZone'],
-        [
-            {'FirstName': 'Oliver', 'LastName': 'Smith', 'Phone': '+447700900101', 'Balance': '£240.50', 'TimeZone': 'Europe/London'},
-            {'FirstName': 'Amelia', 'LastName': 'Jones', 'Phone': '+447700900102', 'Balance': '£1,120.00', 'TimeZone': 'Europe/London'},
-            {'FirstName': 'Harry', 'LastName': 'Williams', 'Phone': '+447700900103', 'Balance': '£86.20', 'TimeZone': 'Europe/London'},
-            {'FirstName': 'Isla', 'LastName': 'Brown', 'Phone': '+447700900104', 'Balance': '£410.00', 'TimeZone': 'Europe/London'},
-            {'FirstName': 'George', 'LastName': 'Taylor', 'Phone': '+447700900105', 'Balance': '£55.75', 'TimeZone': 'Europe/London'},
-            {'FirstName': 'Ava', 'LastName': 'Davies', 'Phone': '+447700900106', 'Balance': '£730.10', 'TimeZone': 'Europe/London'},
-            {'FirstName': 'Jack', 'LastName': 'Evans', 'Phone': '+447700900107', 'Balance': '£199.99', 'TimeZone': 'Europe/London'},
-            {'FirstName': 'Emily', 'LastName': 'Thomas', 'Phone': '+447700900108', 'Balance': '£315.40', 'TimeZone': 'Europe/London'},
-            {'FirstName': 'Noah', 'LastName': 'Roberts', 'Phone': '+447700900109', 'Balance': '£67.00', 'TimeZone': 'Europe/London'},
-            {'FirstName': 'Mia', 'LastName': 'Walker', 'Phone': '+447700900110', 'Balance': '£925.60', 'TimeZone': 'Europe/London'},
-        ],
-    ),
-    (
-        'cl-renewal-reminders', 'Renewal_Reminders', 'd_ret',
-        ['FirstName', 'LastName', 'Phone', 'RenewalDate'],
-        [
-            {'FirstName': 'Priya', 'LastName': 'Shah', 'Phone': '+447700900201', 'RenewalDate': '15 Sep 2026'},
-            {'FirstName': 'Tom', 'LastName': 'Hughes', 'Phone': '+447700900202', 'RenewalDate': '18 Sep 2026'},
-            {'FirstName': 'Zara', 'LastName': 'Khan', 'Phone': '+447700900203', 'RenewalDate': '21 Sep 2026'},
-        ],
-    ),
-]
-
-# Matches frontend/src/mcm/dnclists-redesign.ts's DNC_LISTS_FALLBACK exactly
-# — the single 'UK-Internal-DNC' list (2 numbers) scripts.ts's ensureOB()
-# used to seed DB.dncLists in-memory on first page load.
-DNC_LISTS = [
-    ('dnc-uk-internal', 'UK-Internal-DNC', ['+447700900104', '+447700900999']),
-]
+# No CONTACT_LISTS / DNC_LISTS constants: the Outbound demo data (2 contact
+# lists with 13 contacts, 1 DNC list with 2 numbers) was removed along with
+# the matching CONTACT_LISTS_FALLBACK / DNC_LISTS_FALLBACK arrays in the
+# frontend. Those tables start empty and stay empty until someone creates a
+# real record.
 
 # Matches frontend/src/mcm/authorg-redesign.ts's authorgData mock array
 # exactly (org_name, org_id, domain, relationship, scope_roles, divisions,
@@ -453,17 +421,11 @@ def run():
             (cert_id, tenant_id, name, purpose, issued_to, issuer, division, valid_from, expires_at),
         )
 
-    for list_id, name, division, cols, contacts in CONTACT_LISTS:
-        cur.execute(
-            'INSERT INTO contact_lists (id, tenant_id, name, division, cols) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
-            (list_id, tenant_id, name, division, cols),
-        )
-        for contact in contacts:
-            contact_id = list_id + '-' + re.sub(r'[^0-9]', '', contact['Phone'])[-6:]
-            cur.execute(
-                'INSERT INTO contacts (id, tenant_id, list_id, data) VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
-                (contact_id, tenant_id, list_id, contact),
-            )
+    # No contact lists are seeded here, for the same reason as the DNC lists
+    # below: the two demo lists and their 13 contacts were re-inserted on
+    # every boot, so any cleanup was undone by the next restart or deploy.
+    # contact_lists/contacts now come only from a real user action through
+    # contactlists.py's own API (or a CSV import).
 
     # Integrations Phase 2 cleanup: no Data Actions are seeded here. They,
     # like installed_integrations/integration_credentials/bot_connectors/
@@ -473,17 +435,11 @@ def run():
     # _sync_contract_fields() at creation time, so there is nothing left for
     # a boot-time backfill here to do).
 
-    for dnc_id, name, numbers in DNC_LISTS:
-        cur.execute(
-            'INSERT INTO dnc_lists (id, tenant_id, name) VALUES (%s,%s,%s) ON CONFLICT (id) DO NOTHING',
-            (dnc_id, tenant_id, name),
-        )
-        for phone in numbers:
-            number_id = dnc_id + '-' + re.sub(r'[^0-9]', '', phone)[-6:]
-            cur.execute(
-                'INSERT INTO dnc_numbers (id, tenant_id, list_id, phone) VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
-                (number_id, tenant_id, dnc_id, phone),
-            )
+    # No DNC lists are seeded here. The demo 'UK-Internal-DNC' list and its
+    # two numbers used to be re-inserted on every boot (ON CONFLICT DO
+    # NOTHING, with no empty-table guard), so deleting them from the database
+    # only lasted until the next restart or deploy. dnc_lists/dnc_numbers now
+    # come only from a real user action through dnclists.py's own API.
 
     cur.execute('SELECT COUNT(*) AS n FROM auth_org_trusts WHERE tenant_id = %s', (tenant_id,))
     if cur.fetchone()['n'] == 0:

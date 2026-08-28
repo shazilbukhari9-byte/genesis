@@ -28,37 +28,14 @@ export const CONTACTLISTS_SCRIPT: string = `
     return m ? m.label : '\\u2014';
   }
 
-  /* ─── Backend-ready contact-list data structure (fallback/seed data) ───
-     Shape: { id, name, division, cols[], contacts: [{ id, data{}, status,
-     attempts, lastResult }] }. Exactly the 2 lists (13 contacts total)
-     scripts.ts's ensureOB() used to seed DB.contactLists in-memory. */
-  var CONTACT_LISTS_FALLBACK = [
-    {
-      id: 'cl-collections-q3-uk', name: 'Collections_Q3_UK', division: 'd_col',
-      cols: ['FirstName', 'LastName', 'Phone', 'Balance', 'TimeZone'],
-      contacts: [
-        { id: 'ct-1', data: { FirstName: 'Oliver', LastName: 'Smith', Phone: '+447700900101', Balance: '\\u00A3240.50', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-2', data: { FirstName: 'Amelia', LastName: 'Jones', Phone: '+447700900102', Balance: '\\u00A31,120.00', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-3', data: { FirstName: 'Harry', LastName: 'Williams', Phone: '+447700900103', Balance: '\\u00A386.20', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-4', data: { FirstName: 'Isla', LastName: 'Brown', Phone: '+447700900104', Balance: '\\u00A3410.00', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-5', data: { FirstName: 'George', LastName: 'Taylor', Phone: '+447700900105', Balance: '\\u00A355.75', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-6', data: { FirstName: 'Ava', LastName: 'Davies', Phone: '+447700900106', Balance: '\\u00A3730.10', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-7', data: { FirstName: 'Jack', LastName: 'Evans', Phone: '+447700900107', Balance: '\\u00A3199.99', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-8', data: { FirstName: 'Emily', LastName: 'Thomas', Phone: '+447700900108', Balance: '\\u00A3315.40', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-9', data: { FirstName: 'Noah', LastName: 'Roberts', Phone: '+447700900109', Balance: '\\u00A367.00', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-10', data: { FirstName: 'Mia', LastName: 'Walker', Phone: '+447700900110', Balance: '\\u00A3925.60', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' }
-      ]
-    },
-    {
-      id: 'cl-renewal-reminders', name: 'Renewal_Reminders', division: 'd_ret',
-      cols: ['FirstName', 'LastName', 'Phone', 'RenewalDate'],
-      contacts: [
-        { id: 'ct-11', data: { FirstName: 'Priya', LastName: 'Shah', Phone: '+447700900201', RenewalDate: '15 Sep 2026' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-12', data: { FirstName: 'Tom', LastName: 'Hughes', Phone: '+447700900202', RenewalDate: '18 Sep 2026' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-13', data: { FirstName: 'Zara', LastName: 'Khan', Phone: '+447700900203', RenewalDate: '21 Sep 2026' }, status: 'Not attempted', attempts: 0, lastResult: '' }
-      ]
-    }
-  ];
+  /* No seed/fallback list here on purpose. This module used to carry a
+     CONTACT_LISTS_FALLBACK copy of the two demo lists (13 contacts) that
+     scripts.ts's ensureOB() and init_db.py both also produced, and it was
+     rendered whenever the read failed OR came back empty -- so a tenant
+     with no contact lists, and a deleted list, both still showed the demo
+     data. An empty response is a real answer now and paints the empty
+     state. localListStore below starts empty and only ever holds rows this
+     browser created while the backend was unreachable. */
 
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
@@ -110,11 +87,11 @@ export const CONTACTLISTS_SCRIPT: string = `
     });
   }
 
-  /* Local-first mutable store — a fresh CONTACT_LISTS_FALLBACK.slice() on
-     every refresh() would silently discard a create/update/delete that only
-     succeeded locally (backend unreachable), same reasoning as
-     certs-redesign.ts's localCertStore. Holds full list+contacts objects. */
-  var localListStore = CONTACT_LISTS_FALLBACK.map(function(l) { return Object.assign({}, l, { contacts: l.contacts.slice() }); });
+  /* Local-first mutable store, starting empty: it holds only rows this
+     browser created while the backend was unreachable, so a create/update/
+     delete that succeeded locally is not silently discarded by the next
+     refresh(). It seeds nothing. Holds full list+contacts objects. */
+  var localListStore = [];
 
   function summarize(list) {
     var st = {};
@@ -127,7 +104,9 @@ export const CONTACTLISTS_SCRIPT: string = `
 
   function fetchLists() {
     return clApiFetch('/api/contactlists').then(function(rows) {
-      return (Array.isArray(rows) && rows.length) ? rows.map(normalizeListRow) : localListStore.map(summarize);
+      // An empty array is a real answer -- the tenant has no contact lists --
+      // not a reason to substitute anything.
+      return Array.isArray(rows) ? rows.map(normalizeListRow) : localListStore.map(summarize);
     }).catch(function() {
       return localListStore.map(summarize);
     });
@@ -140,13 +119,15 @@ export const CONTACTLISTS_SCRIPT: string = `
     });
   }
 
-  var listsCache = CONTACT_LISTS_FALLBACK.map(summarize);
+  var listsCache = [];
 
   var ContactListsService = {
     getAll: function() { return listsCache; },
     refresh: function() {
       return fetchLists().then(function(list) {
-        if (Array.isArray(list) && list.length) listsCache = list;
+        // Accept an empty list too, so deleting the last one clears the cache
+        // instead of leaving the previous render in place forever.
+        if (Array.isArray(list)) listsCache = list;
         return listsCache;
       });
     },
@@ -250,9 +231,15 @@ export const CONTACTLISTS_SCRIPT: string = `
 
   function renderListsTable() {
     var list = filteredLists();
-    var rows = list.length
-      ? list.map(renderListRow).join('')
-      : '<tr><td colspan="6" style="text-align:center;color:#8794a8;padding:28px 0">No contact lists match your search.</td></tr>';
+    var total = ContactListsService.getAll().length;
+    var rows;
+    if (list.length) {
+      rows = list.map(renderListRow).join('');
+    } else if (total) {
+      rows = '<tr><td colspan="6" style="text-align:center;color:#8794a8;padding:28px 0">No contact lists match your search.</td></tr>';
+    } else {
+      rows = '<tr><td colspan="6" style="text-align:center;color:#8794a8;padding:28px 0">No contact lists yet \u2014 create one to get started.</td></tr>';
+    }
     return '<div class="tblw"><table class="dt"><thead><tr><th>List</th><th>Division</th><th>Contacts</th><th>Columns</th><th>Status summary</th><th style="width:40px"></th></tr></thead><tbody id="cl_tb">' + rows + '</tbody></table></div>';
   }
 

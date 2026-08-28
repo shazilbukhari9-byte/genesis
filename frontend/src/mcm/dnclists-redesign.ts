@@ -13,19 +13,11 @@ export const DNCLISTS_SCRIPT: string = `
 (function() {
   'use strict';
 
-  /* ─── Backend-ready DNC-list data structure (fallback/seed data) ───
-     Shape: { id, name, numbers: [{ id, phone }] }. Exactly the single
-     'UK-Internal-DNC' list (2 numbers) scripts.ts's ensureOB() used to
-     seed DB.dncLists in-memory. */
-  var DNC_LISTS_FALLBACK = [
-    {
-      id: 'dnc-uk-internal', name: 'UK-Internal-DNC',
-      numbers: [
-        { id: 'dcn-1', phone: '+447700900104' },
-        { id: 'dcn-2', phone: '+447700900999' }
-      ]
-    }
-  ];
+  /* No seed/fallback list here on purpose -- same reasoning as
+     contactlists-redesign.ts. The DNC_LISTS_FALLBACK copy of the demo
+     'UK-Internal-DNC' list was rendered whenever the read failed OR came
+     back empty, so an empty tenant still showed it. localListStore starts
+     empty and only holds rows this browser created while offline. */
 
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
@@ -69,12 +61,11 @@ export const DNCLISTS_SCRIPT: string = `
     });
   }
 
-  /* Local-first mutable store — a fresh DNC_LISTS_FALLBACK.slice() on every
-     refresh() would silently discard a create/add/remove/delete that only
-     succeeded locally (backend unreachable), same reasoning as
-     contactlists-redesign.ts's localListStore. Holds full list+numbers
-     objects. */
-  var localListStore = DNC_LISTS_FALLBACK.map(function(l) { return Object.assign({}, l, { numbers: l.numbers.slice() }); });
+  /* Local-first mutable store, starting empty: it holds only rows this
+     browser created while the backend was unreachable, so a create/add/
+     remove/delete that succeeded locally is not silently discarded by the
+     next refresh(). It seeds nothing. Holds full list+numbers objects. */
+  var localListStore = [];
 
   function summarize(list) {
     return { id: list.id, name: list.name, numberCount: list.numbers.length };
@@ -82,7 +73,8 @@ export const DNCLISTS_SCRIPT: string = `
 
   function fetchLists() {
     return dncApiFetch('/api/dnclists').then(function(rows) {
-      return (Array.isArray(rows) && rows.length) ? rows.map(normalizeListRow) : localListStore.map(summarize);
+      // An empty array is a real answer -- this tenant has no DNC lists.
+      return Array.isArray(rows) ? rows.map(normalizeListRow) : localListStore.map(summarize);
     }).catch(function() {
       return localListStore.map(summarize);
     });
@@ -95,13 +87,14 @@ export const DNCLISTS_SCRIPT: string = `
     });
   }
 
-  var listsCache = DNC_LISTS_FALLBACK.map(summarize);
+  var listsCache = [];
 
   var DncListsService = {
     getAll: function() { return listsCache; },
     refresh: function() {
       return fetchLists().then(function(list) {
-        if (Array.isArray(list) && list.length) listsCache = list;
+        // Accept an empty list too, so deleting the last one clears the cache.
+        if (Array.isArray(list)) listsCache = list;
         return listsCache;
       });
     },
@@ -177,9 +170,15 @@ export const DNCLISTS_SCRIPT: string = `
 
   function renderListsTable() {
     var list = filteredLists();
-    var rows = list.length
-      ? list.map(renderListRow).join('')
-      : '<tr><td colspan="4" style="text-align:center;color:#8794a8;padding:24px">No DNC lists match your search.</td></tr>';
+    var total = DncListsService.getAll().length;
+    var rows;
+    if (list.length) {
+      rows = list.map(renderListRow).join('');
+    } else if (total) {
+      rows = '<tr><td colspan="4" style="text-align:center;color:#8794a8;padding:24px">No DNC lists match your search.</td></tr>';
+    } else {
+      rows = '<tr><td colspan="4" style="text-align:center;color:#8794a8;padding:24px">No DNC lists yet \\u2014 create one to get started.</td></tr>';
+    }
     return '<div class="tblw"><table class="dt"><thead><tr><th>List</th><th>Numbers</th><th>Used by campaigns</th><th></th></tr></thead><tbody id="dnc_tb">' + rows + '</tbody></table></div>';
   }
 
