@@ -263,7 +263,13 @@ table.dt tbody tr:hover td{background:#fafcff}
 .kv b{color:#31404f;font-weight:600}
 .wrapb{background:#fff;border:1px solid #dde3ec;border-radius:6px;padding:14px 16px;margin-top:14px}
 /* apps */
-.ic2{width:40px;height:40px;border-radius:9px;background:#fff2ec;color:#FF4F1F;display:flex;align-items:center;justify-content:center;flex:none}
+/* font-size/line-height matter now that .ic2 holds an emoji rather than an
+   SVG: an SVG carried its own width/height, a glyph is sized by type. 18px in
+   the 40px tile is the UI prototype's own pairing. */
+.ic2{width:40px;height:40px;border-radius:9px;background:#fff2ec;color:#FF4F1F;display:flex;align-items:center;justify-content:center;flex:none;font-size:18px;line-height:1}
+/* The Apps > Available rows shrink the tile to 32px inline, so the glyph
+   comes down with it. */
+table.dt .ic2{font-size:15px}
 .apgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
 /* Apps renders its help panel as a sibling of .pbody rather than inside it,
    so it never picked up the 24px page gutter every other element on the page
