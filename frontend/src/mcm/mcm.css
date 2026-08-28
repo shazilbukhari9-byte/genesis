@@ -869,15 +869,126 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
    .pgr/.fld/#drw/.help/.kpis) with no visual override, so Installed,
    Catalogue, Client Applications, Credentials, Data Actions and Bot
    Connectors render identically to Account Settings, People &
-   Permissions, etc. Only the handful of rules below are unique to
-   this section and have no shared-class equivalent to inherit from.
+   Permissions, etc. Only the rules below are unique to this section
+   and have no shared-class equivalent to inherit from -- every one of
+   the eleven tabs renders through them, so the same situation looks
+   the same wherever it is hit.
    ============================================================ */
 
-/* Sortable table headers (Installed, Actions) -- real click-to-sort,
-   not decoration, so the header needs to read as interactive. */
-body[data-mcm-section="integrations"] table.dt th.srt{cursor:pointer;user-select:none}
-body[data-mcm-section="integrations"] table.dt th.srt:hover{color:#152550}
+/* ---------- Page frame ---------------------------------------------------
+   The header (breadcrumb + title + actions + tabs) stays put while a long
+   table scrolls under it: it lives inside #cnt, which is the scroll
+   container, so without this a tall Installed or Run History table pushed
+   the title and the tab strip out of view. .pbody keeps a floor so a short
+   tab (Test, an empty Credentials list) does not collapse the page to a
+   fraction of the height of the tab next to it. */
+body[data-mcm-section="integrations"] .phd{position:sticky;top:0;z-index:6}
+body[data-mcm-section="integrations"] .pbody{min-height:360px}
+body[data-mcm-section="integrations"] .tblw{-webkit-overflow-scrolling:touch}
+
+/* ---------- Toolbar ------------------------------------------------------
+   Every tab now has the same search + filters + Refresh row. The Refresh
+   control is a real <button> (it was a <div class="chip">, unreachable by
+   keyboard), and the filter <select>s get the chip's own chevron so they
+   stop rendering with the browser's default control styling. */
+body[data-mcm-section="integrations"] button.chip{font:inherit;font-size:12.5px;line-height:1}
+body[data-mcm-section="integrations"] .tbar select.chip{
+  font:inherit;font-size:12.5px;color:#3c4a5c;cursor:pointer;
+  -webkit-appearance:none;appearance:none;padding-right:26px;
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%237b8798' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center;background-size:11px;
+}
+body[data-mcm-section="integrations"] .tbar input.s:focus,
+body[data-mcm-section="integrations"] .tbar select.chip:focus{
+  border-color:#FF4F1F;box-shadow:0 0 0 3px rgba(255,79,31,.12);
+}
+body[data-mcm-section="integrations"] .chip:focus-visible{outline:2px solid #FF4F1F;outline-offset:1px}
+body[data-mcm-section="integrations"] .int-ref{font-size:13px;line-height:1}
+
+/* ---------- Tables -------------------------------------------------------
+   Sortable headers are real click-to-sort everywhere they appear now
+   (Installed, Data Actions, Bot Connectors), so they have to read as
+   interactive and show which column is driving the order. */
+body[data-mcm-section="integrations"] table.dt th.srt{cursor:pointer;user-select:none;white-space:nowrap}
+body[data-mcm-section="integrations"] table.dt th.srt:hover{color:#152550;background:#f0f4fa}
 body[data-mcm-section="integrations"] table.dt th.srt:focus-visible{outline:2px solid #FF4F1F;outline-offset:-2px}
+body[data-mcm-section="integrations"] table.dt th.srt.on{color:#152550}
+body[data-mcm-section="integrations"] .srt-g{font-style:normal;margin-left:6px;font-size:11px;color:#a9b3c2}
+body[data-mcm-section="integrations"] table.dt th.srt.on .srt-g{color:#FF4F1F}
+body[data-mcm-section="integrations"] table.dt tbody tr:focus-visible{outline:2px solid #FF4F1F;outline-offset:-2px}
+body[data-mcm-section="integrations"] .int-th-act{width:78px;text-align:right;white-space:nowrap}
+body[data-mcm-section="integrations"] .int-row-act{width:34px;text-align:center;color:#a9b3c2}
+body[data-mcm-section="integrations"] .int-muted{color:#a9b3c2}
+body[data-mcm-section="integrations"] .int-name{display:inline-flex;align-items:center;gap:9px;min-width:0}
+body[data-mcm-section="integrations"] .int-av{
+  width:26px;height:26px;border-radius:7px;flex:none;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:#fff2ec;color:#c9401a;font-size:10.5px;font-weight:700;letter-spacing:.3px;
+}
+body[data-mcm-section="integrations"] .pgr .int-filtered{color:#c9401a;font-weight:600}
+
+/* ---------- Loading / empty / failure states -----------------------------
+   One treatment for all three, shared by every table in the section (see
+   window.MCMInt in scripts.ts). An empty result and a failed read used to
+   be indistinguishable on several tabs. */
+body[data-mcm-section="integrations"] tr.int-state-row td{padding:0;border-bottom:none;background:#fff}
+body[data-mcm-section="integrations"] tr.int-state-row{cursor:default}
+body[data-mcm-section="integrations"] tr.int-state-row:hover td{background:#fff}
+body[data-mcm-section="integrations"] .int-state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:5px;text-align:center;padding:40px 20px;
+}
+body[data-mcm-section="integrations"] .int-state-ic{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:40px;height:40px;border-radius:11px;margin-bottom:5px;
+  background:#fff2ec;color:#FF4F1F;
+}
+body[data-mcm-section="integrations"] .int-state-t{font-size:13.5px;font-weight:600;color:#152550}
+body[data-mcm-section="integrations"] .int-state-d{font-size:12.3px;color:#7b8798;line-height:1.6;max-width:440px}
+body[data-mcm-section="integrations"] .int-state-btn{margin-top:11px;height:30px}
+body[data-mcm-section="integrations"] .int-state-err{padding:32px 20px}
+body[data-mcm-section="integrations"] .int-state-err .int-state-t{color:#b3261e;font-weight:500;font-size:12.8px}
+body[data-mcm-section="integrations"] .int-loading{
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  padding:38px 20px;font-size:12.5px;color:#7b8798;
+}
+body[data-mcm-section="integrations"] .int-spin{
+  width:14px;height:14px;border-radius:50%;flex:none;
+  border:2px solid #e4e9f0;border-top-color:#FF4F1F;
+  animation:int-spin .7s linear infinite;
+}
+@keyframes int-spin{to{transform:rotate(360deg)}}
+
+/* Inline failure banner shown above a table that still has readable rows --
+   same red already used for error states elsewhere (.rowbtn.danger, etc). */
+body[data-mcm-section="integrations"] .int-banner{
+  display:flex;align-items:center;gap:9px;margin:0 0 12px;
+  padding:10px 13px;border-radius:6px;font-size:12.8px;line-height:1.45;
+}
+body[data-mcm-section="integrations"] .int-banner.err{
+  background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;
+}
+body[data-mcm-section="integrations"] .int-banner-x{font-weight:700;flex:none}
+body[data-mcm-section="integrations"] .int-banner-t{flex:1;min-width:0}
+body[data-mcm-section="integrations"] .int-banner-btn{flex:none;height:26px;padding:0 12px}
+
+/* ---------- Panels, notes and the two "run it" tabs ---------------------- */
+body[data-mcm-section="integrations"] .int-note{font-size:12.3px;color:#5b6b82;line-height:1.6;margin:0 0 12px}
+body[data-mcm-section="integrations"] .int-note-warn{
+  color:#8a5a12;background:#fff7e8;border:1px solid #f3e0bd;
+  border-radius:5px;padding:8px 11px;margin:12px 0 0;
+}
+body[data-mcm-section="integrations"] .int-panel{max-width:720px}
+body[data-mcm-section="integrations"] .int-panel-b{padding:16px 17px 18px}
+body[data-mcm-section="integrations"] .int-testrow{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
+body[data-mcm-section="integrations"] .int-testrow .fld{margin-bottom:0;flex:1 1 260px;min-width:0}
+body[data-mcm-section="integrations"] .int-testrow .btn{flex:none}
+body[data-mcm-section="integrations"] #da_test_out,
+body[data-mcm-section="integrations"] #bot_test_out{margin-top:14px}
+body[data-mcm-section="integrations"] #da_test_out:empty,
+body[data-mcm-section="integrations"] #bot_test_out:empty{margin-top:0}
+body[data-mcm-section="integrations"] .int-danger-btn{color:#b3261e;border-color:#f3c6c2;height:27px;padding:0 12px}
+body[data-mcm-section="integrations"] .int-danger-btn:hover{background:#fdecea;border-color:#e8a9a3}
 
 /* Test Action / Test Utterance result panels (Data Actions, Bot
    Connectors) -- a dark console-style output block, matching the
@@ -886,16 +997,22 @@ body[data-mcm-section="integrations"] #da_test_out pre,
 body[data-mcm-section="integrations"] #bot_test_out pre{
   border-radius:6px;border:1px solid #223a63;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.65;
+  overflow-x:auto;
 }
 
-/* Inline failure banner shown above a table when a read fails -- same
-   red already used for error states elsewhere (.rowbtn.danger, etc). */
-body[data-mcm-section="integrations"] .int-banner{
-  display:flex;align-items:center;gap:8px;margin:0 0 12px;
-  padding:10px 13px;border-radius:6px;font-size:13px;line-height:1.4;
-}
-body[data-mcm-section="integrations"] .int-banner.err{
-  background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;
+/* ---------- Responsive --------------------------------------------------- */
+@media(max-width:880px){
+  /* A sticky header costs too much of a phone viewport once .tt has stacked
+     the action buttons under the title (see the shared rule further down). */
+  body[data-mcm-section="integrations"] .phd{position:static}
+  body[data-mcm-section="integrations"] .pbody{min-height:0}
+  body[data-mcm-section="integrations"] .tbar input.s{flex:1 1 100%}
+  body[data-mcm-section="integrations"] .tbar select.chip{flex:1 1 calc(50% - 4px);min-width:0}
+  body[data-mcm-section="integrations"] .tbar .sp{display:none}
+  body[data-mcm-section="integrations"] .tbar button.chip{flex:1 1 100%;justify-content:center}
+  body[data-mcm-section="integrations"] .int-state{padding:30px 14px}
+  body[data-mcm-section="integrations"] .int-panel{max-width:none}
+  body[data-mcm-section="integrations"] .int-testrow .btn{width:100%}
 }
 
 /* ---------- Reduced motion ---------------------------------------------- */
