@@ -167,11 +167,20 @@ export const BACKEND_SYNC_SCRIPT: string = `
         }).catch(function() {});
       }
     };
+    /* Delete — self-contained (see Alert Rules above for why: origDel's own
+       confirmBox() is async, so a plain post-hoc wrapper can't tell whether
+       or when the user actually confirmed, and used to fire the DELETE
+       unconditionally on click regardless of Cancel). */
     var origDel = window.delPromptFx;
     if (origDel) window.delPromptFx = function(id) {
       var p = DB.prompts.filter(function(x) { return x.id === id; })[0];
-      var dbId = p && p.dbId;
-      origDel(id);
+      if (!p) return;
+      if (!confirm('Delete prompt "' + p.name + '"? Flows referencing it fall back to TTS.')) return;
+      var dbId = p.dbId;
+      DB.prompts = DB.prompts.filter(function(x) { return x.id !== id; });
+      if (window.audit) window.audit('Delete prompt', p.name);
+      if (window.toast) window.toast('Prompt deleted');
+      if (window.renderPromptsFx) window.renderPromptsFx();
       if (dbId && window.__authToken) {
         fetch(SUBS_API_BASE + '/api/prompts/' + dbId, {
           method: 'DELETE', headers: authH()
@@ -221,11 +230,21 @@ export const BACKEND_SYNC_SCRIPT: string = `
         .then(function(d) { if (d && d.id) { b.dbId = d.id; b.id = String(d.id); } })
         .catch(function() {});
     };
+    /* Delete — self-contained; see Alert Rules above for why. */
     var origDel = window.delBaseFx;
     if (origDel) window.delBaseFx = function(id) {
       var b = DB.baseSettings.filter(function(x) { return x.id === id; })[0];
-      var dbId = b && b.dbId;
-      origDel(id);
+      if (!b) return;
+      if (DB.phones.some(function(p) { return p.base === id; })) {
+        if (window.toast) window.toast('Cannot delete — phones use this template');
+        return;
+      }
+      if (!confirm('Delete base settings "' + b.name + '"?')) return;
+      var dbId = b.dbId;
+      DB.baseSettings = DB.baseSettings.filter(function(x) { return x.id !== id; });
+      if (window.audit) window.audit('Delete base settings', b.name);
+      if (window.toast) window.toast('Deleted');
+      if (window.renderBasesetsFx) window.renderBasesetsFx();
       if (dbId && window.__authToken) {
         fetch(SUBS_API_BASE + '/api/base-settings/' + dbId, {
           method: 'DELETE', headers: authH()
@@ -306,11 +325,17 @@ export const BACKEND_SYNC_SCRIPT: string = `
         }).catch(function() {});
       }
     };
+    /* Delete — self-contained; see Alert Rules above for why. */
     var origDel = window.delPhoneFx;
     if (origDel) window.delPhoneFx = function(id) {
       var p = DB.phones.filter(function(x) { return x.id === id; })[0];
-      var dbId = p && p.dbId;
-      origDel(id);
+      if (!p) return;
+      if (!confirm('Delete phone "' + p.name + '"?')) return;
+      var dbId = p.dbId;
+      DB.phones = DB.phones.filter(function(x) { return x.id !== id; });
+      if (window.audit) window.audit('Delete phone', p.name);
+      if (window.toast) window.toast('Phone deleted');
+      if (window.renderPhonesFx) window.renderPhonesFx();
       if (dbId && window.__authToken) {
         fetch(SUBS_API_BASE + '/api/phones/' + dbId, {
           method: 'DELETE', headers: authH()
@@ -394,13 +419,19 @@ export const BACKEND_SYNC_SCRIPT: string = `
         }).catch(function() {});
       }
     };
+    /* Delete — self-contained; see Alert Rules above for why. */
     var origDel = window.delPlan;
     if (origDel) window.delPlan = function(id) {
       var siteId = window.TELSITE;
       var site = siteId ? siteById(siteId) : null;
       var p = site ? site.plans.filter(function(x) { return x.id === id; })[0] : null;
-      var dbId = p && p.dbId;
-      origDel(id);
+      if (!site || !p) return;
+      if (!confirm('Delete number plan "' + p.name + '"? Calls matching it will fall through to later plans.')) return;
+      var dbId = p.dbId;
+      site.plans = site.plans.filter(function(x) { return x.id !== id; });
+      if (window.audit) window.audit('Delete number plan', site.name + ' \\u203A ' + p.name);
+      if (window.toast) window.toast('Plan deleted');
+      if (window.renderNumplan) window.renderNumplan();
       if (dbId && window.__authToken) {
         fetch(SUBS_API_BASE + '/api/number-plans/' + dbId, {
           method: 'DELETE', headers: authH()
@@ -473,13 +504,19 @@ export const BACKEND_SYNC_SCRIPT: string = `
         }).catch(function() {});
       }
     };
+    /* Delete — self-contained; see Alert Rules above for why. */
     var origDel = window.delRoute;
     if (origDel) window.delRoute = function(id) {
       var siteId = window.TELSITE;
       var site = siteId ? siteById(siteId) : null;
       var r = site ? site.routes.filter(function(x) { return x.id === id; })[0] : null;
-      var dbId = r && r.dbId;
-      origDel(id);
+      if (!site || !r) return;
+      if (!confirm('Delete route "' + r.name + '"? Its classifications may become unrouted (blocked).')) return;
+      var dbId = r.dbId;
+      site.routes = site.routes.filter(function(x) { return x.id !== id; });
+      if (window.audit) window.audit('Delete route', site.name + ' › ' + r.name);
+      if (window.toast) window.toast('Route deleted');
+      if (window.renderOutroute) window.renderOutroute();
       if (dbId && window.__authToken) {
         fetch(SUBS_API_BASE + '/api/outbound-routes/' + dbId, {
           method: 'DELETE', headers: authH()
@@ -728,12 +765,17 @@ export const BACKEND_SYNC_SCRIPT: string = `
         .catch(function() {});
     };
 
-    /* ── Activity Code delete ── */
+    /* ── Activity Code delete — self-contained; see Alert Rules above for why. ── */
     var origDelAC = window.delAC;
     if (origDelAC) window.delAC = function(id) {
       var a = DB.actCodes.filter(function(x) { return x.id === id; })[0];
-      var dbId = a && a.dbId;
-      origDelAC(id);
+      if (!a) return;
+      if (!confirm('Delete activity code "' + a.name + '"?')) return;
+      var dbId = a.dbId;
+      DB.actCodes = DB.actCodes.filter(function(x) { return x.id !== id; });
+      if (window.audit) window.audit('Delete activity code', a.name);
+      if (window.toast) window.toast('Deleted');
+      if (window.renderSchedFx) window.renderSchedFx();
       if (dbId && window.__authToken) {
         fetch(SUBS_API_BASE + '/api/wfm/activity-codes/' + dbId, {
           method: 'DELETE', headers: authH()
@@ -766,12 +808,17 @@ export const BACKEND_SYNC_SCRIPT: string = `
       }
     };
 
-    /* ── Management Unit delete ── */
+    /* ── Management Unit delete — self-contained; see Alert Rules above for why. ── */
     var origDelMU = window.delMU;
     if (origDelMU) window.delMU = function(id) {
       var m = DB.wfm.mus.filter(function(x) { return x.id === id; })[0];
-      var dbId = m && m.dbId;
-      origDelMU(id);
+      if (!m) return;
+      if (!confirm('Delete MU "' + m.name + '"? Its agents will be unscheduled.')) return;
+      var dbId = m.dbId;
+      DB.wfm.mus = DB.wfm.mus.filter(function(x) { return x.id !== id; });
+      if (window.audit) window.audit('Delete MU', m.name);
+      if (window.toast) window.toast('Deleted');
+      if (window.renderWfmSetup) window.renderWfmSetup();
       if (dbId && window.__authToken) {
         fetch(SUBS_API_BASE + '/api/wfm/management-units/' + dbId, {
           method: 'DELETE', headers: authH()
@@ -794,12 +841,17 @@ export const BACKEND_SYNC_SCRIPT: string = `
         .catch(function() {});
     };
 
-    /* ── Schedule delete ── */
+    /* ── Schedule delete — self-contained; see Alert Rules above for why. ── */
     var origDelSched = window.delSchedule;
     if (origDelSched) window.delSchedule = function(id) {
       var s = DB.wfmSchedules.filter(function(x) { return x.id === id; })[0];
-      var dbId = s && s.dbId;
-      origDelSched(id);
+      if (!s) return;
+      if (!confirm('Delete schedule "' + s.week + '"?')) return;
+      var dbId = s.dbId;
+      DB.wfmSchedules = DB.wfmSchedules.filter(function(x) { return x.id !== id; });
+      if (window.audit) window.audit('Delete schedule', s.week);
+      if (window.toast) window.toast('Deleted');
+      if (window.renderSchedFx) window.renderSchedFx();
       if (dbId && window.__authToken) {
         fetch(SUBS_API_BASE + '/api/wfm/schedules/' + dbId, {
           method: 'DELETE', headers: authH()

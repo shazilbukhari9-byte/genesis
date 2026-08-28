@@ -1576,6 +1576,22 @@ def resource_delete(resource, row_id):
             (g.tenant_id, row_id),
         )
 
+    # A deleted planning group would otherwise linger as a dangling id
+    # inside every service_goals.pgs that referenced it, and as a dangling
+    # key in every forecasts.data (keyed by planning-group id) — pgs has no
+    # real FK (see schema.sql's comment on service_goals: array columns
+    # can't carry one, so this was previously "enforced" only by the
+    # frontend re-PUTting the trimmed record, which it never actually did).
+    if resource == 'planning-groups':
+        cur.execute(
+            'UPDATE service_goals SET pgs = array_remove(pgs, %s) WHERE tenant_id = %s AND %s = ANY(pgs)',
+            (row_id, g.tenant_id, row_id),
+        )
+        cur.execute(
+            "UPDATE forecasts SET data = data - %s WHERE tenant_id = %s AND data ? %s",
+            (str(row_id), g.tenant_id, str(row_id)),
+        )
+
     conn.commit()
     conn.close()
     resp = {'ok': True}
