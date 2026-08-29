@@ -236,41 +236,55 @@ export const DATAACT_SCRIPT: string = `
     });
   }
 
+  window.dataactThKeyFx = function(ev, key) {
+    if (ev && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); window.dataactSort(key); }
+  };
+
   function sortableTh(label, key, style) {
-    var glyph = actSort.key === key ? (actSort.dir === 1 ? '\\u2191' : '\\u2193') : '\\u21C5';
+    var active = actSort.key === key;
+    var glyph = active ? (actSort.dir === 1 ? '\\u2191' : '\\u2193') : '\\u21C5';
     return '<th' + (style ? ' style="' + style + '"' : '') +
-      ' class="srt" onclick="window.dataactSort(\\'' + key + '\\')">' +
-      escapeHtml(label) + ' ' + glyph + '</th>';
+      ' class="srt' + (active ? ' on' : '') + '" tabindex="0" role="button"' +
+      ' aria-sort="' + (active ? (actSort.dir === 1 ? 'ascending' : 'descending') : 'none') + '"' +
+      ' onclick="window.dataactSort(\\'' + key + '\\')"' +
+      ' onkeydown="window.dataactThKeyFx(event,\\'' + key + '\\')">' +
+      escapeHtml(label) + '<i class="srt-g" aria-hidden="true">' + glyph + '</i></th>';
   }
 
   function renderActionsTable() {
     var list = sortedActions();
+    var total = DataActService.getAll().length;
     var loadErr = DataActService.getLoadError();
     /* A failed read is announced in a banner rather than by replacing the
        table, so a refresh that fails does not silently leave stale rows
        looking current, and does not throw away a list the user can still
        read. When there is nothing cached, the empty row states the reason
-       too instead of the misleading "none yet". */
-    var banner = loadErr
-      ? '<div class="int-banner err">\\u2717 ' + escapeHtml(loadErr) +
-        '<button class="btn sec" style="height:26px;margin-left:auto" onclick="window.dataactReload()">Retry</button></div>'
-      : '';
+       too instead of the misleading "none yet".
+       Loading / empty / failure all render through window.MCMInt (see
+       scripts.ts's Integrations block), which is the one place the whole
+       section defines those three states. */
+    var banner = (loadErr && list.length) ? window.MCMInt.banner(loadErr, 'window.dataactReload()') : '';
     var rows;
     if (list.length) {
       rows = list.map(renderActionRow).join('');
+    } else if (loadErr) {
+      rows = window.MCMInt.errorRow(8, loadErr, 'window.dataactReload()');
+    } else if (total) {
+      rows = window.MCMInt.emptyRow(8, 'No data actions match your filters',
+        'Try a different search term, or reset the integration, division and status filters.',
+        '<button type="button" class="btn sec int-state-btn" onclick="window.dataactClearFiltersFx()">Clear filters</button>');
     } else {
-      rows = '<tr><td colspan="8" style="text-align:center;color:' + (loadErr ? '#b3261e' : '#8794a8') + ';padding:28px 0">' +
-        (loadErr ? 'Could not load data actions.'
-                 : (DataActService.getAll().length ? 'No data actions match your search.' : 'No data actions yet. Create one to get started.')) +
-        '</td></tr>';
+      rows = window.MCMInt.emptyRow(8, 'No data actions yet',
+        'A data action calls a REST endpoint from an Architect flow or a script. Create one to get started.',
+        '<button type="button" class="btn int-state-btn" onclick="window.dataactOpenEditor()">+ Create Action</button>');
     }
     return banner + '<div class="tblw"><table class="dt"><thead><tr>' +
       sortableTh('Action', 'name') + sortableTh('Integration', 'integration') +
       sortableTh('Method', 'method') + sortableTh('Endpoint', 'endpoint') +
       sortableTh('Contract', 'contract') + sortableTh('Avg latency', 'avgLatencyMs') +
       sortableTh('Status', 'status') +
-      '<th style="width:40px"></th></tr></thead><tbody id="tb">' + rows + '</tbody></table>' +
-      '<div class="pgr"><span>Showing <b>' + (list.length ? '1\\u2013' + list.length : '0') + '</b> of <b>' + list.length + '</b></span><div class="sp"></div><span>Rows per page 25 \\u25be</span><span>\\u2039 \\u203A</span></div></div>';
+      '<th class="int-th-act"></th></tr></thead><tbody id="tb">' + rows + '</tbody></table>' +
+      window.MCMInt.footer(list.length, total) + '</div>';
   }
 
   function refreshActionsTable() {
@@ -283,6 +297,11 @@ export const DATAACT_SCRIPT: string = `
   window.dataactFilterIntegration = function(value) { actFilters.integration = value || ''; refreshActionsTable(); };
   window.dataactFilterDivision = function(value) { actFilters.division = value || ''; refreshActionsTable(); };
   window.dataactFilterStatus = function(value) { actFilters.status = value || ''; refreshActionsTable(); };
+  window.dataactClearFiltersFx = function() {
+    actFilters.q = ''; actFilters.integration = ''; actFilters.division = ''; actFilters.status = '';
+    var pb = document.querySelector('#cnt .pbody');
+    if (pb) pb.innerHTML = renderActionsBody();
+  };
   /* refresh() could not reject while a failed read resolved with the seed
      list, so this always toasted success — even with the backend down.
      It now reports the real outcome either way. */
@@ -342,25 +361,59 @@ export const DATAACT_SCRIPT: string = `
      renderActionsPage below so dataactActionsTabClick can re-render just
      this part live when returning to the tab, without rebuilding the
      page header/tabs/help panel around it. */
+  /* The "\\u2699 Columns" chip that used to sit next to Refresh was wired to
+     nothing at all -- it is dropped rather than left advertising a column
+     manager this page has never had. Refresh is now the shared chip every
+     other Integrations toolbar uses. */
   function renderActionsBody() {
     return '<div class="tbar">' +
-        '<input class="s" placeholder="Search data actions" value="' + escapeHtml(actFilters.q) + '" oninput="window.dataactSearch(this.value)">' +
-        '<select class="chip" style="cursor:pointer" onchange="window.dataactFilterIntegration(this.value)">' + integrationOptions(actFilters.integration) + '</select>' +
-        '<select class="chip" style="cursor:pointer" onchange="window.dataactFilterDivision(this.value)">' + divisionOptions(actFilters.division) + '</select>' +
-        '<select class="chip" style="cursor:pointer" onchange="window.dataactFilterStatus(this.value)"><option value="">Status: Any</option>' +
+        '<input class="s" id="da_q" type="search" placeholder="Search data actions" aria-label="Search data actions" value="' + escapeHtml(actFilters.q) + '" oninput="window.dataactSearch(this.value)">' +
+        '<select class="chip" aria-label="Filter by integration" onchange="window.dataactFilterIntegration(this.value)">' + integrationOptions(actFilters.integration) + '</select>' +
+        '<select class="chip" aria-label="Filter by division" onchange="window.dataactFilterDivision(this.value)">' + divisionOptions(actFilters.division) + '</select>' +
+        '<select class="chip" aria-label="Filter by status" onchange="window.dataactFilterStatus(this.value)"><option value="">Status: Any</option>' +
           ['Published', 'Slow', 'Failing', 'Draft'].map(function(s) {
-            return '<option value="' + s + '"' + (actFilters.status === s ? ' selected' : '') + '>' + s + '</option>';
+            return '<option value="' + s + '"' + (actFilters.status === s ? ' selected' : '') + '>Status: ' + s + '</option>';
           }).join('') +
         '</select>' +
-        '<div class="sp"></div><div class="chip">\\u2699 Columns</div><div class="chip" onclick="window.dataactReload()">\\u21BB Refresh</div>' +
+        '<div class="sp"></div>' + window.MCMInt.refreshChip('window.dataactReload()') +
       '</div>' +
       '<div id="act_table_wrap">' + renderActionsTable() + '</div>';
   }
 
+  /* Which tab is showing, so the header's primary action can belong to the
+     tab rather than to the page: "+ Create Action" used to stay up on
+     Contracts, Test and Run History, and the Export button beside it was
+     wired to nothing at all on every one of the four. */
+  var daTab = 'Actions';
+
+  function dataactHeaderActionsHtml() {
+    if (daTab === 'Contracts') return '<button class="btn sec" onclick="window.dataactExportFx()">Export</button>';
+    if (daTab === 'Run History') return '<button class="btn sec" onclick="window.dataactExportFx()">Export</button>';
+    if (daTab === 'Test') return '';
+    return '<button class="btn" onclick="window.dataactOpenEditor()">+ Create Action</button>' +
+      '<button class="btn sec" onclick="window.dataactExportFx()">Export</button>';
+  }
+
+  window.dataactTabKeyFx = function(ev, el, fn) {
+    if (ev && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); window[fn](el); }
+  };
+
+  function dataactTabHtml(name, fn) {
+    var on = daTab === name;
+    return '<div class="tb' + (on ? ' on' : '') + '" role="tab" tabindex="0" aria-selected="' + (on ? 'true' : 'false') + '"' +
+      ' onclick="window.' + fn + '(this)" onkeydown="window.dataactTabKeyFx(event,this,\\'' + fn + '\\')">' + name + '</div>';
+  }
+
   function renderActionsPage() {
+    daTab = 'Actions';
     return '<div class="phd"><div class="bc"><a onclick="adminIndex()">Admin</a> \\u203A Integrations</div>' +
-      '<div class="tt"><h1>Data Actions</h1><div class="rt"><button class="btn" onclick="window.dataactOpenEditor()">+ Create Action</button><button class="btn sec">Export</button></div></div>' +
-      '<div class="tabs"><div class="tb on" onclick="window.dataactActionsTabClick(this)">Actions</div><div class="tb" onclick="window.dataactContractsTabClick(this)">Contracts</div><div class="tb" onclick="window.dataactTestTabClick(this)">Test</div><div class="tb" onclick="window.dataactRunHistoryTabClick(this)">Run History</div></div></div>' +
+      '<div class="tt"><h1>Data Actions</h1><div class="rt" id="da_actions">' + dataactHeaderActionsHtml() + '</div></div>' +
+      '<div class="tabs" role="tablist">' +
+        dataactTabHtml('Actions', 'dataactActionsTabClick') +
+        dataactTabHtml('Contracts', 'dataactContractsTabClick') +
+        dataactTabHtml('Test', 'dataactTestTabClick') +
+        dataactTabHtml('Run History', 'dataactRunHistoryTabClick') +
+      '</div></div>' +
       '<div class="pbody">' + renderActionsBody() + '</div>' +
       '<div class="help"><div class="hh" onclick="toggleHelp()"><span style="color:#FF4F1F">\\u24D8</span> Help &amp; Resources \\u2014 Data Actions<span class="cx" id="helpcx">Hide</span></div>' +
       '<div class="hb" id="helpb" style=""><div class="hcols"><div><h5>What you can do here</h5><ul><li>Web services data actions call a REST API from a flow or script</li><li>Contracts define input and output JSON</li><li>Static request/response mapping and velocity templates</li><li>Test the action before publishing</li></ul>' +
@@ -381,10 +434,16 @@ export const DATAACT_SCRIPT: string = `
      invisible on return, showing stale "Draft / \\u2014" against a row the
      database already had as "Published / 281 ms". Every tab now renders
      from live DataActService data instead of a frozen snapshot. ─── */
-  function activateTab(el) {
+  function activateTab(el, name) {
     var par = el.parentElement;
-    Array.prototype.forEach.call(par.children, function(c) { c.classList.remove('on'); });
-    el.classList.add('on');
+    Array.prototype.forEach.call(par.children, function(c) {
+      var on = c === el;
+      c.classList.toggle('on', on);
+      c.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    daTab = name;
+    var actions = document.getElementById('da_actions');
+    if (actions) actions.innerHTML = dataactHeaderActionsHtml();
     return document.querySelector('#cnt .pbody');
   }
 
@@ -392,14 +451,14 @@ export const DATAACT_SCRIPT: string = `
      DataActService cache, then refreshes from the backend so returning to
      this tab always reflects what PostgreSQL actually holds. ─── */
   window.dataactActionsTabClick = function(el) {
-    var pb = activateTab(el);
+    var pb = activateTab(el, 'Actions');
     if (!pb) return;
     pb.innerHTML = renderActionsBody();
     DataActService.refresh().then(function() {
-      var active = document.querySelector('#cnt .tabs .tb.on');
-      if (!active || active.textContent.trim() !== 'Actions') return;
-      var pb2 = document.querySelector('#cnt .pbody');
-      if (pb2) pb2.innerHTML = renderActionsBody();
+      if (daTab !== 'Actions') return;
+      // Repaint only the table, so the toolbar (and any focus in its search
+      // box) survives a refresh that lands while the user is already typing.
+      refreshActionsTable();
     }).catch(function() { /* keep the cached render — refresh() already falls back safely */ });
   };
 
@@ -412,49 +471,112 @@ export const DATAACT_SCRIPT: string = `
      persists the result into data_action_contracts on every action
      create/update — so what this tab shows is read back from the
      database rather than recomputed here. ─── */
-  function renderContractsTable(rows) {
-    if (rows === null) {
-      return '<div class="tblw"><table class="dt"><thead><tr><th>Contract</th><th>Direction</th><th>Fields</th><th>Type</th></tr></thead>' +
-        '<tbody><tr><td colspan="4" style="text-align:center;color:#8794a8;padding:20px">Loading contracts\\u2026</td></tr></tbody></table></div>';
-    }
-    // One display row per action+direction, joining that group's fields —
-    // matching how this tab has always presented a contract.
+  /* Held rather than rendered-and-discarded, so this tab can be searched,
+     counted and exported like every other list in the section.
+     null = the first read has not finished yet. */
+  var contractsCache = null;
+  var contractsError = '';
+  var contractsQ = '';
+
+  // One display group per action+direction, joining that group's fields —
+  // matching how this tab has always presented a contract.
+  function contractGroups() {
     var groups = [];
     var byKey = {};
-    (rows || []).forEach(function(r) {
+    (contractsCache || []).forEach(function(r) {
       var key = r.data_action_id + '|' + r.direction;
       if (!byKey[key]) { byKey[key] = { name: r.action_name, direction: r.direction, fields: [], types: [] }; groups.push(byKey[key]); }
       byKey[key].fields.push(r.field_name);
       byKey[key].types.push(r.field_type);
     });
-    var rowsHtml = groups.map(function(gp) {
-      var arrow = gp.direction === 'input' ? '\\u2192 input' : '\\u2190 output';
-      var types = gp.types.filter(function(t, i, a) { return a.indexOf(t) === i; }).join(', ');
-      return '<tr><td><b>' + escapeHtml(gp.name) + '</b></td><td>' + arrow + '</td><td>' +
-        escapeHtml(gp.fields.join(', ')) + '</td><td>' + escapeHtml(types) + '</td></tr>';
-    }).join('');
-    if (!rowsHtml) rowsHtml = '<tr><td colspan="4" style="text-align:center;color:#8794a8;padding:20px">No data action has a contract defined yet \\u2014 set one in the Contract field when creating or editing an action</td></tr>';
-    return '<div class="tblw"><table class="dt"><thead><tr><th>Contract</th><th>Direction</th><th>Fields</th><th>Type</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+    return groups;
   }
 
-  window.dataactContractsTabClick = function(el) {
-    var pb = activateTab(el);
-    if (!pb) return;
-    pb.innerHTML = '<div style="margin-bottom:4px"></div>' + renderContractsTable(null);
+  function contractsVisible() {
+    var groups = contractGroups();
+    if (!contractsQ) return groups;
+    return groups.filter(function(gp) {
+      return (gp.name + ' ' + gp.direction + ' ' + gp.fields.join(' ')).toLowerCase().indexOf(contractsQ) > -1;
+    });
+  }
+
+  window.dataactContractsFilterFx = function() {
+    var q = document.getElementById('da_contract_q');
+    if (q) contractsQ = q.value.toLowerCase();
+    var w = document.getElementById('da_contract_wrap');
+    if (w) w.innerHTML = renderContractsTable();
+  };
+  window.dataactContractsClearFx = function() {
+    contractsQ = '';
+    var q = document.getElementById('da_contract_q'); if (q) q.value = '';
+    var w = document.getElementById('da_contract_wrap'); if (w) w.innerHTML = renderContractsTable();
+  };
+
+  function renderContractsTable() {
+    var visible = contractsVisible();
+    var total = contractGroups().length;
+    var rowsHtml;
+    if (visible.length) {
+      rowsHtml = visible.map(function(gp) {
+        var arrow = gp.direction === 'input'
+          ? '<span class="tag">\\u2192 input</span>'
+          : '<span class="tag o">\\u2190 output</span>';
+        var types = gp.types.filter(function(t, i, a) { return a.indexOf(t) === i; }).join(', ');
+        return '<tr><td><b>' + escapeHtml(gp.name) + '</b></td><td>' + arrow + '</td><td>' +
+          escapeHtml(gp.fields.join(', ')) + '</td><td>' + window.MCMInt.cell(types) + '</td></tr>';
+      }).join('');
+    } else if (contractsError) {
+      rowsHtml = window.MCMInt.errorRow(4, contractsError, 'window.dataactContractsReloadFx()');
+    } else if (contractsCache === null) {
+      rowsHtml = window.MCMInt.loadingRow(4, 'Loading contracts\\u2026');
+    } else if (total) {
+      rowsHtml = window.MCMInt.emptyRow(4, 'No contracts match your search', 'Try a different term, or clear the search.',
+        '<button type="button" class="btn sec int-state-btn" onclick="window.dataactContractsClearFx()">Clear search</button>');
+    } else {
+      rowsHtml = window.MCMInt.emptyRow(4, 'No contracts defined yet',
+        'A contract is derived from an action\\'s Contract field, e.g. ani \\u2192 tier, name. Set one when creating or editing an action.', '');
+    }
+    return '<div class="tblw"><table class="dt"><thead><tr><th>Contract</th><th>Direction</th><th>Fields</th><th>Type</th></tr></thead><tbody>' +
+      rowsHtml + '</tbody></table>' + window.MCMInt.footer(visible.length, total) + '</div>';
+  }
+
+  function renderContractsBody() {
+    return '<div class="tbar">' +
+      '<input class="s" id="da_contract_q" type="search" placeholder="Search contracts" aria-label="Search contracts" value="' + escapeHtml(contractsQ) + '" oninput="window.dataactContractsFilterFx()">' +
+      '<div class="sp"></div>' + window.MCMInt.refreshChip('window.dataactContractsReloadFx()') + '</div>' +
+      '<div id="da_contract_wrap">' + renderContractsTable() + '</div>';
+  }
+
+  function paintContracts() {
+    if (daTab !== 'Contracts') return;
+    var w = document.getElementById('da_contract_wrap');
+    if (w) { w.innerHTML = renderContractsTable(); return; }
+    var pb = document.querySelector('#cnt .pbody');
+    if (pb) pb.innerHTML = renderContractsBody();
+  }
+
+  window.dataactContractsReloadFx = function() {
+    contractsCache = null; contractsError = '';
+    paintContracts();
     dataactApiFetch('/api/dataact/contracts').then(function(rows) {
-      var active = document.querySelector('#cnt .tabs .tb.on');
-      if (!active || active.textContent.trim() !== 'Contracts') return;
-      var pb2 = document.querySelector('#cnt .pbody');
-      if (pb2) pb2.innerHTML = '<div style="margin-bottom:4px"></div>' + renderContractsTable(rows);
+      contractsCache = Array.isArray(rows) ? rows : [];
+      contractsError = '';
+      paintContracts();
     }).catch(function(err) {
-      var active = document.querySelector('#cnt .tabs .tb.on');
-      if (!active || active.textContent.trim() !== 'Contracts') return;
-      var pb2 = document.querySelector('#cnt .pbody');
       // Show the real failure rather than an empty table that reads as
       // "this tenant has no contracts".
-      if (pb2) pb2.innerHTML = '<div style="margin-bottom:4px"></div><div style="color:#b3261e;font-size:12.5px;padding:12px">\\u2717 Could not load contracts \\u2014 ' +
-        escapeHtml((err && err.message) || 'please try again') + '</div>';
+      contractsCache = [];
+      contractsError = 'Could not load contracts \\u2014 ' + ((err && err.message) || 'please try again');
+      paintContracts();
     });
+  };
+
+  window.dataactContractsTabClick = function(el) {
+    var pb = activateTab(el, 'Contracts');
+    if (!pb) return;
+    contractsCache = null; contractsError = '';
+    pb.innerHTML = renderContractsBody();
+    window.dataactContractsReloadFx();
   };
 
   /* ─── Test tab — runs a REAL data action through the same
@@ -464,26 +586,34 @@ export const DATAACT_SCRIPT: string = `
      with no connection to any data action). Picking an action + Run
      writes a real data_action_runs row too, exactly like testing from
      the drawer does — same feature, second entry point. ─── */
+  /* Presented in the same .panel card the Bot Connectors Test Utterances tab
+     now uses, so the two "run something and read the result" tabs in this
+     section look like one feature rather than two unrelated forms. */
   function renderTestTable() {
     var actions = DataActService.getAll();
     var options = actions.map(function(a) { return '<option value="' + a.id + '">' + escapeHtml(a.name) + '</option>'; }).join('');
-    return '<div>' +
-      '<div class="fld" style="max-width:340px"><label>Data action</label><select id="da_test_pick">' + (options || '<option value="">No data actions yet</option>') + '</select></div>' +
+    return '<div class="panel int-panel"><h3>Run a data action</h3>' +
+      '<div class="int-panel-b">' +
+      '<div class="int-note">Runs the selected action through the same endpoint the Actions drawer uses, and records the result in Run History.</div>' +
+      '<div class="int-testrow">' +
+      '<div class="fld"><label for="da_test_pick">Data action</label><select id="da_test_pick"' + (actions.length ? '' : ' disabled') + '>' +
+        (options || '<option value="">No data actions yet</option>') + '</select></div>' +
       '<button class="btn" id="da_test_run_btn" onclick="window.dataactRunTestTab()"' + (actions.length ? '' : ' disabled') + '>Run action</button>' +
-      '<div id="da_test_out" style="margin-top:10px"></div>' +
-      '</div>';
+      '</div>' +
+      (actions.length ? '' : '<div class="int-note int-note-warn">Create a data action first \\u2014 there is nothing to run yet.</div>') +
+      '<div id="da_test_out"></div>' +
+      '</div></div>';
   }
 
   window.dataactTestTabClick = function(el) {
-    var pb = activateTab(el);
+    var pb = activateTab(el, 'Test');
     if (!pb) return;
-    pb.innerHTML = '<div style="margin-bottom:4px"></div>' + renderTestTable();
+    pb.innerHTML = renderTestTable();
     // Refresh so the picker lists actions created/deleted elsewhere.
     DataActService.refresh().then(function() {
-      var active = document.querySelector('#cnt .tabs .tb.on');
-      if (!active || active.textContent.trim() !== 'Test') return;
+      if (daTab !== 'Test') return;
       var pb2 = document.querySelector('#cnt .pbody');
-      if (pb2) pb2.innerHTML = '<div style="margin-bottom:4px"></div>' + renderTestTable();
+      if (pb2) pb2.innerHTML = renderTestTable();
     }).catch(function() { /* keep the cached render */ });
   };
 
@@ -532,58 +662,132 @@ export const DATAACT_SCRIPT: string = `
 
   var TRIGGER_LABELS = { 'test': 'Test Action', 'test-tab': 'Test tab', 'execute': 'Execute' };
 
-  /* runs === null renders the loading state; passing an Error renders a
-     real failure state. Previously a failed fetch was swallowed and left
-     the loading row on screen forever, so an outage was indistinguishable
-     from a slow request. */
-  function renderRunHistoryTable(runs) {
-    var head = '<div class="tblw"><table class="dt"><thead><tr><th>When</th><th>Action</th><th>Triggered by</th><th>Duration</th><th>Result</th></tr></thead>';
-    if (runs instanceof Error) {
-      return head + '<tbody><tr><td colspan="5" style="text-align:center;color:#b3261e;padding:20px">\\u2717 ' +
-        escapeHtml(runs.message || 'Could not load run history.') +
-        ' <button class="btn sec" style="height:26px;margin-left:8px" onclick="window.dataactRunHistoryRetry()">Retry</button></td></tr></tbody></table></div>';
+  /* runsCache === null renders the loading state. Previously a failed fetch
+     was swallowed and left the loading row on screen forever, so an outage
+     was indistinguishable from a slow request. Held rather than
+     rendered-and-discarded so the tab can be searched and exported. */
+  var runsCache = null;
+  var runsError = '';
+  var runsQ = '';
+
+  function runsVisible() {
+    var list = runsCache || [];
+    if (!runsQ) return list;
+    return list.filter(function(r) {
+      var trigger = TRIGGER_LABELS[r.trigger_source] || r.trigger_source || '';
+      return ((r.action_name || '') + ' ' + trigger + ' ' + (r.result || '')).toLowerCase().indexOf(runsQ) > -1;
+    });
+  }
+
+  window.dataactRunsFilterFx = function() {
+    var q = document.getElementById('da_runs_q');
+    if (q) runsQ = q.value.toLowerCase();
+    var w = document.getElementById('da_runs_wrap');
+    if (w) w.innerHTML = renderRunHistoryTable();
+  };
+  window.dataactRunsClearFx = function() {
+    runsQ = '';
+    var q = document.getElementById('da_runs_q'); if (q) q.value = '';
+    var w = document.getElementById('da_runs_wrap'); if (w) w.innerHTML = renderRunHistoryTable();
+  };
+
+  function renderRunHistoryTable() {
+    var visible = runsVisible();
+    var total = (runsCache || []).length;
+    var rows;
+    if (visible.length) {
+      rows = visible.map(function(r) {
+        return '<tr><td>' + formatRunTime(r.ran_at) + '</td><td><b>' + escapeHtml(r.action_name) + '</b></td>' +
+          '<td><span class="tag">' + escapeHtml(TRIGGER_LABELS[r.trigger_source] || r.trigger_source || '\\u2014') + '</span></td>' +
+          '<td>' + (r.duration_ms != null ? r.duration_ms.toLocaleString('en-GB') + ' ms' : '<span class="int-muted">\\u2014</span>') + '</td>' +
+          '<td>' + resultBadge(r.result) + '</td></tr>';
+      }).join('');
+    } else if (runsError) {
+      rows = window.MCMInt.errorRow(5, runsError, 'window.dataactRunHistoryRetry()');
+    } else if (runsCache === null) {
+      rows = window.MCMInt.loadingRow(5, 'Loading run history\\u2026');
+    } else if (total) {
+      rows = window.MCMInt.emptyRow(5, 'No runs match your search', 'Try a different term, or clear the search.',
+        '<button type="button" class="btn sec int-state-btn" onclick="window.dataactRunsClearFx()">Clear search</button>');
+    } else {
+      rows = window.MCMInt.emptyRow(5, 'No data action has been run yet',
+        'Use Test Action on a data action, or the Test tab, and every run is recorded here.', '');
     }
-    if (runs === null) {
-      return head +
-        '<tbody><tr><td colspan="5" style="text-align:center;color:#8794a8;padding:20px">Loading run history\\u2026</td></tr></tbody></table></div>';
-    }
-    var rows = (runs && runs.length) ? runs.map(function(r) {
-      return '<tr><td>' + formatRunTime(r.ran_at) + '</td><td>' + escapeHtml(r.action_name) + '</td>' +
-        '<td>' + escapeHtml(TRIGGER_LABELS[r.trigger_source] || r.trigger_source || '\\u2014') + '</td>' +
-        '<td>' + (r.duration_ms != null ? r.duration_ms.toLocaleString('en-GB') + ' ms' : '\\u2014') + '</td>' +
-        '<td>' + resultBadge(r.result) + '</td></tr>';
-    }).join('') : '<tr><td colspan="5" style="text-align:center;color:#8794a8;padding:20px">No data action has been run yet \\u2014 use Test Action on a data action to create history</td></tr>';
-    return '<div class="tblw"><table class="dt"><thead><tr><th>When</th><th>Action</th><th>Triggered by</th><th>Duration</th><th>Result</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    return '<div class="tblw"><table class="dt"><thead><tr><th>When</th><th>Action</th><th>Triggered by</th><th>Duration</th><th>Result</th></tr></thead><tbody>' +
+      rows + '</tbody></table>' + window.MCMInt.footer(visible.length, total) + '</div>';
+  }
+
+  function renderRunHistoryBody() {
+    return '<div class="tbar">' +
+      '<input class="s" id="da_runs_q" type="search" placeholder="Search run history" aria-label="Search run history" value="' + escapeHtml(runsQ) + '" oninput="window.dataactRunsFilterFx()">' +
+      '<div class="sp"></div>' + window.MCMInt.refreshChip('window.dataactRunHistoryRetry()') + '</div>' +
+      '<div id="da_runs_wrap">' + renderRunHistoryTable() + '</div>';
+  }
+
+  function paintRuns() {
+    if (daTab !== 'Run History') return;
+    var w = document.getElementById('da_runs_wrap');
+    if (w) { w.innerHTML = renderRunHistoryTable(); return; }
+    var pb = document.querySelector('#cnt .pbody');
+    if (pb) pb.innerHTML = renderRunHistoryBody();
   }
 
   /* Re-runs the fetch without needing the tab element, so the error
-     state's Retry button works. */
+     state's Retry button and the toolbar's Refresh chip both work. */
   window.dataactRunHistoryRetry = function() {
-    var pb = document.querySelector('#cnt .pbody');
-    if (pb) pb.innerHTML = '<div style="margin-bottom:4px"></div>' + renderRunHistoryTable(null);
+    runsCache = null; runsError = '';
+    paintRuns();
     loadRunHistory();
   };
 
   function loadRunHistory() {
     return dataactApiFetch('/api/dataact/runs?limit=50').then(function(runs) {
-      var stillOnTab = document.querySelector('#cnt .tabs .tb.on');
-      if (!stillOnTab || stillOnTab.textContent.trim() !== 'Run History') return;
-      var pb2 = document.querySelector('#cnt .pbody');
-      if (pb2) pb2.innerHTML = '<div style="margin-bottom:4px"></div>' + renderRunHistoryTable(runs);
+      runsCache = Array.isArray(runs) ? runs : [];
+      runsError = '';
+      paintRuns();
     }).catch(function(err) {
-      var stillOnTab = document.querySelector('#cnt .tabs .tb.on');
-      if (!stillOnTab || stillOnTab.textContent.trim() !== 'Run History') return;
-      var pb2 = document.querySelector('#cnt .pbody');
-      if (pb2) pb2.innerHTML = '<div style="margin-bottom:4px"></div>' +
-        renderRunHistoryTable(err instanceof Error ? err : new Error('Could not load run history.'));
+      runsCache = [];
+      runsError = (err && err.message) || 'Could not load run history.';
+      paintRuns();
     });
   }
 
   window.dataactRunHistoryTabClick = function(el) {
-    var pb = activateTab(el);
+    var pb = activateTab(el, 'Run History');
     if (!pb) return;
-    pb.innerHTML = '<div style="margin-bottom:4px"></div>' + renderRunHistoryTable(null);
+    runsCache = null; runsError = '';
+    pb.innerHTML = renderRunHistoryBody();
     loadRunHistory();
+  };
+
+  /* Export writes the rows currently on screen for the active tab, the same
+     client-side CSV the Bot Connectors page already used. The Export button
+     beside "+ Create Action" had no handler at all before. */
+  window.dataactExportFx = function() {
+    if (daTab === 'Contracts') {
+      var groups = contractsVisible();
+      window.MCMInt.downloadCsv('data_action_contracts.csv', ['Contract', 'Direction', 'Fields', 'Type'],
+        groups.map(function(gp) {
+          var types = gp.types.filter(function(t, i, a) { return a.indexOf(t) === i; }).join(', ');
+          return [gp.name, gp.direction, gp.fields.join(', '), types].map(window.MCMInt.csvCell).join(',');
+        }), 'contract row(s)');
+      return;
+    }
+    if (daTab === 'Run History') {
+      var runs = runsVisible();
+      window.MCMInt.downloadCsv('data_action_runs.csv', ['When', 'Action', 'Triggered by', 'Duration (ms)', 'Result'],
+        runs.map(function(r) {
+          return [r.ran_at, r.action_name, TRIGGER_LABELS[r.trigger_source] || r.trigger_source || '',
+            r.duration_ms == null ? '' : r.duration_ms, r.result].map(window.MCMInt.csvCell).join(',');
+        }), 'run(s)');
+      return;
+    }
+    var list = sortedActions();
+    window.MCMInt.downloadCsv('data_actions.csv', ['Action', 'Integration', 'Method', 'Endpoint', 'Contract', 'Avg latency (ms)', 'Status'],
+      list.map(function(a) {
+        return [a.name, a.integration, a.method, a.endpoint, a.contract,
+          a.avgLatencyMs == null ? '' : a.avgLatencyMs, a.status].map(window.MCMInt.csvCell).join(',');
+      }), 'data action(s)');
   };
 
   /* ─── Create / Edit drawer ───

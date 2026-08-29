@@ -263,8 +263,27 @@ table.dt tbody tr:hover td{background:#fafcff}
 .kv b{color:#31404f;font-weight:600}
 .wrapb{background:#fff;border:1px solid #dde3ec;border-radius:6px;padding:14px 16px;margin-top:14px}
 /* apps */
-.ic2{width:40px;height:40px;border-radius:9px;background:#fff2ec;color:#FF4F1F;display:flex;align-items:center;justify-content:center;flex:none}
+/* font-size/line-height matter now that .ic2 holds an emoji rather than an
+   SVG: an SVG carried its own width/height, a glyph is sized by type. 18px in
+   the 40px tile is the UI prototype's own pairing. */
+.ic2{width:40px;height:40px;border-radius:9px;background:#fff2ec;color:#FF4F1F;display:flex;align-items:center;justify-content:center;flex:none;font-size:18px;line-height:1}
+/* The Apps > Available rows shrink the tile to 32px inline, so the glyph
+   comes down with it. */
+table.dt .ic2{font-size:15px}
 .apgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+/* Apps renders its help panel as a sibling of .pbody rather than inside it,
+   so it never picked up the 24px page gutter every other element on the page
+   sits behind — it runs edge to edge. The 246px sidebar used to hide that:
+   the panel started at the sidebar's border, which read as deliberate. With
+   the sidebar gone (see mcm/global-sidebar.ts) it is plainly 24px wider than
+   the breadcrumb, title, tabs and cards above it, so it gets the same gutter.
+   Scoped to Apps: the identical markup on Data Actions and Bot Connectors is
+   left exactly as it is. */
+body[data-mcm-view="apps"] #cnt > .help{margin-left:24px;margin-right:24px}
+@media(max-width:880px){
+  /* matches the .phd/.pbody padding at this breakpoint */
+  body[data-mcm-view="apps"] #cnt > .help{margin-left:14px;margin-right:14px}
+}
 .appc{background:#fff;border:1px solid #dde3ec;border-radius:8px;padding:18px;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease}
 .appc:hover{border-color:#FF4F1F;box-shadow:0 8px 20px rgba(15,23,42,.09);transform:translateY(-2px)}
 .appc:focus-visible{outline:2px solid #FF4F1F;outline-offset:2px}
@@ -869,15 +888,126 @@ background-image:radial-gradient(#cfd7e3 1px,transparent 1px);background-size:18
    .pgr/.fld/#drw/.help/.kpis) with no visual override, so Installed,
    Catalogue, Client Applications, Credentials, Data Actions and Bot
    Connectors render identically to Account Settings, People &
-   Permissions, etc. Only the handful of rules below are unique to
-   this section and have no shared-class equivalent to inherit from.
+   Permissions, etc. Only the rules below are unique to this section
+   and have no shared-class equivalent to inherit from -- every one of
+   the eleven tabs renders through them, so the same situation looks
+   the same wherever it is hit.
    ============================================================ */
 
-/* Sortable table headers (Installed, Actions) -- real click-to-sort,
-   not decoration, so the header needs to read as interactive. */
-body[data-mcm-section="integrations"] table.dt th.srt{cursor:pointer;user-select:none}
-body[data-mcm-section="integrations"] table.dt th.srt:hover{color:#152550}
+/* ---------- Page frame ---------------------------------------------------
+   The header (breadcrumb + title + actions + tabs) stays put while a long
+   table scrolls under it: it lives inside #cnt, which is the scroll
+   container, so without this a tall Installed or Run History table pushed
+   the title and the tab strip out of view. .pbody keeps a floor so a short
+   tab (Test, an empty Credentials list) does not collapse the page to a
+   fraction of the height of the tab next to it. */
+body[data-mcm-section="integrations"] .phd{position:sticky;top:0;z-index:6}
+body[data-mcm-section="integrations"] .pbody{min-height:360px}
+body[data-mcm-section="integrations"] .tblw{-webkit-overflow-scrolling:touch}
+
+/* ---------- Toolbar ------------------------------------------------------
+   Every tab now has the same search + filters + Refresh row. The Refresh
+   control is a real <button> (it was a <div class="chip">, unreachable by
+   keyboard), and the filter <select>s get the chip's own chevron so they
+   stop rendering with the browser's default control styling. */
+body[data-mcm-section="integrations"] button.chip{font:inherit;font-size:12.5px;line-height:1}
+body[data-mcm-section="integrations"] .tbar select.chip{
+  font:inherit;font-size:12.5px;color:#3c4a5c;cursor:pointer;
+  -webkit-appearance:none;appearance:none;padding-right:26px;
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%237b8798' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center;background-size:11px;
+}
+body[data-mcm-section="integrations"] .tbar input.s:focus,
+body[data-mcm-section="integrations"] .tbar select.chip:focus{
+  border-color:#FF4F1F;box-shadow:0 0 0 3px rgba(255,79,31,.12);
+}
+body[data-mcm-section="integrations"] .chip:focus-visible{outline:2px solid #FF4F1F;outline-offset:1px}
+body[data-mcm-section="integrations"] .int-ref{font-size:13px;line-height:1}
+
+/* ---------- Tables -------------------------------------------------------
+   Sortable headers are real click-to-sort everywhere they appear now
+   (Installed, Data Actions, Bot Connectors), so they have to read as
+   interactive and show which column is driving the order. */
+body[data-mcm-section="integrations"] table.dt th.srt{cursor:pointer;user-select:none;white-space:nowrap}
+body[data-mcm-section="integrations"] table.dt th.srt:hover{color:#152550;background:#f0f4fa}
 body[data-mcm-section="integrations"] table.dt th.srt:focus-visible{outline:2px solid #FF4F1F;outline-offset:-2px}
+body[data-mcm-section="integrations"] table.dt th.srt.on{color:#152550}
+body[data-mcm-section="integrations"] .srt-g{font-style:normal;margin-left:6px;font-size:11px;color:#a9b3c2}
+body[data-mcm-section="integrations"] table.dt th.srt.on .srt-g{color:#FF4F1F}
+body[data-mcm-section="integrations"] table.dt tbody tr:focus-visible{outline:2px solid #FF4F1F;outline-offset:-2px}
+body[data-mcm-section="integrations"] .int-th-act{width:78px;text-align:right;white-space:nowrap}
+body[data-mcm-section="integrations"] .int-row-act{width:34px;text-align:center;color:#a9b3c2}
+body[data-mcm-section="integrations"] .int-muted{color:#a9b3c2}
+body[data-mcm-section="integrations"] .int-name{display:inline-flex;align-items:center;gap:9px;min-width:0}
+body[data-mcm-section="integrations"] .int-av{
+  width:26px;height:26px;border-radius:7px;flex:none;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:#fff2ec;color:#c9401a;font-size:10.5px;font-weight:700;letter-spacing:.3px;
+}
+body[data-mcm-section="integrations"] .pgr .int-filtered{color:#c9401a;font-weight:600}
+
+/* ---------- Loading / empty / failure states -----------------------------
+   One treatment for all three, shared by every table in the section (see
+   window.MCMInt in scripts.ts). An empty result and a failed read used to
+   be indistinguishable on several tabs. */
+body[data-mcm-section="integrations"] tr.int-state-row td{padding:0;border-bottom:none;background:#fff}
+body[data-mcm-section="integrations"] tr.int-state-row{cursor:default}
+body[data-mcm-section="integrations"] tr.int-state-row:hover td{background:#fff}
+body[data-mcm-section="integrations"] .int-state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:5px;text-align:center;padding:40px 20px;
+}
+body[data-mcm-section="integrations"] .int-state-ic{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:40px;height:40px;border-radius:11px;margin-bottom:5px;
+  background:#fff2ec;color:#FF4F1F;
+}
+body[data-mcm-section="integrations"] .int-state-t{font-size:13.5px;font-weight:600;color:#152550}
+body[data-mcm-section="integrations"] .int-state-d{font-size:12.3px;color:#7b8798;line-height:1.6;max-width:440px}
+body[data-mcm-section="integrations"] .int-state-btn{margin-top:11px;height:30px}
+body[data-mcm-section="integrations"] .int-state-err{padding:32px 20px}
+body[data-mcm-section="integrations"] .int-state-err .int-state-t{color:#b3261e;font-weight:500;font-size:12.8px}
+body[data-mcm-section="integrations"] .int-loading{
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  padding:38px 20px;font-size:12.5px;color:#7b8798;
+}
+body[data-mcm-section="integrations"] .int-spin{
+  width:14px;height:14px;border-radius:50%;flex:none;
+  border:2px solid #e4e9f0;border-top-color:#FF4F1F;
+  animation:int-spin .7s linear infinite;
+}
+@keyframes int-spin{to{transform:rotate(360deg)}}
+
+/* Inline failure banner shown above a table that still has readable rows --
+   same red already used for error states elsewhere (.rowbtn.danger, etc). */
+body[data-mcm-section="integrations"] .int-banner{
+  display:flex;align-items:center;gap:9px;margin:0 0 12px;
+  padding:10px 13px;border-radius:6px;font-size:12.8px;line-height:1.45;
+}
+body[data-mcm-section="integrations"] .int-banner.err{
+  background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;
+}
+body[data-mcm-section="integrations"] .int-banner-x{font-weight:700;flex:none}
+body[data-mcm-section="integrations"] .int-banner-t{flex:1;min-width:0}
+body[data-mcm-section="integrations"] .int-banner-btn{flex:none;height:26px;padding:0 12px}
+
+/* ---------- Panels, notes and the two "run it" tabs ---------------------- */
+body[data-mcm-section="integrations"] .int-note{font-size:12.3px;color:#5b6b82;line-height:1.6;margin:0 0 12px}
+body[data-mcm-section="integrations"] .int-note-warn{
+  color:#8a5a12;background:#fff7e8;border:1px solid #f3e0bd;
+  border-radius:5px;padding:8px 11px;margin:12px 0 0;
+}
+body[data-mcm-section="integrations"] .int-panel{max-width:720px}
+body[data-mcm-section="integrations"] .int-panel-b{padding:16px 17px 18px}
+body[data-mcm-section="integrations"] .int-testrow{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
+body[data-mcm-section="integrations"] .int-testrow .fld{margin-bottom:0;flex:1 1 260px;min-width:0}
+body[data-mcm-section="integrations"] .int-testrow .btn{flex:none}
+body[data-mcm-section="integrations"] #da_test_out,
+body[data-mcm-section="integrations"] #bot_test_out{margin-top:14px}
+body[data-mcm-section="integrations"] #da_test_out:empty,
+body[data-mcm-section="integrations"] #bot_test_out:empty{margin-top:0}
+body[data-mcm-section="integrations"] .int-danger-btn{color:#b3261e;border-color:#f3c6c2;height:27px;padding:0 12px}
+body[data-mcm-section="integrations"] .int-danger-btn:hover{background:#fdecea;border-color:#e8a9a3}
 
 /* Test Action / Test Utterance result panels (Data Actions, Bot
    Connectors) -- a dark console-style output block, matching the
@@ -886,16 +1016,22 @@ body[data-mcm-section="integrations"] #da_test_out pre,
 body[data-mcm-section="integrations"] #bot_test_out pre{
   border-radius:6px;border:1px solid #223a63;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;line-height:1.65;
+  overflow-x:auto;
 }
 
-/* Inline failure banner shown above a table when a read fails -- same
-   red already used for error states elsewhere (.rowbtn.danger, etc). */
-body[data-mcm-section="integrations"] .int-banner{
-  display:flex;align-items:center;gap:8px;margin:0 0 12px;
-  padding:10px 13px;border-radius:6px;font-size:13px;line-height:1.4;
-}
-body[data-mcm-section="integrations"] .int-banner.err{
-  background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;
+/* ---------- Responsive --------------------------------------------------- */
+@media(max-width:880px){
+  /* A sticky header costs too much of a phone viewport once .tt has stacked
+     the action buttons under the title (see the shared rule further down). */
+  body[data-mcm-section="integrations"] .phd{position:static}
+  body[data-mcm-section="integrations"] .pbody{min-height:0}
+  body[data-mcm-section="integrations"] .tbar input.s{flex:1 1 100%}
+  body[data-mcm-section="integrations"] .tbar select.chip{flex:1 1 calc(50% - 4px);min-width:0}
+  body[data-mcm-section="integrations"] .tbar .sp{display:none}
+  body[data-mcm-section="integrations"] .tbar button.chip{flex:1 1 100%;justify-content:center}
+  body[data-mcm-section="integrations"] .int-state{padding:30px 14px}
+  body[data-mcm-section="integrations"] .int-panel{max-width:none}
+  body[data-mcm-section="integrations"] .int-testrow .btn{width:100%}
 }
 
 /* ---------- Reduced motion ---------------------------------------------- */
@@ -920,6 +1056,11 @@ body[data-mcm-section="integrations"] .int-banner.err{
 
 @media(max-width:880px){
   .anav-toggle{display:flex}
+
+  /* Apps has no sidebar to open (see mcm/global-sidebar.ts), so it must not
+     offer the hamburger either: #anav is display:none there, which beats
+     body.anav-open's left:0, and the button would open nothing but a scrim. */
+  body[data-mcm-view="apps"] .anav-toggle{display:none}
 
   /* #anav becomes a slide-in overlay instead of a permanent 246px column —
      #ws stays a flex row, but a fixed-position sidebar is taken out of that
@@ -1074,4 +1215,276 @@ body[data-mcm-section="integrations"] .int-banner.err{
     min-width:0!important;
     max-width:none!important;
   }
+}
+
+/* ============================================================================
+   OUTBOUND - ENTERPRISE UI
+   ----------------------------------------------------------------------------
+   Scoped entirely to body[data-mcm-outbound], which mcm/outbound-theme.ts
+   stamps on/off as the user enters and leaves the three Outbound pages
+   (Campaigns, Contact Lists, DNC Lists). Every rule below therefore restyles
+   those pages ONLY and cannot leak into the rest of Genesis.
+
+   Presentation only. These rules target the shared Genesis classes the render
+   functions already emit (.phd/.tt/.tabs/.tbar/.chip/.btn/.tblw/table.dt/
+   .fld/#drw/.help) plus the .ob-* classes window.MCMOut produces, so the
+   design system is inherited rather than re-invented: same ink, accent,
+   surface and radius tokens as Subscription, AuthOrg and Integrations.
+   No render function, API call, event handler or data path was changed to
+   achieve any of it.
+   ========================================================================== */
+
+/* ---------- Page frame --------------------------------------------------
+   The header (breadcrumb, title, actions, tabs) stays put while a long
+   campaign or contact table scrolls under it: .phd lives inside #cnt, which
+   is the scroll container, so without this the title and tab strip scrolled
+   away. .pbody keeps a floor so a one-row list does not collapse the page to
+   a fraction of the height of the page beside it. */
+body[data-mcm-outbound] .phd{position:sticky;top:0;z-index:6}
+body[data-mcm-outbound] .pbody{min-height:380px}
+body[data-mcm-outbound] .tblw{-webkit-overflow-scrolling:touch}
+
+/* The three pages had different title-row rhythms because some carry one
+   action button and some carry four. */
+body[data-mcm-outbound] .phd .tt{align-items:flex-start;row-gap:12px}
+body[data-mcm-outbound] .phd h1{line-height:1.25;letter-spacing:-.2px}
+body[data-mcm-outbound] .phd .rt{align-items:flex-start}
+
+/* ---------- Summary cards -----------------------------------------------
+   Same shell as .subs-kpi so Outbound reads as the same product as
+   Subscription; every figure is counted from rows already on screen. */
+body[data-mcm-outbound] .ob-kpis{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));
+  gap:12px;margin-bottom:16px;
+}
+body[data-mcm-outbound] .ob-kpi{
+  background:#fff;border:1px solid #dde3ec;border-radius:8px;padding:14px 16px;
+  box-shadow:0 1px 3px rgba(20,35,70,.05);position:relative;overflow:hidden;
+}
+body[data-mcm-outbound] .ob-kpi::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#e4e9f0;
+}
+body[data-mcm-outbound] .ob-kpi.tone-accent::before{background:#FF4F1F}
+body[data-mcm-outbound] .ob-kpi.tone-ok::before{background:#2eab6b}
+body[data-mcm-outbound] .ob-kpi.tone-warn::before{background:#e8a33d}
+body[data-mcm-outbound] .ob-kpi-label{
+  display:block;font-size:10.5px;letter-spacing:.9px;text-transform:uppercase;
+  color:#93a0b3;font-weight:700;margin-bottom:7px;
+}
+body[data-mcm-outbound] .ob-kpi-val{
+  display:block;font-size:24px;font-weight:700;color:#152550;line-height:1;
+}
+body[data-mcm-outbound] .ob-kpi-sub{
+  display:block;font-style:normal;font-size:11.5px;color:#5b6a7d;margin-top:5px;
+}
+
+/* ---------- Toolbar ------------------------------------------------------
+   All three pages now carry the same search + filters + Refresh row. Refresh
+   is a real <button> (it was a <div class="chip">, unreachable by keyboard),
+   and the filter <select>s get the chip's own chevron so they stop rendering
+   with the browser's default control styling. */
+body[data-mcm-outbound] .tbar{gap:8px;margin-bottom:14px}
+body[data-mcm-outbound] button.chip{font:inherit;font-size:12.5px;line-height:1}
+body[data-mcm-outbound] .chip{border-radius:6px;transition:border-color .12s ease,color .12s ease,background .12s ease}
+body[data-mcm-outbound] .tbar input.s{border-radius:6px;height:33px}
+body[data-mcm-outbound] .tbar select.chip{
+  height:33px;font:inherit;font-size:12.5px;color:#3c4a5c;cursor:pointer;
+  -webkit-appearance:none;appearance:none;padding-right:26px;
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%237b8798' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 8px center;background-size:11px;
+}
+body[data-mcm-outbound] .tbar .chip{height:33px}
+body[data-mcm-outbound] .tbar input.s:focus,
+body[data-mcm-outbound] .tbar select.chip:focus{
+  border-color:#FF4F1F;box-shadow:0 0 0 3px rgba(255,79,31,.12);
+}
+body[data-mcm-outbound] .chip:focus-visible,
+body[data-mcm-outbound] .btn:focus-visible{outline:2px solid #FF4F1F;outline-offset:1px}
+body[data-mcm-outbound] .ob-refresh-ic{display:inline-block;font-style:normal;line-height:1}
+body[data-mcm-outbound] .chip:active .ob-refresh-ic{transform:rotate(180deg);transition:transform .3s ease}
+
+/* ---------- Tables -------------------------------------------------------
+   Numeric columns right-align so counts are comparable down the column;
+   the name cell carries its own two-line block instead of a <br> plus an
+   inline-styled span. */
+body[data-mcm-outbound] table.dt th{font-size:11.3px;padding:10px 14px}
+body[data-mcm-outbound] table.dt td{padding:11px 14px}
+body[data-mcm-outbound] table.dt tbody tr{transition:background .1s ease}
+body[data-mcm-outbound] table.dt tbody tr:focus-visible{outline:2px solid #FF4F1F;outline-offset:-2px}
+body[data-mcm-outbound] table.dt th.ob-num,
+body[data-mcm-outbound] table.dt td.ob-num{text-align:right;font-variant-numeric:tabular-nums}
+body[data-mcm-outbound] .ob-name{display:block;font-weight:600;color:#152550}
+body[data-mcm-outbound] tbody tr:hover .ob-name.lnk{color:#c9401a}
+body[data-mcm-outbound] .ob-sub{display:block;font-size:11px;color:#8794a8;margin-top:2px}
+body[data-mcm-outbound] .ob-muted{color:#a9b3c2}
+body[data-mcm-outbound] .ob-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.2px;color:#31404f}
+
+/* Row-end chevron. The rows already open a detail view on click; this
+   replaces a decorative vertical ellipsis that looked like a menu button
+   but had no handler behind it on any of the three pages. */
+body[data-mcm-outbound] th.ob-go,
+body[data-mcm-outbound] td.ob-go{width:40px;text-align:right;padding-left:0}
+body[data-mcm-outbound] td.ob-go svg{color:#c4ccd8;vertical-align:middle;transition:color .12s ease,transform .12s ease}
+body[data-mcm-outbound] tbody tr:hover td.ob-go svg{color:#c9401a;transform:translateX(2px)}
+
+/* Row actions that are genuinely destructive read as such on hover only,
+   so a table of them is not a wall of red. */
+body[data-mcm-outbound] .ob-act{
+  display:inline-flex;align-items:center;height:24px;padding:0 9px;border:1px solid #e4e9f0;
+  background:#fff;border-radius:5px;font-size:11.5px;font-weight:600;color:#5b6a7d;cursor:pointer;
+  transition:border-color .12s ease,color .12s ease,background .12s ease;
+}
+body[data-mcm-outbound] .ob-act:hover{border-color:#f0b5a6;color:#c9401a;background:#fff8f5}
+body[data-mcm-outbound] .ob-act:focus-visible{outline:2px solid #FF4F1F;outline-offset:1px}
+body[data-mcm-outbound] td.ob-acts{width:1%;white-space:nowrap;text-align:right}
+body[data-mcm-outbound] th.ob-acts{width:1%;text-align:right}
+
+/* ---------- Status pills -------------------------------------------------
+   Campaign run state and contact disposition were a coloured word and a
+   coloured dot respectively; both are the same pill now, matching
+   .authorg-status. */
+body[data-mcm-outbound] .ob-pill{
+  display:inline-flex;align-items:center;gap:6px;font-size:11.3px;font-weight:600;
+  padding:3px 10px;border-radius:11px;white-space:nowrap;
+}
+body[data-mcm-outbound] .ob-pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none;opacity:.85}
+body[data-mcm-outbound] .ob-pill.tone-ok{background:#e8f7ef;color:#1a7a4a}
+body[data-mcm-outbound] .ob-pill.tone-warn{background:#fff8e1;color:#8a5c00}
+body[data-mcm-outbound] .ob-pill.tone-err{background:#fdecea;color:#b3261e}
+body[data-mcm-outbound] .ob-pill.tone-info{background:#eef2f8;color:#2b4a7d}
+body[data-mcm-outbound] .ob-pill.tone-off{background:#f4f6fa;color:#5b6a7d}
+
+/* Dialing mode reuses .tag; Predictive is the one that needs watching, so it
+   keeps the accent tint the render function already asks for. */
+body[data-mcm-outbound] .tag{font-weight:600;padding:3px 9px;border-radius:9px}
+
+/* ---------- Loading / empty / no-match / failure states ------------------
+   One treatment for all four, shared by every table in the section (see
+   window.MCMOut in outbound-theme.ts). An empty list and a failed read used
+   to be near-indistinguishable, and the three pages padded them differently. */
+body[data-mcm-outbound] tr.ob-state-row{cursor:default}
+body[data-mcm-outbound] tr.ob-state-row td{padding:0;border-bottom:none;background:#fff}
+body[data-mcm-outbound] tr.ob-state-row:hover td{background:#fff}
+body[data-mcm-outbound] .ob-state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:6px;text-align:center;padding:46px 20px;
+}
+body[data-mcm-outbound] .ob-state-ic{display:flex;color:#c4ccd8;margin-bottom:2px}
+body[data-mcm-outbound] .ob-state-error .ob-state-ic{color:#e0897f}
+body[data-mcm-outbound] .ob-state-title{font-size:13.5px;font-weight:600;color:#3c4a5c}
+body[data-mcm-outbound] .ob-state-error .ob-state-title{color:#b3261e}
+body[data-mcm-outbound] .ob-state-sub{font-size:12px;color:#8794a8;max-width:420px;line-height:1.6}
+body[data-mcm-outbound] .ob-state-btn{height:30px;margin-top:8px}
+
+body[data-mcm-outbound] .ob-spinner{
+  width:22px;height:22px;border-radius:50%;display:block;
+  border:2.5px solid #e4e9f0;border-top-color:#FF4F1F;
+  animation:ob-spin .7s linear infinite;
+}
+@keyframes ob-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){
+  body[data-mcm-outbound] .ob-spinner{animation-duration:2.4s}
+  body[data-mcm-outbound] table.dt tbody tr,
+  body[data-mcm-outbound] td.ob-go svg,
+  body[data-mcm-outbound] .ob-act,
+  body[data-mcm-outbound] .chip{transition:none}
+}
+
+/* ---------- Stale-data / inline error banner ----------------------------- */
+body[data-mcm-outbound] .ob-banner,
+body[data-mcm-outbound] #drw .ob-banner{
+  display:flex;align-items:flex-start;gap:9px;
+  background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;
+  border-radius:6px;padding:10px 12px;font-size:12.5px;line-height:1.55;margin-bottom:12px;
+}
+body[data-mcm-outbound] .ob-banner-ic{flex:none;display:flex;margin-top:1px}
+body[data-mcm-outbound] .ob-banner-ic svg{width:17px;height:17px}
+body[data-mcm-outbound] .ob-banner-txt{flex:1;min-width:0}
+body[data-mcm-outbound] .ob-banner-btn{height:26px;flex:none;align-self:center}
+
+/* ---------- Drawers ------------------------------------------------------
+   The campaign editor is the longest form in the section; its section
+   headings and helper text needed the same rhythm as the Roles and
+   Integrations drawers rather than ad-hoc inline margins. */
+body[data-mcm-outbound] #drw .db{padding:18px 20px 22px}
+body[data-mcm-outbound] #drw .sect{margin:20px 0 12px}
+body[data-mcm-outbound] #drw .sect:first-child{margin-top:0}
+body[data-mcm-outbound] #drw .fld label{margin-bottom:6px}
+body[data-mcm-outbound] .ob-hint{
+  display:block;font-size:11.5px;color:#5b6b82;line-height:1.6;
+  background:#f7f9fc;border:1px solid #eef1f6;border-left:3px solid #c4ccd8;
+  border-radius:0 5px 5px 0;padding:8px 11px;margin:-6px 0 14px;
+}
+body[data-mcm-outbound] #drw .ob-danger-zone{
+  margin-top:22px;padding-top:16px;border-top:1px solid #eef1f6;
+}
+body[data-mcm-outbound] #drw .ob-danger-zone .btn.gh{
+  border:1px solid #f0cfc6;height:32px;border-radius:5px;
+}
+body[data-mcm-outbound] #drw .ob-danger-zone .btn.gh:hover{background:#fdecea}
+body[data-mcm-outbound] #drw .ob-danger-note{
+  display:block;font-size:11.3px;color:#8794a8;margin-top:7px;line-height:1.55;
+}
+
+/* ---------- Detail views -------------------------------------------------
+   The DNC detail table was capped at max-width:480px inline while every
+   other table in the section ran full width; the cap is dropped in favour of
+   a sensible reading measure that still fills the column on a laptop. */
+body[data-mcm-outbound] .ob-detail-narrow{max-width:640px}
+body[data-mcm-outbound] .ob-meta{
+  display:flex;align-items:center;flex-wrap:wrap;gap:8px 18px;
+  font-size:12px;color:#5b6a7d;margin:-4px 0 14px;
+}
+body[data-mcm-outbound] .ob-meta b{color:#152550;font-weight:600}
+
+/* ---------- Responsive ---------------------------------------------------
+   Below 900px the action cluster drops under the title and goes full-width
+   rather than squeezing four buttons against the right edge; below 700px the
+   KPI grid collapses to two columns and the lowest-priority table columns
+   are dropped so the remaining ones stay readable without horizontal
+   scrolling (the .tblw scroll is still there for the ones that need it). */
+@media(max-width:900px){
+  body[data-mcm-outbound] .phd{padding:12px 16px 0}
+  body[data-mcm-outbound] .pbody{padding:14px 16px 32px}
+  body[data-mcm-outbound] .phd .tt{flex-direction:column;align-items:stretch}
+  body[data-mcm-outbound] .phd .rt{margin-left:0;width:100%}
+  body[data-mcm-outbound] .phd .rt .btn{flex:1 1 auto;justify-content:center}
+  body[data-mcm-outbound] .ob-kpis{gap:10px}
+}
+@media(max-width:700px){
+  body[data-mcm-outbound] .ob-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body[data-mcm-outbound] .ob-kpi{padding:12px 13px}
+  body[data-mcm-outbound] .ob-kpi-val{font-size:21px}
+  body[data-mcm-outbound] .tbar input.s{flex:1 1 100%}
+  body[data-mcm-outbound] .tbar select.chip{flex:1 1 auto}
+  body[data-mcm-outbound] .tbar .sp{display:none}
+  body[data-mcm-outbound] .ob-state{padding:34px 16px}
+  body[data-mcm-outbound] .ob-detail-narrow{max-width:none}
+  /* Columns marked optional by the render functions: the row still opens the
+     detail view where the full record is shown. */
+  body[data-mcm-outbound] table.dt th.ob-opt,
+  body[data-mcm-outbound] table.dt td.ob-opt{display:none}
+  /* The base table.dt rule pins every header to one line, which set a floor
+     on the table's width well above the viewport and left the remaining
+     columns scrolling sideways even after the optional ones were dropped.
+     Headers wrap here instead; .tblw keeps its scroll for the tables that
+     still genuinely need it. */
+  body[data-mcm-outbound] table.dt th{white-space:normal}
+  body[data-mcm-outbound] .ob-name{overflow-wrap:anywhere}
+  body[data-mcm-outbound] .ob-sub{overflow-wrap:anywhere}
+}
+/* A second priority tier for phone widths. Desktop shows every column;
+   below 700px the reference columns go (.ob-opt); below 560px the ones that
+   are a detail rather than a way of picking the right row go too, which is
+   what finally lets these tables sit inside the viewport instead of
+   scrolling sideways. The row still opens the full record. */
+@media(max-width:560px){
+  body[data-mcm-outbound] table.dt th.ob-opt2,
+  body[data-mcm-outbound] table.dt td.ob-opt2{display:none}
+}
+@media(max-width:460px){
+  body[data-mcm-outbound] .ob-kpis{grid-template-columns:1fr}
+  body[data-mcm-outbound] .phd h1{font-size:17.5px}
+  body[data-mcm-outbound] table.dt th,
+  body[data-mcm-outbound] table.dt td{padding:10px}
 }

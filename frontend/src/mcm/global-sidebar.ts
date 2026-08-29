@@ -3,14 +3,21 @@
    #anav (the 246px left column, already fully responsive — desktop
    permanent column, mobile slide-in drawer via responsive-nav.ts) only
    ever gets populated for the Admin section; every other section
-   (Directory/Activity/Performance/Apps) explicitly hides it and relies
+   (Directory/Activity/Performance) explicitly hides it and relies
    on the top #nav tab row alone. This mirrors the same navigation those
    sections already expose — the top-level #nav tabs, plus whichever
    page's own ".tabs" sub-navigation is on screen (Directory's
-   People/Groups/Locations/..., Apps' Installed/Available, ...) — into
-   #anav so a sidebar is present everywhere, without touching Admin's own
-   tree or re-implementing any of these sections' actual navigation:
-   every mirrored item just clicks the real element it mirrors.
+   People/Groups/Locations/..., ...) — into #anav so a sidebar is present
+   there, without touching Admin's own tree or re-implementing any of
+   these sections' actual navigation: every mirrored item just clicks the
+   real element it mirrors.
+
+   Apps is deliberately excluded. Its two mirrored entries (Installed /
+   Available) duplicate the tab row already sitting directly above the
+   card grid, so the column cost 246px of width to repeat a control the
+   user is looking at — the grid dropped to four cards a row for it. Apps
+   keeps the layout scripts.ts's own go('apps') intended: #anav hidden,
+   #cnt full width. Nothing else about the section changes.
    ============================================================ */
 
 export const GLOBAL_SIDEBAR_SCRIPT: string = `
@@ -53,9 +60,29 @@ export const GLOBAL_SIDEBAR_SCRIPT: string = `
     return html;
   }
 
+  // Exposes the current top-level section on <body> so a stylesheet rule can
+  // be scoped to one of them — same marker pattern integrations-theme.ts uses
+  // for its three pages. Presentational only; nothing here reads it back.
+  function markView() {
+    var view = (window.APP && window.APP.view) || '';
+    if (view) document.body.setAttribute('data-mcm-view', view);
+    else document.body.removeAttribute('data-mcm-view');
+  }
+
   function render() {
     var anav = document.getElementById('anav');
     if (!anav) return;
+    markView();
+    // Apps keeps go('apps')'s own layout: sidebar hidden, content full width.
+    // #anav's existing innerHTML is deliberately left alone rather than
+    // cleared — returning to Admin relies on finding a 'gsb-lk' mirror still
+    // in there to know it has to hand window.ANAV back (see the admin branch
+    // below), and restoreAdmin() only repopulates #anav when #cnt does not
+    // yet exist, so emptying it here would strand Admin with a blank column.
+    if (window.APP && window.APP.view === 'apps') {
+      anav.classList.add('hide');
+      return;
+    }
     if (window.APP && window.APP.view === 'admin') {
       // restoreAdmin() only re-populates #anav.innerHTML from window.ANAV
       // the very first time #cnt is created — every visit after that just

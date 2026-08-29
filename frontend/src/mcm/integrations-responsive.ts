@@ -264,7 +264,10 @@ export const INTEGRATIONS_RESPONSIVE_SCRIPT: string = `
     var show = function() {
       if (!window.toast) { setTimeout(show, 200); return; }
       if (result === 'connected') window.toast('\\u2713 Salesforce connected');
-      else window.toast('\\u2717 Salesforce connection failed' + (error ? ' \\u2014 ' + error : ''));
+      // window.toast renders its argument as HTML (see lib/global-toast.tsx),
+      // and this one is a query-string value, so it has to be escaped like
+      // every other value this file puts on screen.
+      else window.toast('\\u2717 Salesforce connection failed' + (error ? ' \\u2014 ' + escapeHtmlLite(error) : ''));
     };
     show();
   }

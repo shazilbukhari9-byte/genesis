@@ -28,45 +28,19 @@ export const CONTACTLISTS_SCRIPT: string = `
     return m ? m.label : '\\u2014';
   }
 
-  /* ─── Backend-ready contact-list data structure (fallback/seed data) ───
-     Shape: { id, name, division, cols[], contacts: [{ id, data{}, status,
-     attempts, lastResult }] }. Exactly the 2 lists (13 contacts total)
-     scripts.ts's ensureOB() used to seed DB.contactLists in-memory. */
-  var CONTACT_LISTS_FALLBACK = [
-    {
-      id: 'cl-collections-q3-uk', name: 'Collections_Q3_UK', division: 'd_col',
-      cols: ['FirstName', 'LastName', 'Phone', 'Balance', 'TimeZone'],
-      contacts: [
-        { id: 'ct-1', data: { FirstName: 'Oliver', LastName: 'Smith', Phone: '+447700900101', Balance: '\\u00A3240.50', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-2', data: { FirstName: 'Amelia', LastName: 'Jones', Phone: '+447700900102', Balance: '\\u00A31,120.00', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-3', data: { FirstName: 'Harry', LastName: 'Williams', Phone: '+447700900103', Balance: '\\u00A386.20', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-4', data: { FirstName: 'Isla', LastName: 'Brown', Phone: '+447700900104', Balance: '\\u00A3410.00', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-5', data: { FirstName: 'George', LastName: 'Taylor', Phone: '+447700900105', Balance: '\\u00A355.75', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-6', data: { FirstName: 'Ava', LastName: 'Davies', Phone: '+447700900106', Balance: '\\u00A3730.10', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-7', data: { FirstName: 'Jack', LastName: 'Evans', Phone: '+447700900107', Balance: '\\u00A3199.99', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-8', data: { FirstName: 'Emily', LastName: 'Thomas', Phone: '+447700900108', Balance: '\\u00A3315.40', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-9', data: { FirstName: 'Noah', LastName: 'Roberts', Phone: '+447700900109', Balance: '\\u00A367.00', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-10', data: { FirstName: 'Mia', LastName: 'Walker', Phone: '+447700900110', Balance: '\\u00A3925.60', TimeZone: 'Europe/London' }, status: 'Not attempted', attempts: 0, lastResult: '' }
-      ]
-    },
-    {
-      id: 'cl-renewal-reminders', name: 'Renewal_Reminders', division: 'd_ret',
-      cols: ['FirstName', 'LastName', 'Phone', 'RenewalDate'],
-      contacts: [
-        { id: 'ct-11', data: { FirstName: 'Priya', LastName: 'Shah', Phone: '+447700900201', RenewalDate: '15 Sep 2026' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-12', data: { FirstName: 'Tom', LastName: 'Hughes', Phone: '+447700900202', RenewalDate: '18 Sep 2026' }, status: 'Not attempted', attempts: 0, lastResult: '' },
-        { id: 'ct-13', data: { FirstName: 'Zara', LastName: 'Khan', Phone: '+447700900203', RenewalDate: '21 Sep 2026' }, status: 'Not attempted', attempts: 0, lastResult: '' }
-      ]
-    }
-  ];
+  /* No seed/fallback list here on purpose. This module used to carry a
+     CONTACT_LISTS_FALLBACK copy of the two demo lists (13 contacts) that
+     scripts.ts's ensureOB() and init_db.py both also produced, and it was
+     rendered whenever the read failed OR came back empty -- so a tenant
+     with no contact lists, and a deleted list, both still showed the demo
+     data. An empty response is a real answer now and paints the empty
+     state, and there is no local store left to fall back to at all. */
 
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
-
-  function uid(prefix) { return (prefix || 'id') + Math.random().toString(36).slice(2, 10); }
 
   /* ─── Backend row \u2192 frontend shape ─── */
   function normalizeListRow(row) {
@@ -110,103 +84,67 @@ export const CONTACTLISTS_SCRIPT: string = `
     });
   }
 
-  /* Local-first mutable store — a fresh CONTACT_LISTS_FALLBACK.slice() on
-     every refresh() would silently discard a create/update/delete that only
-     succeeded locally (backend unreachable), same reasoning as
-     certs-redesign.ts's localCertStore. Holds full list+contacts objects. */
-  var localListStore = CONTACT_LISTS_FALLBACK.map(function(l) { return Object.assign({}, l, { contacts: l.contacts.slice() }); });
-
-  function summarize(list) {
-    var st = {};
-    list.contacts.forEach(function(c) { st[c.status] = (st[c.status] || 0) + 1; });
-    return {
-      id: list.id, name: list.name, division: list.division, cols: list.cols,
-      contactCount: list.contacts.length, statusSummary: st
-    };
-  }
+  /* Every read and write below is backend-confirmed. A localListStore used to
+     sit here that each .catch() fell back to, which meant a create, delete,
+     import or DNC-mark the server had REJECTED still resolved successfully:
+     the drawer closed, a green toast fired and the row appeared or vanished
+     while PostgreSQL had changed nothing. Failures now propagate to the
+     caller, and every caller surfaces them. */
 
   function fetchLists() {
     return clApiFetch('/api/contactlists').then(function(rows) {
-      return (Array.isArray(rows) && rows.length) ? rows.map(normalizeListRow) : localListStore.map(summarize);
-    }).catch(function() {
-      return localListStore.map(summarize);
+      if (!Array.isArray(rows)) throw new Error('Unexpected response from the server.');
+      // An empty array is a real answer: this tenant has no contact lists.
+      return rows.map(normalizeListRow);
     });
   }
 
   function fetchListDetail(id) {
-    return clApiFetch('/api/contactlists/' + encodeURIComponent(id)).then(normalizeListRow).catch(function() {
-      var local = localListStore.filter(function(l) { return l.id === id; })[0];
-      return local ? Object.assign(summarize(local), { contacts: local.contacts }) : null;
-    });
+    return clApiFetch('/api/contactlists/' + encodeURIComponent(id)).then(normalizeListRow);
   }
 
-  var listsCache = CONTACT_LISTS_FALLBACK.map(summarize);
+  var listsCache = [];
+  var listsLoadError = '';
+  var listsLoaded = false;
 
   var ContactListsService = {
     getAll: function() { return listsCache; },
+    getLoadError: function() { return listsLoadError; },
+    isLoaded: function() { return listsLoaded; },
     refresh: function() {
       return fetchLists().then(function(list) {
-        if (Array.isArray(list) && list.length) listsCache = list;
+        listsCache = list;
+        listsLoadError = '';
+        listsLoaded = true;
         return listsCache;
+      }).catch(function(err) {
+        listsLoadError = (err && err.message) || 'Could not load contact lists.';
+        listsLoaded = true;
+        throw err;
       });
     },
     getDetail: function(id) { return fetchListDetail(id); },
     create: function(entry) {
-      return clApiFetch('/api/contactlists', { method: 'POST', body: JSON.stringify(entry) }).then(normalizeListRow).catch(function() {
-        var created = { id: uid('cl-'), name: entry.name, division: entry.division || '', cols: entry.cols, contacts: [] };
-        localListStore.push(created);
-        return summarize(created);
-      });
+      return clApiFetch('/api/contactlists', { method: 'POST', body: JSON.stringify(entry) }).then(normalizeListRow);
     },
     remove: function(id) {
-      return clApiFetch('/api/contactlists/' + encodeURIComponent(id), { method: 'DELETE' }).catch(function() {
-        localListStore = localListStore.filter(function(l) { return l.id !== id; });
-        return { ok: true };
-      });
+      return clApiFetch('/api/contactlists/' + encodeURIComponent(id), { method: 'DELETE' });
     },
     addContact: function(listId, data) {
-      return clApiFetch('/api/contactlists/' + encodeURIComponent(listId) + '/contacts', { method: 'POST', body: JSON.stringify({ data: data }) })
-        .then(normalizeContactRow).catch(function(err) {
-          var local = localListStore.filter(function(l) { return l.id === listId; })[0];
-          if (!local) throw err;
-          if (local.contacts.some(function(c) { return c.data.Phone === data.Phone; })) throw new Error('This phone number is already in the list.');
-          if (!/^\\+\\d{7,15}$/.test(data.Phone || '')) throw new Error('Phone must be E.164 (e.g. +447700900123).');
-          var created = { id: uid('ct-'), data: data, status: 'Not attempted', attempts: 0, lastResult: '' };
-          local.contacts.push(created);
-          return created;
-        });
+      return clApiFetch('/api/contactlists/' + encodeURIComponent(listId) + '/contacts',
+        { method: 'POST', body: JSON.stringify({ data: data }) }).then(normalizeContactRow);
     },
     importContacts: function(listId, rows) {
-      return clApiFetch('/api/contactlists/' + encodeURIComponent(listId) + '/contacts/import', { method: 'POST', body: JSON.stringify({ rows: rows }) })
-        .catch(function() {
-          var local = localListStore.filter(function(l) { return l.id === listId; })[0];
-          if (!local) return { ok: false, imported: 0, failed: ['list not found'] };
-          var ok = 0, fail = [];
-          rows.forEach(function(fields, i) {
-            var phone = fields.Phone || '';
-            if (!/^\\+\\d{7,15}$/.test(phone)) { fail.push('Row ' + (i + 1) + ': invalid phone'); return; }
-            if (local.contacts.some(function(c) { return c.data.Phone === phone; })) { fail.push('Row ' + (i + 1) + ': duplicate ' + phone); return; }
-            local.contacts.push({ id: uid('ct-'), data: fields, status: 'Not attempted', attempts: 0, lastResult: '' });
-            ok++;
-          });
-          return { ok: true, imported: ok, failed: fail };
-        });
+      return clApiFetch('/api/contactlists/' + encodeURIComponent(listId) + '/contacts/import',
+        { method: 'POST', body: JSON.stringify({ rows: rows }) });
     },
     removeContact: function(listId, contactId) {
-      return clApiFetch('/api/contactlists/' + encodeURIComponent(listId) + '/contacts/' + encodeURIComponent(contactId), { method: 'DELETE' }).catch(function() {
-        var local = localListStore.filter(function(l) { return l.id === listId; })[0];
-        if (local) local.contacts = local.contacts.filter(function(c) { return c.id !== contactId; });
-        return { ok: true };
-      });
+      return clApiFetch('/api/contactlists/' + encodeURIComponent(listId) + '/contacts/' + encodeURIComponent(contactId),
+        { method: 'DELETE' });
     },
     markDnc: function(listId, contactId) {
-      return clApiFetch('/api/contactlists/' + encodeURIComponent(listId) + '/contacts/' + encodeURIComponent(contactId) + '/dnc', { method: 'PATCH' })
-        .then(normalizeContactRow).catch(function() {
-          var local = localListStore.filter(function(l) { return l.id === listId; })[0];
-          var ct = local && local.contacts.filter(function(c) { return c.id === contactId; })[0];
-          if (ct) { ct.status = 'DNC'; ct.lastResult = 'Marked DNC by admin'; }
-          return ct;
-        });
+      return clApiFetch('/api/contactlists/' + encodeURIComponent(listId) + '/contacts/' + encodeURIComponent(contactId) + '/dnc',
+        { method: 'PATCH' }).then(normalizeContactRow);
     }
   };
   window.ContactListsService = ContactListsService;
@@ -239,21 +177,85 @@ export const CONTACTLISTS_SCRIPT: string = `
     return opts;
   }
 
+  /* Status summary as pills rather than one run-on "k: n \\u00B7 k: n" string,
+     so a list with contacts still to dial reads at a glance. */
+  function summaryPills(summary) {
+    var M = window.MCMOut;
+    var keys = Object.keys(summary || {});
+    if (!keys.length) return '<span class="ob-muted">\\u2014</span>';
+    var tone = { 'Not attempted': 'info', Contacted: 'ok', Complete: 'off', DNC: 'warn' };
+    return keys.map(function(k) {
+      return M ? M.pill(k + ' ' + summary[k], tone[k] || 'off')
+               : escapeHtml(k + ': ' + summary[k]);
+    }).join(' ');
+  }
+
   function renderListRow(l) {
-    var sum = Object.keys(l.statusSummary || {}).map(function(k) { return k + ': ' + l.statusSummary[k]; }).join(' \\u00B7 ');
+    var M = window.MCMOut;
     return '<tr onclick="window.clView(\\'' + l.id + '\\')">' +
-      '<td><b class="lnk">' + escapeHtml(l.name) + '</b></td><td>' + escapeHtml(divisionLabel(l.division)) + '</td>' +
-      '<td>' + l.contactCount + '</td><td>' + escapeHtml((l.cols || []).join(', ')) + '</td>' +
-      '<td style="font-size:11.5px;color:#5b6b82">' + escapeHtml(sum || '\\u2014') + '</td>' +
-      '<td style="color:#a9b3c2">\\u22EE</td></tr>';
+      '<td><b class="ob-name lnk">' + escapeHtml(l.name) + '</b>' +
+        '<span class="ob-sub">' + escapeHtml((l.cols || []).join(' \\u00B7 ')) + '</span></td>' +
+      '<td class="ob-opt">' + escapeHtml(divisionLabel(l.division)) + '</td>' +
+      '<td class="ob-num">' + l.contactCount + '</td>' +
+      '<td class="ob-opt2">' + summaryPills(l.statusSummary) + '</td>' +
+      (M ? M.goCell() : '<td></td>') + '</tr>';
+  }
+
+  var COLS = 5;
+
+  /* Drawer error boxes all render through the shared .ob-banner shell (see
+     window.MCMOut). html=true keeps the multi-line validation list. */
+  function showFormError(id, message, html) {
+    var box = document.getElementById(id);
+    if (!box) return;
+    box.style.display = '';
+    box.innerHTML = window.MCMOut
+      ? '<span class="ob-banner-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01"/></svg></span>' +
+        '<span class="ob-banner-txt">' + (html ? message : escapeHtml(message)) + '</span>'
+      : (html ? message : escapeHtml(message));
   }
 
   function renderListsTable() {
+    var M = window.MCMOut;
     var list = filteredLists();
-    var rows = list.length
-      ? list.map(renderListRow).join('')
-      : '<tr><td colspan="6" style="text-align:center;color:#8794a8;padding:28px 0">No contact lists match your search.</td></tr>';
-    return '<div class="tblw"><table class="dt"><thead><tr><th>List</th><th>Division</th><th>Contacts</th><th>Columns</th><th>Status summary</th><th style="width:40px"></th></tr></thead><tbody id="cl_tb">' + rows + '</tbody></table></div>';
+    var total = ContactListsService.getAll().length;
+    var loadErr = ContactListsService.getLoadError();
+    var rows;
+    if (list.length) {
+      rows = list.map(renderListRow).join('');
+    } else if (loadErr) {
+      rows = M ? M.stateRow(COLS, 'error', {
+        title: 'Could not load contact lists',
+        sub: loadErr,
+        actionLabel: 'Retry', actionCall: 'window.clReload()'
+      }) : '<tr><td colspan="5">' + escapeHtml(loadErr) + '</td></tr>';
+    } else if (!ContactListsService.isLoaded()) {
+      rows = M ? M.stateRow(COLS, 'loading', { title: 'Loading contact lists\\u2026' })
+               : '<tr><td colspan="5">Loading\\u2026</td></tr>';
+    } else if (total) {
+      rows = M ? M.stateRow(COLS, 'nomatch', {
+        title: 'No contact lists match your filters',
+        sub: 'Try a different search term, or clear the division filter.',
+        actionLabel: 'Clear filters', actionCall: 'window.clClearFilters()'
+      }) : '<tr><td colspan="5">No matches</td></tr>';
+    } else {
+      rows = M ? M.stateRow(COLS, 'empty', {
+        title: 'No contact lists yet',
+        sub: 'Create a list, then import contacts from CSV to dial against it.',
+        actionLabel: '+ Create Contact List', actionCall: 'window.newContactList()'
+      }) : '<tr><td colspan="5">No contact lists yet</td></tr>';
+    }
+    // A refresh can fail while the cache still holds the previous read.
+    // Those rows are still worth showing, but not without saying they may
+    // be out of date.
+    var staleBanner = (list.length && loadErr && M)
+      ? M.banner(loadErr + ' The rows below are from the last successful load and may be out of date.',
+                 'Retry', 'window.clReload()')
+      : '';
+    return staleBanner + '<div class="tblw"><table class="dt"><thead><tr>' +
+      '<th>List</th><th class="ob-opt">Division</th><th class="ob-num">Contacts</th>' +
+      '<th class="ob-opt2">Status summary</th><th class="ob-go"></th></tr></thead><tbody id="cl_tb">' +
+      rows + '</tbody></table></div>';
   }
 
   function refreshListsTable() {
@@ -263,26 +265,55 @@ export const CONTACTLISTS_SCRIPT: string = `
   }
 
   window.clSearch = function(value) { clFilters.q = value || ''; refreshListsTable(); };
+  window.clClearFilters = function() {
+    clFilters.q = '';
+    clFilters.division = '';
+    mount(renderContactListsPage());
+  };
   window.clFilterDivision = function(value) { clFilters.division = value || ''; refreshListsTable(); };
   window.clReload = function() {
     ContactListsService.refresh().then(function() {
       refreshListsTable();
       if (window.toast) window.toast('Contact lists refreshed');
+    }).catch(function(err) {
+      refreshListsTable();
+      if (window.toast) window.toast('✗ ' + ((err && err.message) || 'Refresh failed'));
     });
   };
 
   /* Exact original page markup (header/tabs/table/help), with a Search +
      Division filter toolbar added above the table \\u2014 the original had
      no way to filter the list-of-lists at all. */
+  /* Every figure is counted from the lists already loaded and already shown
+     in the table below \\u2014 no extra request, nothing invented. */
+  function listsKpis(all) {
+    var M = window.MCMOut;
+    if (!M) return '';
+    var contacts = 0, pending = 0, dnc = 0;
+    all.forEach(function(l) {
+      contacts += l.contactCount || 0;
+      var sum = l.statusSummary || {};
+      pending += sum['Not attempted'] || 0;
+      dnc += sum.DNC || 0;
+    });
+    return M.kpis([
+      { label: 'Lists', value: all.length, sub: all.length === 1 ? '1 list' : all.length + ' lists', tone: 'accent' },
+      { label: 'Contacts', value: contacts, sub: 'Across every list' },
+      { label: 'Not attempted', value: pending, sub: 'Still to be dialed', tone: pending ? 'ok' : '' },
+      { label: 'Marked DNC', value: dnc, sub: 'Suppressed by an agent', tone: dnc ? 'warn' : '' }
+    ]);
+  }
+
   function renderContactListsPage() {
     var all = ContactListsService.getAll();
     return '<div class="phd"><div class="bc"><a onclick="adminIndex()">Admin</a> \\u203A Outbound</div>' +
       '<div class="tt"><h1>Contact Lists</h1><div class="rt"><button class="btn" onclick="window.newContactList()">+ Create Contact List</button></div></div>' +
       '<div class="tabs"><div class="tb on">All Lists (' + all.length + ')</div></div></div>' +
-      '<div class="pbody"><div class="tbar">' +
+      '<div class="pbody">' + listsKpis(all) + '<div class="tbar">' +
         '<input class="s" placeholder="Search contact lists" oninput="window.clSearch(this.value)" value="' + escapeHtml(clFilters.q) + '">' +
-        '<select class="chip" style="cursor:pointer" onchange="window.clFilterDivision(this.value)">' + divisionOptions(clFilters.division) + '</select>' +
-        '<div class="sp"></div><div class="chip" onclick="window.clReload()">\\u21BB Refresh</div>' +
+        '<select class="chip" onchange="window.clFilterDivision(this.value)">' + divisionOptions(clFilters.division) + '</select>' +
+        '<div class="sp"></div>' +
+        '<button class="chip" type="button" onclick="window.clReload()"><i class="ob-refresh-ic">\\u21BB</i> Refresh</button>' +
       '</div>' +
       '<div id="cl_table_wrap">' + renderListsTable() + '</div></div>' +
       (window.renderHelp ? window.renderHelp('contactlists') : '') + '</div>';
@@ -294,7 +325,12 @@ export const CONTACTLISTS_SCRIPT: string = `
   }
 
   function goListsIndex() {
-    ContactListsService.refresh().then(function() { mount(renderContactListsPage()); });
+    // Paints on both outcomes: a failed refresh must still render, so the
+    // table can show the real error rather than the previous screen.
+    ContactListsService.refresh().then(
+      function() { mount(renderContactListsPage()); },
+      function() { mount(renderContactListsPage()); }
+    );
   }
 
   window.newContactList = function() {
@@ -307,7 +343,7 @@ export const CONTACTLISTS_SCRIPT: string = `
     var wrap = document.createElement('div');
     wrap.innerHTML =
       '<div id="drw" style="height:auto;top:20%;bottom:auto;border-radius:8px 0 0 8px"><div class="dh"><h2>Create Contact List</h2><div class="x" onclick="closeDrawer()">\\u00D7</div></div>' +
-      '<div class="db"><div id="clerr" style="display:none;background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;border-radius:5px;padding:8px 11px;font-size:12.5px;margin-bottom:10px"></div>' +
+      '<div class="db"><div id="clerr" class="ob-banner" style="display:none"></div>' +
       '<div class="fld"><label>Name *</label><input id="cl_name"></div>' +
       '<div class="fld"><label>Division</label><select id="cl_div">' + divisionFieldOptions('') + '</select></div>' +
       '<div class="fld"><label>Columns (comma separated \\u2014 must include Phone)</label><input id="cl_cols" value="FirstName,LastName,Phone"></div></div>' +
@@ -323,9 +359,7 @@ export const CONTACTLISTS_SCRIPT: string = `
     if (ContactListsService.getAll().some(function(x) { return x.name.toLowerCase() === name.toLowerCase(); })) errs.push('A list with this name already exists.');
     if (cols.indexOf('Phone') < 0) errs.push('Columns must include "Phone".');
     if (errs.length) {
-      var box = document.getElementById('clerr');
-      box.style.display = '';
-      box.innerHTML = errs.join('<br>');
+      showFormError('clerr', errs.join('<br>'), true);
       return;
     }
     var division = document.getElementById('cl_div').value;
@@ -334,9 +368,7 @@ export const CONTACTLISTS_SCRIPT: string = `
       if (window.toast) window.toast('Contact list created \\u2014 now import contacts');
       return ContactListsService.refresh().then(function() { window.clView(created.id); });
     }).catch(function(err) {
-      var box = document.getElementById('clerr');
-      box.style.display = '';
-      box.innerHTML = escapeHtml((err && err.message) || 'Create failed \\u2014 please try again.');
+      showFormError('clerr', (err && err.message) || 'Create failed \\u2014 please try again.');
     });
   };
 
@@ -351,30 +383,47 @@ export const CONTACTLISTS_SCRIPT: string = `
     });
   };
 
-  function statusColor(status) {
-    return status === 'DNC' ? '#e0a200' : status === 'Contacted' ? '#1f9d63' : status === 'Complete' ? '#8794a8' : '#33425c';
+  function statusTone(status) {
+    return status === 'DNC' ? 'warn' : status === 'Contacted' ? 'ok' : status === 'Complete' ? 'off' : 'info';
   }
 
   function renderListDetail(l) {
+    var M = window.MCMOut;
     var head = l.cols.map(function(c) { return '<th>' + escapeHtml(c) + '</th>'; }).join('');
     var rows = l.contacts.map(function(ct) {
       var cells = l.cols.map(function(c) { return '<td>' + escapeHtml(ct.data[c] || '') + '</td>'; }).join('');
       return '<tr>' + cells +
-        '<td><span style="color:' + statusColor(ct.status) + ';font-weight:600">' + escapeHtml(ct.status) + '</span><br><span style="color:#8794a8;font-size:11px">' + escapeHtml(ct.lastResult || '') + '</span></td>' +
-        '<td>' + ct.attempts + '</td>' +
-        '<td style="width:120px">' + (ct.status !== 'DNC' ? '<a class="lnk" style="font-size:11.5px" onclick="window.ctDnc(\\'' + l.id + '\\',\\'' + ct.id + '\\')">Mark DNC</a> ' : '') +
-        '<a class="lnk" style="font-size:11.5px" onclick="window.ctDel(\\'' + l.id + '\\',\\'' + ct.id + '\\')">Delete</a></td></tr>';
+        '<td>' + (M ? M.pill(ct.status, statusTone(ct.status)) : escapeHtml(ct.status)) +
+          (ct.lastResult ? '<span class="ob-sub">' + escapeHtml(ct.lastResult) + '</span>' : '') + '</td>' +
+        '<td class="ob-num ob-opt">' + ct.attempts + '</td>' +
+        '<td class="ob-acts">' +
+          (ct.status !== 'DNC' ? '<button class="ob-act" type="button" onclick="window.ctDnc(\\'' + l.id + '\\',\\'' + ct.id + '\\')">Mark DNC</button> ' : '') +
+          '<button class="ob-act" type="button" onclick="window.ctDel(\\'' + l.id + '\\',\\'' + ct.id + '\\')">Delete</button></td></tr>';
     }).join('');
+    // The detail response carries the contacts themselves rather than a
+    // status summary, so these are counted from the rows rendered above.
+    var sum = {};
+    l.contacts.forEach(function(ct) { sum[ct.status] = (sum[ct.status] || 0) + 1; });
+    var meta = '<div class="ob-meta"><span>Division <b>' + escapeHtml(divisionLabel(l.division)) + '</b></span>' +
+      '<span>Columns <b>' + escapeHtml(l.cols.join(', ')) + '</b></span>' +
+      (sum['Not attempted'] ? '<span>Not attempted <b>' + sum['Not attempted'] + '</b></span>' : '') +
+      (sum.Contacted ? '<span>Contacted <b>' + sum.Contacted + '</b></span>' : '') +
+      (sum.DNC ? '<span>Marked DNC <b>' + sum.DNC + '</b></span>' : '') + '</div>';
+    var empty = M ? M.stateRow(l.cols.length + 3, 'empty', {
+      title: 'No contacts in this list',
+      sub: 'Add a contact directly, or import a CSV with a Phone column.',
+      actionLabel: 'Import CSV', actionCall: 'window.clImport(\\'' + l.id + '\\')'
+    }) : '<tr><td colspan="' + (l.cols.length + 3) + '">No contacts</td></tr>';
     return '<div class="phd"><div class="bc"><a onclick="adminIndex()">Admin</a> \\u203A <a onclick="openPage(\\'contactlists\\')">Outbound \\u203A Contact Lists</a></div>' +
       '<div class="tt"><h1>' + escapeHtml(l.name) + '</h1><div class="rt">' +
       '<button class="btn" onclick="window.ctAdd(\\'' + l.id + '\\')">+ Add Contact</button>' +
       '<button class="btn sec" onclick="window.clImport(\\'' + l.id + '\\')">Import CSV</button>' +
       '<button class="btn sec" onclick="window.clExport(\\'' + l.id + '\\')">Export CSV</button>' +
       '<button class="btn gh" onclick="window.clDelete(\\'' + l.id + '\\')">Delete list</button></div></div>' +
-      '<div class="tabs"><div class="tb on">' + l.contacts.length + ' contacts</div></div></div>' +
-      '<div class="pbody"><div class="tblw"><table class="dt"><thead><tr>' + head + '<th>Status</th><th>Attempts</th><th></th></tr></thead><tbody>' +
-      (rows || '<tr><td colspan="' + (l.cols.length + 3) + '" style="text-align:center;color:#8794a8;padding:24px">No contacts \\u2014 add or import</td></tr>') +
-      '</tbody></table></div></div>';
+      '<div class="tabs"><div class="tb on">' + l.contacts.length + (l.contacts.length === 1 ? ' contact' : ' contacts') + '</div></div></div>' +
+      '<div class="pbody">' + meta + '<div class="tblw"><table class="dt"><thead><tr>' + head +
+      '<th>Status</th><th class="ob-num ob-opt">Attempts</th><th class="ob-acts"></th></tr></thead><tbody>' +
+      (rows || empty) + '</tbody></table></div></div>';
   }
 
   function refreshDetail(id) {
@@ -398,7 +447,7 @@ export const CONTACTLISTS_SCRIPT: string = `
     var wrap = document.createElement('div');
     wrap.innerHTML =
       '<div id="drw" style="height:auto;top:16%;bottom:auto;border-radius:8px 0 0 8px"><div class="dh"><h2>Add Contact</h2><div class="x" onclick="closeDrawer()">\\u00D7</div></div>' +
-      '<div class="db"><div id="cterr" style="display:none;background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;border-radius:5px;padding:8px 11px;font-size:12.5px;margin-bottom:10px"></div>' + flds + '</div>' +
+      '<div class="db"><div id="cterr" class="ob-banner" style="display:none"></div>' + flds + '</div>' +
       '<div class="df"><button class="btn sec" onclick="closeDrawer()">Cancel</button><button class="btn" onclick="window.ctSave(\\'' + lid + '\\')">Add</button></div></div>';
     document.body.appendChild(wrap.firstChild);
   };
@@ -411,11 +460,7 @@ export const CONTACTLISTS_SCRIPT: string = `
       if (window.toast) window.toast('Contact added');
       return refreshDetail(lid);
     }).catch(function(err) {
-      var box = document.getElementById('cterr');
-      if (box) {
-        box.style.display = '';
-        box.innerHTML = escapeHtml((err && err.message) || 'Add failed \\u2014 please try again.');
-      }
+      showFormError('cterr', (err && err.message) || 'Add failed \\u2014 please try again.');
     });
   };
 
@@ -423,13 +468,18 @@ export const CONTACTLISTS_SCRIPT: string = `
     ContactListsService.markDnc(lid, cid).then(function() {
       if (window.toast) window.toast('Contact marked DNC');
       return refreshDetail(lid);
+    }).catch(function(err) {
+      if (window.toast) window.toast('✗ Could not mark DNC — ' + escapeHtml((err && err.message) || 'please try again'));
     });
   };
 
   window.ctDel = function(lid, cid) {
     ContactListsService.removeContact(lid, cid).then(function() {
+      // Only refreshes (and so only removes the row) once the API confirmed.
       if (window.toast) window.toast('Contact removed');
       return refreshDetail(lid);
+    }).catch(function(err) {
+      if (window.toast) window.toast('✗ Could not remove the contact — ' + escapeHtml((err && err.message) || 'please try again'));
     });
   };
 
@@ -474,6 +524,10 @@ export const CONTACTLISTS_SCRIPT: string = `
         if (!fail.length) setTimeout(function() { window.closeDrawer(); refreshDetail(lid); }, 800);
         else refreshDetail(lid);
       }
+    }).catch(function(err) {
+      var resBox = document.getElementById('clres');
+      if (resBox) resBox.innerHTML = '<b style="color:#b3261e">✗ Import failed — ' +
+        escapeHtml((err && err.message) || 'please try again') + '</b>';
     });
   };
 
@@ -518,9 +572,14 @@ export const CONTACTLISTS_SCRIPT: string = `
     var name = l ? l.name : 'this list';
     var count = l ? l.contacts.length : 0;
     clConfirmBox('Delete contact list <b>' + escapeHtml(name) + '</b> and its ' + count + ' contacts?', function() {
+      // Navigates away only after the API confirms the delete. This used to
+      // fall back to a local removal, so a rejected DELETE still looked like
+      // it had worked until the next page load brought the list back.
       ContactListsService.remove(lid).then(function() {
         if (window.toast) window.toast('List deleted');
         goListsIndex();
+      }).catch(function(err) {
+        if (window.toast) window.toast('✗ Delete failed — ' + escapeHtml((err && err.message) || 'please try again'));
       });
     });
   };
@@ -561,9 +620,10 @@ export const CONTACTLISTS_SCRIPT: string = `
   };
 
   function applyContactListsRedesign() {
-    ContactListsService.refresh().then(function() {
+    var paint = function() {
       if (window.APP && window.APP.page === 'contactlists' && !currentDetail) mount(renderContactListsPage());
-    });
+    };
+    ContactListsService.refresh().then(paint, paint);
   }
 
   applyContactListsRedesign();
