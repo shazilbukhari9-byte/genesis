@@ -177,15 +177,30 @@ export const GAMIFICATION_SCRIPT: string = `
         return '<option value="' + s + '"' + (window.__gamifStatus === s ? ' selected' : '') + '>' + s + '</option>';
       }).join('');
 
+      // The shared .tbar input.s rule is flex:1 1 200px, so with nothing
+      // else constraining it the search box grows to fill whatever space
+      // the Division/Status/Columns chips don't use — much wider than the
+      // prototype's toolbar. Pin it to a fixed width here instead, scoped
+      // to just this page, matching the prototype's proportions.
+      var searchInput = tbar.querySelector('input.s');
+      if (searchInput) searchInput.style.flex = '0 1 260px';
+
       var wrap = document.createElement('div');
       wrap.style.display = 'contents';
       wrap.innerHTML =
         '<select class="chip" id="gamifDivFilter" style="cursor:pointer">' + divOpts + '</select>' +
-        '<select class="chip" id="gamifStatusFilter" style="cursor:pointer"><option value="">Status: Any</option>' + statusOpts + '</select>' +
-        '<div style="position:relative;display:inline-block"><div class="chip" id="gamifColsBtn" style="cursor:pointer">⚙ Columns</div></div>';
+        '<select class="chip" id="gamifStatusFilter" style="cursor:pointer"><option value="">Status: Any</option>' + statusOpts + '</select>';
 
       var sp = tbar.querySelector('.sp');
       while (wrap.firstChild) tbar.insertBefore(wrap.firstChild, sp);
+
+      // Columns sits after the spacer, right next to Refresh — matches the
+      // prototype's toolbar order (search, Division, Status, [space],
+      // Columns, Refresh) instead of grouping it with the left-side filters.
+      var colsWrap = document.createElement('div');
+      colsWrap.style.cssText = 'position:relative;display:inline-block';
+      colsWrap.innerHTML = '<div class="chip" id="gamifColsBtn" style="cursor:pointer">⚙ Columns</div>';
+      tbar.insertBefore(colsWrap, sp.nextSibling);
 
       document.getElementById('gamifDivFilter').onchange = function(e) {
         window.__gamifDiv = e.target.value; window.__gamifPage = 1; applyGamifPage();
@@ -348,5 +363,27 @@ export const GAMIFICATION_SCRIPT: string = `
       fetch(SUBS_API_BASE + '/api/gamification-profiles', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + window.__authToken }, body: JSON.stringify(payload) });
     req.then(function(r) { return r.json(); }).then(function(d) { if (d && d.id) { p.dbId = d.id; } }).catch(function() {});
   };
+
+  // ---- Leaderboards / Badges / Challenges tabs lose the footer ----
+  // scripts.ts's generic "Tab switch handler for static pages" (Engine
+  // v9's TT map) fully replaces #cnt .pbody's innerHTML with just the
+  // bare stub table for every tab except the first, then restores the
+  // original snapshot when the first tab (Profiles) is clicked again.
+  // That wholesale replacement drops the toolbar and the Help & Resources
+  // footer along with it — Profiles keeps its footer only because
+  // clicking back to it restores the pre-switch snapshot verbatim.
+  // Registered after scripts.ts's own listener (this script tag runs
+  // later — see routes/index.tsx), so it fires second on the same click
+  // and can append the footer back in once the generic handler is done.
+  document.addEventListener('click', function(e) {
+    var tb = e.target.closest && e.target.closest('.tb');
+    if (!tb || !tb.closest('#cnt')) return;
+    if (!window.APP || window.APP.page !== 'gamif') return;
+    var firstTab = tb.parentElement && tb.parentElement.children[0];
+    if (tb === firstTab) return; // Profiles restores its own snapshot, footer included
+    var pb = document.querySelector('#cnt .pbody');
+    if (!pb || pb.querySelector('.help')) return;
+    if (window.renderHelp) pb.insertAdjacentHTML('beforeend', window.renderHelp('gamif'));
+  });
 })();
 `;
