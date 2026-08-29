@@ -64,16 +64,17 @@ export const OUTBOUND_THEME_SCRIPT: string = `
     });
   }
 
-  /* A row of summary cards. Every value is counted from rows the page has
-     already loaded and is already showing — nothing here reads the API or
-     invents a figure. items: [{label, value, sub, tone}] */
+  /* A row of summary cards: title + value only, no secondary/helper line.
+     Every value is counted from rows the page has already loaded and is
+     already showing — nothing here reads the API or invents a figure.
+     items: [{label, value, tone}] — a caller's own 'sub' field, if still
+     passed, is accepted but intentionally not rendered. */
   function kpis(items) {
     if (!items || !items.length) return '';
     return '<div class="ob-kpis">' + items.map(function(k) {
       return '<div class="ob-kpi' + (k.tone ? ' tone-' + k.tone : '') + '">' +
         '<span class="ob-kpi-label">' + esc(k.label) + '</span>' +
         '<b class="ob-kpi-val">' + esc(k.value) + '</b>' +
-        (k.sub ? '<i class="ob-kpi-sub">' + esc(k.sub) + '</i>' : '') +
         '</div>';
     }).join('') + '</div>';
   }
