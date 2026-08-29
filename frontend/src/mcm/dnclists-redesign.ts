@@ -131,38 +131,60 @@ export const DNCLISTS_SCRIPT: string = `
     });
   }
 
+  /* The whole row opens the list, matching Campaigns and Contact Lists --
+     the name alone used to be the only hit target. The Delete button stops
+     the click from bubbling so it cannot both delete and navigate. */
   function renderListRow(l) {
-    return '<tr><td><b class="lnk" onclick="window.dncView(\\'' + l.id + '\\')">' + escapeHtml(l.name) + '</b></td>' +
-      '<td>' + l.numberCount + '</td>' +
-      '<td>\\u2014</td>' +
-      '<td style="width:70px"><a class="lnk" style="font-size:12px" onclick="window.dncDelete(\\'' + l.id + '\\')">Delete</a></td></tr>';
+    return '<tr onclick="window.dncView(\\'' + l.id + '\\')">' +
+      '<td><b class="ob-name lnk">' + escapeHtml(l.name) + '</b>' +
+        '<span class="ob-sub">' + (l.numberCount === 1 ? '1 suppressed number' : l.numberCount + ' suppressed numbers') + '</span></td>' +
+      '<td class="ob-num">' + l.numberCount + '</td>' +
+      '<td class="ob-opt"><span class="ob-muted">\\u2014</span></td>' +
+      '<td class="ob-acts"><button class="ob-act" type="button" onclick="event.stopPropagation();window.dncDelete(\\'' + l.id + '\\')">Delete</button></td></tr>';
   }
 
+  var COLS = 4;
+
   function renderListsTable() {
+    var M = window.MCMOut;
     var list = filteredLists();
     var total = DncListsService.getAll().length;
     var loadErr = DncListsService.getLoadError();
     var rows;
-    if (!list.length && loadErr) {
-      rows = '<tr><td colspan="4" style="text-align:center;color:#b3261e;padding:24px">✗ ' + escapeHtml(loadErr) +
-        ' <button class="btn sec" style="height:26px;margin-left:8px" onclick="window.dncReload()">Retry</button></td></tr>';
-    } else if (!list.length && !DncListsService.isLoaded()) {
-      rows = '<tr><td colspan="4" style="text-align:center;color:#8794a8;padding:24px">Loading DNC lists…</td></tr>';
-    } else if (list.length) {
+    if (list.length) {
       rows = list.map(renderListRow).join('');
+    } else if (loadErr) {
+      rows = M ? M.stateRow(COLS, 'error', {
+        title: 'Could not load DNC lists',
+        sub: loadErr,
+        actionLabel: 'Retry', actionCall: 'window.dncReload()'
+      }) : '<tr><td colspan="4">' + escapeHtml(loadErr) + '</td></tr>';
+    } else if (!DncListsService.isLoaded()) {
+      rows = M ? M.stateRow(COLS, 'loading', { title: 'Loading DNC lists\\u2026' })
+               : '<tr><td colspan="4">Loading\\u2026</td></tr>';
     } else if (total) {
-      rows = '<tr><td colspan="4" style="text-align:center;color:#8794a8;padding:24px">No DNC lists match your search.</td></tr>';
+      rows = M ? M.stateRow(COLS, 'nomatch', {
+        title: 'No DNC lists match your search',
+        sub: 'Try a different search term.',
+        actionLabel: 'Clear search', actionCall: 'window.dncClearFilters()'
+      }) : '<tr><td colspan="4">No matches</td></tr>';
     } else {
-      rows = '<tr><td colspan="4" style="text-align:center;color:#8794a8;padding:24px">No DNC lists yet \\u2014 create one to get started.</td></tr>';
+      rows = M ? M.stateRow(COLS, 'empty', {
+        title: 'No DNC lists yet',
+        sub: 'Create a suppression list, then attach it to a campaign so those numbers are never dialed.',
+        actionLabel: '+ Create DNC List', actionCall: 'window.dncNew()'
+      }) : '<tr><td colspan="4">No DNC lists yet</td></tr>';
     }
     // A refresh can fail while the cache still holds the previous read.
     // Those rows are still worth showing, but not without saying they may
     // be out of date.
-    var staleBanner = (list.length && loadErr)
-      ? '<div style="background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;border-radius:6px;padding:8px 11px;font-size:12.5px;margin-bottom:10px">\u2717 ' + escapeHtml(loadErr) +
-        ' The rows below are from the last successful load and may be out of date. <button class="btn sec" style="height:24px;margin-left:6px" onclick="window.dncReload()">Retry</button></div>'
+    var staleBanner = (list.length && loadErr && M)
+      ? M.banner(loadErr + ' The rows below are from the last successful load and may be out of date.',
+                 'Retry', 'window.dncReload()')
       : '';
-    return staleBanner + '<div class="tblw"><table class="dt"><thead><tr><th>List</th><th>Numbers</th><th>Used by campaigns</th><th></th></tr></thead><tbody id="dnc_tb">' + rows + '</tbody></table></div>';
+    return staleBanner + '<div class="tblw"><table class="dt"><thead><tr>' +
+      '<th>List</th><th class="ob-num">Numbers</th><th class="ob-opt">Used by campaigns</th>' +
+      '<th class="ob-acts"></th></tr></thead><tbody id="dnc_tb">' + rows + '</tbody></table></div>';
   }
 
   function refreshListsTable() {
@@ -172,6 +194,10 @@ export const DNCLISTS_SCRIPT: string = `
   }
 
   window.dncSearch = function(value) { dncFilters.q = value || ''; refreshListsTable(); };
+  window.dncClearFilters = function() {
+    dncFilters.q = '';
+    mount(renderDncListsPage());
+  };
   window.dncReload = function() {
     DncListsService.refresh().then(function() {
       refreshListsTable();
@@ -184,13 +210,30 @@ export const DNCLISTS_SCRIPT: string = `
 
   /* Exact original page markup, with a Search box added above the table
      \u2014 the original had no way to filter the list-of-lists at all. */
+  /* Counted from the lists already loaded and already shown below \\u2014 no
+     extra request, nothing invented. */
+  function dncKpis(all) {
+    var M = window.MCMOut;
+    if (!M) return '';
+    var numbers = 0;
+    all.forEach(function(l) { numbers += l.numberCount || 0; });
+    var largest = all.reduce(function(a, b) { return (b.numberCount || 0) > (a.numberCount || 0) ? b : a; }, all[0] || null);
+    return M.kpis([
+      { label: 'DNC lists', value: all.length, sub: all.length === 1 ? '1 list' : all.length + ' lists', tone: 'accent' },
+      { label: 'Suppressed numbers', value: numbers, sub: 'Never dialed by any campaign', tone: numbers ? 'warn' : '' },
+      { label: 'Largest list', value: largest ? (largest.numberCount || 0) : 0, sub: largest ? largest.name : 'No lists yet' }
+    ]);
+  }
+
   function renderDncListsPage() {
     var all = DncListsService.getAll();
     return '<div class="phd"><div class="bc"><a onclick="adminIndex()">Admin</a> \\u203A Outbound</div>' +
       '<div class="tt"><h1>DNC Lists</h1><div class="rt"><button class="btn" onclick="window.dncNew()">+ Create DNC List</button><button class="btn sec" onclick="window.dncLookup()">Number Lookup</button></div></div>' +
       '<div class="tabs"><div class="tb on">All Lists (' + all.length + ')</div></div></div>' +
-      '<div class="pbody"><div class="tbar"><input class="s" placeholder="Search DNC lists" oninput="window.dncSearch(this.value)" value="' + escapeHtml(dncFilters.q) + '">' +
-      '<div class="sp"></div><div class="chip" onclick="window.dncReload()">\\u21BB Refresh</div></div>' +
+      '<div class="pbody">' + dncKpis(all) + '<div class="tbar">' +
+      '<input class="s" placeholder="Search DNC lists" oninput="window.dncSearch(this.value)" value="' + escapeHtml(dncFilters.q) + '">' +
+      '<div class="sp"></div>' +
+      '<button class="chip" type="button" onclick="window.dncReload()"><i class="ob-refresh-ic">\\u21BB</i> Refresh</button></div>' +
       '<div id="dnc_table_wrap">' + renderListsTable() + '</div></div>' +
       (window.renderHelp ? window.renderHelp('dnclists') : '') + '</div>';
   }
@@ -218,7 +261,7 @@ export const DNCLISTS_SCRIPT: string = `
     var wrap = document.createElement('div');
     wrap.innerHTML =
       '<div id="drw" style="height:auto;top:25%;bottom:auto;border-radius:8px 0 0 8px"><div class="dh"><h2>Create DNC List</h2><div class="x" onclick="closeDrawer()">\\u00D7</div></div>' +
-      '<div class="db"><div id="dnerr" style="display:none;background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;border-radius:5px;padding:8px 11px;font-size:12.5px;margin-bottom:10px"></div>' +
+      '<div class="db"><div id="dnerr" class="ob-banner" style="display:none"></div>' +
       '<div class="fld"><label>Name *</label><input id="dn_name"></div></div>' +
       '<div class="df"><button class="btn sec" onclick="closeDrawer()">Cancel</button><button class="btn" onclick="window.dncSaveNew()">Create</button></div></div>';
     document.body.appendChild(wrap.firstChild);
@@ -227,9 +270,7 @@ export const DNCLISTS_SCRIPT: string = `
   window.dncSaveNew = function() {
     var name = document.getElementById('dn_name').value.trim();
     if (name.length < 2 || DncListsService.getAll().some(function(x) { return x.name.toLowerCase() === name.toLowerCase(); })) {
-      var box = document.getElementById('dnerr');
-      box.style.display = '';
-      box.innerHTML = 'A unique name is required.';
+      errBoxInline('dnerr', 'A unique name is required.');
       return;
     }
     DncListsService.create({ name: name }).then(function(created) {
@@ -237,9 +278,7 @@ export const DNCLISTS_SCRIPT: string = `
       if (window.toast) window.toast('DNC list created');
       return DncListsService.refresh().then(function() { window.dncView(created.id); });
     }).catch(function(err) {
-      var box = document.getElementById('dnerr');
-      box.style.display = '';
-      box.innerHTML = escapeHtml((err && err.message) || 'Create failed \\u2014 please try again.');
+      errBoxInline('dnerr', (err && err.message) || 'Create failed \\u2014 please try again.');
     });
   };
 
@@ -255,16 +294,26 @@ export const DNCLISTS_SCRIPT: string = `
   };
 
   function renderListDetail(l) {
+    var M = window.MCMOut;
     var rows = l.numbers.map(function(n) {
-      return '<tr><td><b>' + escapeHtml(n.phone) + '</b></td><td style="width:80px"><a class="lnk" style="font-size:12px" onclick="window.dncDropNum(\\'' + l.id + '\\',\\'' + n.id + '\\')">Remove</a></td></tr>';
+      return '<tr><td><b class="ob-mono">' + escapeHtml(n.phone) + '</b></td>' +
+        '<td class="ob-acts"><button class="ob-act" type="button" onclick="window.dncDropNum(\\'' + l.id + '\\',\\'' + n.id + '\\')">Remove</button></td></tr>';
     }).join('');
+    var empty = M ? M.stateRow(2, 'empty', {
+      title: 'No numbers suppressed yet',
+      sub: 'Add numbers in E.164 form (for example +447700900123). Campaigns using this list will never dial them.',
+      actionLabel: '+ Add Numbers', actionCall: 'window.dncAddNum(\\'' + l.id + '\\')'
+    }) : '<tr><td colspan="2">Empty</td></tr>';
+    var count = l.numbers.length;
     return '<div class="phd"><div class="bc"><a onclick="adminIndex()">Admin</a> \\u203A <a onclick="openPage(\\'dnclists\\')">Outbound \\u203A DNC Lists</a></div>' +
       '<div class="tt"><h1>' + escapeHtml(l.name) + '</h1><div class="rt">' +
       '<button class="btn" onclick="window.dncAddNum(\\'' + l.id + '\\')">+ Add Numbers</button>' +
       '<button class="btn sec" onclick="window.dncExport(\\'' + l.id + '\\')">Export CSV</button></div></div>' +
-      '<div class="tabs"><div class="tb on">' + l.numbers.length + ' suppressed numbers</div></div></div>' +
-      '<div class="pbody"><div class="tblw" style="max-width:480px"><table class="dt"><thead><tr><th>Number</th><th></th></tr></thead><tbody>' +
-      (rows || '<tr><td colspan="2" style="text-align:center;color:#8794a8;padding:20px">Empty</td></tr>') + '</tbody></table></div></div>';
+      '<div class="tabs"><div class="tb on">' + count + (count === 1 ? ' suppressed number' : ' suppressed numbers') + '</div></div></div>' +
+      '<div class="pbody"><div class="ob-meta"><span>Numbers on this list <b>' + count + '</b></span>' +
+      '<span>Never dialed by any campaign this list is attached to</span></div>' +
+      '<div class="tblw ob-detail-narrow"><table class="dt"><thead><tr><th>Number</th><th class="ob-acts"></th></tr></thead><tbody>' +
+      (rows || empty) + '</tbody></table></div></div>';
   }
 
   function refreshDetail(id) {
@@ -285,7 +334,7 @@ export const DNCLISTS_SCRIPT: string = `
     var wrap = document.createElement('div');
     wrap.innerHTML =
       '<div id="drw" style="height:auto;top:25%;bottom:auto;border-radius:8px 0 0 8px"><div class="dh"><h2>Add Numbers</h2><div class="x" onclick="closeDrawer()">\\u00D7</div></div>' +
-      '<div class="db"><div id="dnaerr" style="display:none;background:#fdecea;border:1px solid #f5c6c0;color:#b3261e;border-radius:5px;padding:8px 11px;font-size:12.5px;margin-bottom:10px"></div>' +
+      '<div class="db"><div id="dnaerr" class="ob-banner" style="display:none"></div>' +
       '<div class="fld"><label>E.164 numbers (one per line or comma separated)</label><textarea id="dna_nums" style="height:110px" placeholder="+447700900123"></textarea></div></div>' +
       '<div class="df"><button class="btn sec" onclick="closeDrawer()">Cancel</button><button class="btn" onclick="window.dncSaveNums(\\'' + id + '\\')">Add</button></div></div>';
     document.body.appendChild(wrap.firstChild);
@@ -306,11 +355,16 @@ export const DNCLISTS_SCRIPT: string = `
     });
   };
 
+  /* Drawer error boxes all render through the shared .ob-banner shell (see
+     window.MCMOut), so a failed save reads the same as a failed load. */
   function errBoxInline(id, msg) {
     var box = document.getElementById(id);
     if (!box) return;
     box.style.display = '';
-    box.innerHTML = escapeHtml(msg);
+    box.innerHTML = window.MCMOut
+      ? '<span class="ob-banner-ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01"/></svg></span>' +
+        '<span class="ob-banner-txt">' + escapeHtml(msg) + '</span>'
+      : escapeHtml(msg);
   }
 
   window.dncDropNum = function(id, numberId) {

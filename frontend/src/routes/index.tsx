@@ -26,6 +26,7 @@ import { GALLERY_SCRIPT } from "../mcm/gallery-redesign";
 import { GAMIFICATION_SCRIPT } from "../mcm/gamification-redesign";
 import { INTEGRATIONS_THEME_SCRIPT } from "../mcm/integrations-theme";
 import { INTEGRATIONS_RESPONSIVE_SCRIPT } from "../mcm/integrations-responsive";
+import { OUTBOUND_THEME_SCRIPT } from "../mcm/outbound-theme";
 import { RESPONSIVE_NAV_SCRIPT } from "../mcm/responsive-nav";
 import { GLOBAL_SIDEBAR_SCRIPT } from "../mcm/global-sidebar";
 import { SCRIPT_EDITOR_RESPONSIVE_SCRIPT } from "../mcm/script-editor-responsive";
@@ -510,6 +511,18 @@ function McmCloudCx() {
     integrationsThemeScript.textContent = INTEGRATIONS_THEME_SCRIPT;
     document.body.appendChild(integrationsThemeScript);
 
+    // Same pattern for the three Outbound pages, and appended after the
+    // Integrations theme so both openPage wrappers stay in the chain. It
+    // stamps its own data-mcm-outbound attribute rather than sharing
+    // data-mcm-section, which integrations-theme.ts clears on every page
+    // that is not one of its own. Also defines window.MCMOut, the shared
+    // KPI/state/banner markup helpers the three pages render through.
+    // See mcm/outbound-theme.ts.
+    const outboundThemeScript = document.createElement("script");
+    outboundThemeScript.type = "text/javascript";
+    outboundThemeScript.textContent = OUTBOUND_THEME_SCRIPT;
+    document.body.appendChild(outboundThemeScript);
+
     // After integrationsThemeScript, so its openPage wrapper (which sets
     // data-mcm-section) has already run by the time this one's wrapper
     // checks it. Purely additive DOM affordances — a mobile filter-collapse
@@ -553,7 +566,7 @@ function McmCloudCx() {
       notificationsScript, authorgScript,
       directoryScript, appsScript, cannedScript, syncScript, certsScript, contactListsScript,
       dataactScript, dncListsScript, subscriptionScript, recpolScript, evalformsScript,
-      calibrationsScript, forecastsScript, integrationsThemeScript, integrationsResponsiveScript,
+      calibrationsScript, forecastsScript, integrationsThemeScript, outboundThemeScript, integrationsResponsiveScript,
       sessionGuardScript, gamificationScript,
     ];
     return () => {
