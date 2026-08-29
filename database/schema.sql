@@ -911,6 +911,21 @@ CREATE TABLE IF NOT EXISTS dir_profile_fields (
   system BOOLEAN NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS idx_dir_profile_fields_tenant ON dir_profile_fields(tenant_id);
+-- Editable-by, Searchable and a persisted display Order for the Profile
+-- Fields admin page (Directory ▸ Profile Fields) — the Add Field drawer and
+-- table need real, saved values for these, not the client-side-only array
+-- position directory-redesign.ts used to reorder with (never sent to the
+-- API, so GET always came back alphabetical-by-label regardless). field_order
+-- defaults to the sentinel -1 so existing rows can be backfilled once, below,
+-- into a real per-tenant 1-based sequence; new rows always supply a real
+-- value at create time (see directory-redesign.ts's openForm save handler).
+ALTER TABLE dir_profile_fields ADD COLUMN IF NOT EXISTS editable_by TEXT NOT NULL DEFAULT 'User and Admin';
+ALTER TABLE dir_profile_fields ADD COLUMN IF NOT EXISTS searchable BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE dir_profile_fields ADD COLUMN IF NOT EXISTS field_order INTEGER NOT NULL DEFAULT -1;
+UPDATE dir_profile_fields SET field_order = sub.rn FROM (
+  SELECT id, ROW_NUMBER() OVER (PARTITION BY tenant_id ORDER BY label) AS rn
+  FROM dir_profile_fields WHERE field_order = -1
+) AS sub WHERE dir_profile_fields.id = sub.id;
 
 -- Contacts outside the organisation
 CREATE TABLE IF NOT EXISTS dir_external_contacts (

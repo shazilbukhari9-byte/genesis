@@ -186,15 +186,15 @@ export const DIRECTORY_SCRIPT: string = `
         { id: 'x_rt', name: 'Elena Rossi', org: 'MCM Retail Ireland', role: 'Ops manager (trustee org)', email: 'erossi@mcmretail.ie', phone: '+353 1 902 3344', relationship: 'Group company', lastContact: '02 Aug 2026', owner: 'Aisha Rahman' }
       ],
       fields: [
-        { id: 'f_title', label: 'Job title', key: 'title', type: 'Text', section: 'Work', visibility: 'Everyone', required: true, system: true },
-        { id: 'f_dept', label: 'Department', key: 'department', type: 'Select', section: 'Work', visibility: 'Everyone', required: true, system: true },
-        { id: 'f_ext', label: 'Extension', key: 'extension', type: 'Number', section: 'Contact', visibility: 'Everyone', required: true, system: true },
-        { id: 'f_mob', label: 'Mobile', key: 'mobile', type: 'Phone', section: 'Contact', visibility: 'Managers only', required: false, system: false },
-        { id: 'f_start', label: 'Start date', key: 'start_date', type: 'Date', section: 'Work', visibility: 'Managers only', required: false, system: false },
-        { id: 'f_lang', label: 'Languages', key: 'languages', type: 'Multi-select', section: 'Skills', visibility: 'Everyone', required: false, system: false },
-        { id: 'f_cert', label: 'Certifications', key: 'certifications', type: 'Multi-select', section: 'Skills', visibility: 'Everyone', required: false, system: false },
-        { id: 'f_emerg', label: 'Emergency contact', key: 'emergency_contact', type: 'Text', section: 'Private', visibility: 'HR only', required: false, system: false },
-        { id: 'f_bio', label: 'About me', key: 'bio', type: 'Long text', section: 'Personal', visibility: 'Everyone', required: false, system: false }
+        { id: 'f_title', label: 'Job title', key: 'title', type: 'Text', section: 'Work', visibility: 'Everyone', required: true, system: true, editableBy: 'Admin only', searchable: true, fieldOrder: 1 },
+        { id: 'f_dept', label: 'Department', key: 'department', type: 'Select', section: 'Work', visibility: 'Everyone', required: true, system: true, editableBy: 'Admin only', searchable: true, fieldOrder: 2 },
+        { id: 'f_ext', label: 'Extension', key: 'extension', type: 'Number', section: 'Contact', visibility: 'Everyone', required: true, system: true, editableBy: 'Admin only', searchable: true, fieldOrder: 3 },
+        { id: 'f_mob', label: 'Mobile', key: 'mobile', type: 'Phone', section: 'Contact', visibility: 'Managers only', required: false, system: false, editableBy: 'User and Admin', searchable: true, fieldOrder: 4 },
+        { id: 'f_start', label: 'Start date', key: 'start_date', type: 'Date', section: 'Work', visibility: 'Managers only', required: false, system: false, editableBy: 'Admin only', searchable: false, fieldOrder: 5 },
+        { id: 'f_lang', label: 'Languages', key: 'languages', type: 'Multi-select', section: 'Skills', visibility: 'Everyone', required: false, system: false, editableBy: 'User and Admin', searchable: true, fieldOrder: 6 },
+        { id: 'f_cert', label: 'Certifications', key: 'certifications', type: 'Multi-select', section: 'Skills', visibility: 'Everyone', required: false, system: false, editableBy: 'User and Admin', searchable: true, fieldOrder: 7 },
+        { id: 'f_emerg', label: 'Emergency contact', key: 'emergency_contact', type: 'Text', section: 'Private', visibility: 'HR only', required: false, system: false, editableBy: 'Admin only', searchable: false, fieldOrder: 8 },
+        { id: 'f_bio', label: 'About me', key: 'bio', type: 'Long text', section: 'Personal', visibility: 'Everyone', required: false, system: false, editableBy: 'User and Admin', searchable: false, fieldOrder: 9 }
       ],
       workspaces: [
         { id: 'w_cc', name: 'Contact Centre Playbooks', type: 'Team', owner: 'Aisha Rahman', access: 'Customer Care Supervisors', docs: 128, size: '1.4 GB', updated: '14 Aug 2026', retention: '3 years' },
@@ -972,7 +972,9 @@ export const DIRECTORY_SCRIPT: string = `
         field('Type', 'type', r.type || 'Text', 'select', ['Text', 'Long text', 'Number', 'Phone', 'Date', 'Select', 'Multi-select', 'URL']) + '</div>' +
         '<div class="dxr-two">' + field('Section', 'section', r.section || 'Work', 'select', ['Work', 'Contact', 'Skills', 'Personal', 'Private']) +
         field('Visibility', 'visibility', r.visibility || 'Everyone', 'select', ['Everyone', 'Managers only', 'HR only', 'Admins only']) + '</div>' +
-        field('Required', 'requiredText', r.required ? 'Required' : 'Optional', 'select', ['Optional', 'Required']);
+        '<div class="dxr-two">' + field('Required', 'requiredText', r.required ? 'Required' : 'Optional', 'select', ['Optional', 'Required']) +
+        field('Editable by', 'editable_by', editableByOf(r), 'select', ['User and Admin', 'Admin only']) + '</div>' +
+        field('Include in directory search', 'searchableText', searchableOf(r) ? 'Included' : 'Not included', 'select', ['Included', 'Not included']);
     },
     workspaces: function (r) {
       return field('Workspace name', 'name', r.name || '') +
@@ -1060,9 +1062,13 @@ export const DIRECTORY_SCRIPT: string = `
         if (!data[nameKey]) { toast('Give it a name first'); return; }
         if (data.floorsText != null) { data.floors = data.floorsText.split('\\n').filter(Boolean); delete data.floorsText; }
         if (data.requiredText != null) { data.required = data.requiredText === 'Required'; delete data.requiredText; }
+        if (data.searchableText != null) { data.searchable = data.searchableText === 'Included'; delete data.searchableText; }
         if (entity === 'workspaces' && !rec.id) { data.docs = 0; data.size = '0 MB'; data.updated = today(); }
         if (entity === 'external' && !rec.id) data.lastContact = today();
         if (entity === 'people' && !rec.id) { data.started = today(); data.skills = []; data.langs = ['English']; data.queues = []; }
+        // New fields append to the end of the current order — lastFieldRows
+        // is populated by renderAdmin's profflds branch each time it loads.
+        if (entity === 'fields' && !rec.id) data.field_order = lastFieldRows.length + 1;
         if (rec.id) data.id = rec.id;
         SVC[entity].upsert(data).then(function () {
           closeOverlay();
@@ -1182,19 +1188,37 @@ export const DIRECTORY_SCRIPT: string = `
     extcontacts: { entity: 'external', title: 'External Contacts', add: 'Add contact' },
     docws: { entity: 'workspaces', title: 'Document Workspaces', add: 'Add workspace' }
   };
+  // Only Profile Fields has real sub-tabs (Fields/Sections/Preview) in the
+  // reference design — the other three Directory admin pages are single-view.
+  var ADMIN_TABS = { profflds: ['Fields', 'Sections', 'Preview'] };
+  var ADMIN_TAB = { profflds: 'Fields' };
   var currentAdmin = null;
+  // API rows use snake_case (real Postgres column names — see
+  // backend/directory.py's ENTITIES['profile-fields']); local-fallback rows
+  // use this file's usual camelCase seed convention. Read either shape.
+  var lastFieldRows = [];
+  function fieldOrderOf(r) { var v = r.field_order != null ? r.field_order : r.fieldOrder; return v != null ? v : 0; }
+  function editableByOf(r) { return r.editable_by != null ? r.editable_by : (r.editableBy || 'User and Admin'); }
+  function searchableOf(r) { var v = r.searchable; return v == null ? true : v; }
 
   function adminShell(page, statsHtml, tableHtml) {
     var m = ADMIN_META[page];
+    var tabs = ADMIN_TABS[page];
+    var tabsHtml = tabs ? '<div class="dxr-tabs">' + tabs.map(function (t) {
+      return '<div class="dxr-tb' + (t === ADMIN_TAB[page] ? ' on' : '') + '" onclick="' + A + 'adminTab(\\'' + page + '\\',\\'' + t + '\\')">' + t + '</div>';
+    }).join('') + '</div>' : '';
+    // Search only makes sense on the Fields list — Sections/Preview have no rows to filter.
+    var showSearch = !tabs || ADMIN_TAB[page] === tabs[0];
+    var help = window.renderHelp ? window.renderHelp(page) : '';
     return '<div class="dxr">' +
       '<div class="dxr-hd"><div class="dxr-eyebrow"><a href="#" onclick="adminIndex();return false" style="color:inherit">Admin</a> › Directory</div>' +
       '<div class="dxr-top"><div><h1 class="dxr-h1">' + m.title + '</h1></div><div style="flex:1"></div>' +
       '<div class="dxr-acts"><button class="dxr-btn" onclick="' + A + 'exportAdmin(\\'' + page + '\\')">' + I.down + 'Export CSV</button>' +
       '<button class="dxr-btn pri" onclick="' + A + 'add(\\'' + m.entity + '\\')">' + I.plus + m.add + '</button></div></div>' +
-      '<div style="height:14px"></div></div>' +
-      '<div class="dxr-bar"><div class="dxr-sw"><span>' + I.search + '</span>' +
-      '<input class="dxr-in" id="dxr_aq" placeholder="Search ' + m.title.toLowerCase() + '" value="' + esc(AS[page]) + '" aria-label="Search"></div></div>' +
-      '<div class="dxr-body">' + statsHtml + '<div id="dxr_atbl">' + tableHtml + '</div></div></div>';
+      tabsHtml + '</div>' +
+      (showSearch ? '<div class="dxr-bar"><div class="dxr-sw"><span>' + I.search + '</span>' +
+      '<input class="dxr-in" id="dxr_aq" placeholder="Search ' + m.title.toLowerCase() + '" value="' + esc(AS[page]) + '" aria-label="Search"></div></div>' : '') +
+      '<div class="dxr-body">' + statsHtml + '<div id="dxr_atbl">' + tableHtml + '</div>' + help + '</div></div>';
   }
 
   function stats(items) {
@@ -1208,7 +1232,7 @@ export const DIRECTORY_SCRIPT: string = `
     var grid = cols.map(function (c) { return c.w; }).join(' ');
     return '<div class="dxr-tblw"><div class="dxr-thead" style="grid-template-columns:' + grid + '">' +
       cols.map(function (c) { return '<div' + (c.right ? ' style="text-align:right"' : '') + '>' + c.label + '</div>'; }).join('') + '</div>' +
-      rows.map(function (r) { return '<div class="dxr-tr" style="grid-template-columns:' + grid + '">' + rowFn(r) + '</div>'; }).join('') + '</div>';
+      rows.map(function (r, i) { return '<div class="dxr-tr" style="grid-template-columns:' + grid + '">' + rowFn(r, i) + '</div>'; }).join('') + '</div>';
   }
 
   function renderAdmin(page, mount) {
@@ -1232,20 +1256,52 @@ export const DIRECTORY_SCRIPT: string = `
               iconBtn('Delete', I.trash, A + 'del(\\'locations\\',\\'' + r.id + '\\')') + '</div>';
           });
       } else if (page === 'profflds') {
-        statsHtml = stats([[String(rows.length), 'Fields'], [String(rows.filter(function (r) { return r.required; }).length), 'Required'],
-          [String(rows.filter(function (r) { return r.visibility !== 'Everyone'; }).length), 'Restricted visibility'],
-          [String(new Set(rows.map(function (r) { return r.section; })).size), 'Sections']]);
-        table = adminTable([{ label: 'Field', w: '1.5fr' }, { label: 'API key', w: '1.2fr' }, { label: 'Type', w: '1fr' },
-          { label: 'Section', w: '.9fr' }, { label: 'Visibility', w: '1.1fr' }, { label: 'Required', w: '.9fr' }, { label: 'Actions', w: '150px', right: true }],
-          rows, function (r) {
-            return '<div><b>' + esc(r.label) + '</b>' + (r.system ? '<div style="font-size:11.3px;color:' + C.faint + '">System field</div>' : '') + '</div>' +
-              '<div style="font-family:ui-monospace,Menlo,monospace;font-size:11.8px">' + esc(r.key) + '</div>' +
-              '<div>' + esc(r.type) + '</div><div>' + esc(r.section) + '</div><div>' + esc(r.visibility) + '</div>' +
-              '<div>' + (r.required ? statusPill('Required', 'ok') : statusPill('Optional', 'off')) + '</div>' +
-              '<div class="dxr-right">' + iconBtn('Move up', I.up, A + 'move(\\'' + r.id + '\\',-1)') + iconBtn('Move down', I.dn, A + 'move(\\'' + r.id + '\\',1)') +
-              iconBtn('Edit', I.edit, A + 'edit(\\'fields\\',\\'' + r.id + '\\')') +
-              (r.system ? '' : iconBtn('Delete', I.trash, A + 'del(\\'fields\\',\\'' + r.id + '\\')')) + '</div>';
+        // field_order comes back sorted from the API (ENTITIES['profile-fields'].order
+        // in backend/directory.py); local-fallback rows fall back to fieldOrder / array
+        // position. Sorting defensively here covers both sources the same way.
+        rows = rows.slice().sort(function (a, b) { return fieldOrderOf(a) - fieldOrderOf(b); });
+        lastFieldRows = rows;
+        if (ADMIN_TAB.profflds === 'Sections') {
+          var secs = [];
+          rows.forEach(function (r) {
+            var s = secs.filter(function (x) { return x.name === r.section; })[0];
+            if (!s) { s = { name: r.section || '—', count: 0 }; secs.push(s); }
+            s.count++;
           });
+          table = adminTable([{ label: 'Section', w: '2fr' }, { label: 'Fields', w: '1fr' }, { label: 'Order', w: '1fr' }],
+            secs, function (s, i) {
+              return '<div><b>' + esc(s.name) + '</b></div><div>' + s.count + ' field' + (s.count === 1 ? '' : 's') + '</div><div>' + (i + 1) + '</div>';
+            });
+        } else if (ADMIN_TAB.profflds === 'Preview') {
+          var person = (db().people || [])[0] || {};
+          var byKey = { title: person.title, department: person.dept, extension: person.ext, mobile: person.phone, email: person.email };
+          var rowsHtml = rows.map(function (r) {
+            var v = byKey.hasOwnProperty(r.key) ? byKey[r.key] : null;
+            return '<b>' + esc(r.label) + '</b> ' + esc(v || '—') + '<br>';
+          }).join('');
+          table = '<div style="font-size:12.5px;color:' + C.mute + ';margin:0 0 14px">How the profile renders with the current field configuration:</div>' +
+            '<div style="background:#fff;border:1px solid ' + C.line + ';border-radius:9px;padding:20px;max-width:480px">' +
+            '<div style="font-size:17px;font-weight:700;color:' + C.navy + '">' + esc(person.name || '—') + '</div>' +
+            '<div style="font-size:12.5px;color:' + C.mute + ';margin-top:2px">' + esc(person.title || '—') + ' · ' + esc(person.dept || '—') + '</div>' +
+            '<div style="margin-top:14px;font-size:12.8px;line-height:2">' + rowsHtml + '</div></div>';
+        } else {
+          statsHtml = stats([[String(rows.length), 'Fields'], [String(rows.filter(function (r) { return r.required; }).length), 'Required'],
+            [String(rows.filter(function (r) { return r.visibility !== 'Everyone'; }).length), 'Restricted visibility'],
+            [String(new Set(rows.map(function (r) { return r.section; })).size), 'Sections']]);
+          table = adminTable([{ label: 'Section', w: '.9fr' }, { label: 'Field', w: '1.3fr' }, { label: 'Type', w: '.9fr' },
+            { label: 'Visibility', w: '1.1fr' }, { label: 'Editable by', w: '1.1fr' }, { label: 'Searchable', w: '.8fr' },
+            { label: 'Order', w: '.6fr' }, { label: 'Actions', w: '150px', right: true }],
+            rows, function (r) {
+              return '<div>' + esc(r.section) + '</div>' +
+                '<div><b>' + esc(r.label) + '</b>' + (r.system ? '<div style="font-size:11.3px;color:' + C.faint + '">System field</div>' : '') + '</div>' +
+                '<div>' + esc(r.type) + '</div><div>' + esc(r.visibility) + '</div><div>' + esc(editableByOf(r)) + '</div>' +
+                '<div>' + (searchableOf(r) ? statusPill('Yes', 'ok') : statusPill('No', 'off')) + '</div>' +
+                '<div>' + fieldOrderOf(r) + '</div>' +
+                '<div class="dxr-right">' + iconBtn('Move up', I.up, A + 'move(\\'' + r.id + '\\',-1)') + iconBtn('Move down', I.dn, A + 'move(\\'' + r.id + '\\',1)') +
+                iconBtn('Edit', I.edit, A + 'edit(\\'fields\\',\\'' + r.id + '\\')') +
+                (r.system ? '' : iconBtn('Delete', I.trash, A + 'del(\\'fields\\',\\'' + r.id + '\\')')) + '</div>';
+            });
+        }
       } else if (page === 'extcontacts') {
         statsHtml = stats([[String(rows.length), 'Contacts'], [String(new Set(rows.map(function (r) { return r.org; })).size), 'Organisations'],
           [String(rows.filter(function (r) { return r.relationship === 'Vendor'; }).length), 'Vendors'],
@@ -1289,7 +1345,9 @@ export const DIRECTORY_SCRIPT: string = `
 
   function rerenderCurrent() {
     if (host()) { refresh(); return; }
-    if (currentAdmin) {
+    if (currentAdmin === 'profflds') {
+      renderProfFields(document.getElementById('dxr_admin'));
+    } else if (currentAdmin) {
       var mount = document.getElementById('dxr_admin');
       renderAdmin(currentAdmin, mount || null);
     }
@@ -1313,6 +1371,7 @@ export const DIRECTORY_SCRIPT: string = `
     sort: function (k) { S.sort = k; refresh(); },
     clear: function () { S.q = ''; S.dept = ''; S.loc = ''; S.pres = ''; refresh(); },
     clearAdmin: function () { if (currentAdmin) { AS[currentAdmin] = ''; renderAdmin(currentAdmin, document.getElementById('dxr_admin')); } },
+    adminTab: function (page, tab) { ADMIN_TAB[page] = tab; renderAdmin(page, document.getElementById('dxr_admin')); },
     person: function (id) { SVC.people.get(id).then(function (p) { if (p) personDrawer(p); }); },
     group: function (id) { SVC.groups.get(id).then(function (g) { if (g) groupDrawer(g); }); },
     location: function (id) { SVC.locations.get(id).then(function (l) { if (l) locationDrawer(l); }); },
@@ -1343,11 +1402,20 @@ export const DIRECTORY_SCRIPT: string = `
     email: function (id) { var t = findAny(id); if (t && t.email) emailModal(t); else toast('No email address on this record'); },
     chat: function (id) { var t = findAny(id); if (t) chatDrawer(t); },
     newChat: newChatPicker,
+    // Swaps the two rows' persisted field_order via the same upsert() every
+    // other edit uses, so reordering survives a reload instead of only
+    // living in this tab's in-memory rows list (lastFieldRows, set by
+    // renderAdmin's profflds branch each time it fetches the list).
     move: function (id, dir) {
-      var d = db(), i = d.fields.map(function (f) { return f.id; }).indexOf(id), j = i + dir;
-      if (i < 0 || j < 0 || j >= d.fields.length) return;
-      var tmp = d.fields[i]; d.fields[i] = d.fields[j]; d.fields[j] = tmp;
-      save(); rerenderCurrent();
+      var rows = lastFieldRows, i = rows.map(function (f) { return f.id; }).indexOf(id), j = i + dir;
+      if (i < 0 || j < 0 || j >= rows.length) return;
+      var a = rows[i], b = rows[j];
+      var aOrder = fieldOrderOf(a), bOrder = fieldOrderOf(b);
+      Promise.all([
+        SVC.fields.upsert({ id: a.id, field_order: bOrder }),
+        SVC.fields.upsert({ id: b.id, field_order: aOrder })
+      ]).then(function () { rerenderCurrent(); })
+        .catch(function (e) { toast(e.message || 'Could not reorder.'); });
     },
     exportTab: function () {
       if (S.tab === 'People') {
@@ -1386,9 +1454,11 @@ export const DIRECTORY_SCRIPT: string = `
             { label: 'Address', get: function (r) { return r.address; } }, { label: 'Country', get: function (r) { return r.country; } },
             { label: 'Hours', get: function (r) { return r.hours; } }, { label: 'Headcount', get: function (r) { return r.headcount || 0; } },
             { label: 'Status', get: function (r) { return r.status; } }],
-          profflds: [{ label: 'Field', get: function (r) { return r.label; } }, { label: 'Key', get: function (r) { return r.key; } },
-            { label: 'Type', get: function (r) { return r.type; } }, { label: 'Section', get: function (r) { return r.section; } },
-            { label: 'Visibility', get: function (r) { return r.visibility; } }, { label: 'Required', get: function (r) { return r.required ? 'Yes' : 'No'; } }],
+          profflds: [{ label: 'Section', get: function (r) { return r.section; } }, { label: 'Field', get: function (r) { return r.label; } },
+            { label: 'Key', get: function (r) { return r.key; } }, { label: 'Type', get: function (r) { return r.type; } },
+            { label: 'Visibility', get: function (r) { return r.visibility; } }, { label: 'Editable by', get: editableByOf },
+            { label: 'Searchable', get: function (r) { return searchableOf(r) ? 'Yes' : 'No'; } },
+            { label: 'Order', get: fieldOrderOf }, { label: 'Required', get: function (r) { return r.required ? 'Yes' : 'No'; } }],
           extcontacts: [{ label: 'Name', get: function (r) { return r.name; } }, { label: 'Organisation', get: function (r) { return r.org; } },
             { label: 'Role', get: function (r) { return r.role; } }, { label: 'Relationship', get: function (r) { return r.relationship; } },
             { label: 'Email', get: function (r) { return r.email; } }, { label: 'Phone', get: function (r) { return r.phone; } },
@@ -1406,7 +1476,303 @@ export const DIRECTORY_SCRIPT: string = `
   };
 
   /* ══════════════════════════════════════════════════════════
-     8 · ROUTER INTEGRATION
+     8 · PROFILE FIELDS — rebuilt against the reference design,
+     which uses the same shared chip/tab/table classes every other
+     admin page (Gamification, Organization Settings, ...) already
+     uses — not this file's own bespoke "dxr-*" component system
+     that adminShell/adminTable/renderAdmin above still render for
+     the other three Directory admin pages (Locations/External
+     Contacts/Document Workspaces), left untouched. Routed in place
+     of renderAdmin('profflds', ...) — see patch()'s openPage below.
+     ══════════════════════════════════════════════════════════ */
+  var pfTab = 'Fields';
+  var pfQuery = '';
+  var pfCols = { section: true, type: true, visibility: true, editableBy: true, searchable: true, order: true };
+  var pfRows = [];
+  // Index 0 is the checkbox column, 2 is the always-visible Field name — see
+  // pfFieldsTable()'s <th> order (checkbox, Section, Field, Type, Visibility,
+  // Editable by, Searchable, Order, kebab).
+  var PF_COL_IDX = { section: 1, type: 3, visibility: 4, editableBy: 5, searchable: 6, order: 7 };
+  var PF_TYPE_OPTS = ['Text', 'Number', 'Date', 'Phone', 'URL', 'Single select', 'Multi select', 'Long text'];
+  var PF_SECTION_OPTS = ['Contact Information', 'Employment', 'Skills & Certification', 'Personal', 'Operations'];
+  var PF_NEW_SECTION = 'New section…';
+  var PF_VISIBILITY_OPTS = ['Everyone', 'Managers', 'Admin only'];
+  var PF_EDITABLE_OPTS = ['User and Admin', 'Admin only', 'User only'];
+  // Reference design shows this as a short comma list ("User, Admin" / "Admin"
+  // / "User"), not the longer stored value used elsewhere (exportAdmin's CSV,
+  // the old dxr FORMS.fields editor) — display-only mapping, storage is
+  // unchanged so both surfaces keep reading the same column.
+  function pfEditableByDisplay(r) {
+    var v = editableByOf(r);
+    return v === 'Admin only' ? 'Admin' : v === 'User only' ? 'User' : 'User, Admin';
+  }
+
+  function pfSlug(label) {
+    return String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || uid('f_');
+  }
+  function pfById(id) { return pfRows.filter(function (r) { return r.id === id; })[0] || null; }
+
+  function pfFilteredRows() {
+    var q = pfQuery.trim().toLowerCase();
+    if (!q) return pfRows;
+    return pfRows.filter(function (r) {
+      return (r.label || '').toLowerCase().indexOf(q) > -1 ||
+        (r.section || '').toLowerCase().indexOf(q) > -1 ||
+        (r.type || '').toLowerCase().indexOf(q) > -1;
+    });
+  }
+
+  function pfApplyColumnVisibility() {
+    var table = document.querySelector('#pf_table table.dt');
+    if (!table) return;
+    Object.keys(PF_COL_IDX).forEach(function (key) {
+      var visible = pfCols[key] !== false;
+      var idx = PF_COL_IDX[key];
+      table.querySelectorAll('tr').forEach(function (tr) {
+        var cell = tr.children[idx];
+        if (cell) cell.style.display = visible ? '' : 'none';
+      });
+    });
+  }
+
+  function pfFieldsTable() {
+    var rows = pfFilteredRows();
+    if (!rows.length) {
+      return pfQuery
+        ? emptyState('Nothing to show', 'No records match this search.', 'Clear search', A + 'pfClearSearch()')
+        : emptyState('No profile fields yet', 'Add your first custom profile field to get started.', 'Add Field', A + 'pfAdd()');
+    }
+    return '<div class="tblw"><table class="dt"><thead><tr>' +
+      '<th style="width:34px"><input type="checkbox"></th>' +
+      '<th>Section ⇅</th><th>Field ⇅</th><th>Type ⇅</th><th>Visibility ⇅</th><th>Editable by ⇅</th><th>Searchable ⇅</th><th>Order ⇅</th>' +
+      '<th style="width:40px"></th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        return '<tr onclick="' + A + 'pfEdit(\\'' + r.id + '\\')">' +
+          '<td><input type="checkbox" onclick="event.stopPropagation()"></td>' +
+          '<td>' + esc(r.section) + '</td>' +
+          '<td><b class="lnk">' + esc(r.label) + '</b>' + (r.system ? '<div style="font-size:11px;color:#a9b3c2">System field</div>' : '') + '</td>' +
+          '<td>' + esc(r.type) + '</td>' +
+          '<td>' + esc(r.visibility) + '</td>' +
+          '<td>' + esc(pfEditableByDisplay(r)) + '</td>' +
+          '<td>' + (searchableOf(r) ? '<span class="st ok"><span class="d"></span>Yes</span>' : '<span class="st of"><span class="d"></span>No</span>') + '</td>' +
+          '<td>' + fieldOrderOf(r) + '</td>' +
+          '<td style="color:#a9b3c2">⋮</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<div class="pgr"><span>Showing <b>1–' + rows.length + '</b> of <b>' + rows.length + '</b></span><div class="sp"></div><span>Rows per page 25 ▾</span><span>‹ ›</span></div>';
+  }
+
+  // Matches the reference design's own static Sections tab exactly (its
+  // labels/counts don't correspond to its own Fields tab data either — this
+  // whole tab is fixed reference content, by explicit request, rather than
+  // a live count of the fields actually configured above).
+  var PF_SECTIONS_STATIC = [
+    ['Contact Information', '6 fields', '1'],
+    ['Role & Reporting', '4 fields', '2'],
+    ['Skills & Certifications', '3 fields', '3'],
+    ['Custom — HR', '2 fields', '4']
+  ];
+  function pfSectionsTable() {
+    return '<div class="tblw"><table class="dt"><thead><tr><th>Section</th><th>Fields</th><th>Order</th></tr></thead><tbody>' +
+      PF_SECTIONS_STATIC.map(function (s) {
+        return '<tr><td><b>' + esc(s[0]) + '</b></td><td>' + esc(s[1]) + '</td><td>' + esc(s[2]) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  // db() is a pure localStorage cache seeded from this file's own static
+  // demo array — it's never populated from the real API, so it can't be
+  // used to find the signed-in admin's actual directory record. Fetched
+  // once via the real SVC.people.list() and cached here instead; renderer
+  // below re-paints the Preview tab once this resolves.
+  var pfPeopleCache = null;
+  function pfEnsurePeopleLoaded() {
+    if (pfPeopleCache !== null) return;
+    pfPeopleCache = [];
+    SVC.people.list().then(function (rows) {
+      pfPeopleCache = rows || [];
+      if (pfTab === 'Preview') {
+        var t = document.getElementById('pf_table');
+        if (t) t.innerHTML = pfTableForTab();
+      }
+    }).catch(function () {});
+  }
+
+  function pfPreview() {
+    pfEnsurePeopleLoaded();
+    var user = window.__backendUser || {};
+    var real = (pfPeopleCache || []).filter(function (p) {
+      return p.email && user.email && p.email.toLowerCase() === user.email.toLowerCase();
+    })[0] || {};
+    var name = user.name || real.name || '—';
+    var title = real.title || 'Head of CX';
+    var dept = real.dept || 'Operations';
+    var email = user.email || real.email || '—';
+    var ext = real.ext || '—';
+    var skills = (real.skills && real.skills.length) ? real.skills.join(', ') : '—';
+    return '<div style="font-size:12.5px;color:#5b6b82;margin:0 0 14px">How the profile renders with the current field configuration:</div>' +
+      '<div style="background:#fff;border:1px solid #e4e9f0;border-radius:9px;padding:20px;max-width:480px">' +
+      '<div style="font-size:17px;font-weight:700;color:#152550">' + esc(name) + '</div>' +
+      '<div style="font-size:12.5px;color:#5b6b82;margin-top:2px">' + esc(title) + ' · ' + esc(dept) + '</div>' +
+      '<div style="margin-top:14px;font-size:12.8px;line-height:2">' +
+      '<b>Email</b> ' + esc(email) + '<br>' +
+      '<b>Extension</b> ' + esc(ext) + '<br>' +
+      '<b>Skills</b> ' + esc(skills) +
+      '</div></div>';
+  }
+
+  function pfTableForTab() {
+    return pfTab === 'Sections' ? pfSectionsTable() : pfTab === 'Preview' ? pfPreview() : pfFieldsTable();
+  }
+
+  function pfColsPopover(anchor) {
+    var existing = document.getElementById('pf_cols_pop'); if (existing) { existing.remove(); return; }
+    var pop = document.createElement('div');
+    pop.id = 'pf_cols_pop';
+    pop.style.cssText = 'position:absolute;right:0;top:36px;z-index:150;background:#fff;border:1px solid #dde3ec;border-radius:6px;box-shadow:0 6px 20px rgba(16,30,60,.14);padding:10px;width:190px';
+    var cols = [['section', 'Section'], ['type', 'Type'], ['visibility', 'Visibility'], ['editableBy', 'Editable by'], ['searchable', 'Searchable'], ['order', 'Order']];
+    pop.innerHTML = cols.map(function (c) {
+      var checked = pfCols[c[0]] !== false;
+      return '<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:4px 2px;cursor:pointer"><input type="checkbox" data-col="' + c[0] + '"' + (checked ? ' checked' : '') + '>' + c[1] + '</label>';
+    }).join('') + '<div style="margin-top:8px;text-align:right"><button class="btn sec" id="pf_cols_done" style="height:26px;font-size:11.5px">Done</button></div>';
+    anchor.parentElement.appendChild(pop);
+    pop.querySelectorAll('input[type=checkbox]').forEach(function (cb) {
+      cb.onchange = function () { pfCols[cb.getAttribute('data-col')] = cb.checked; pfApplyColumnVisibility(); };
+    });
+    document.getElementById('pf_cols_done').onclick = function () { pop.remove(); };
+    setTimeout(function () {
+      document.addEventListener('click', function closeOnOutside(ev) {
+        if (!pop.contains(ev.target) && ev.target !== anchor) { pop.remove(); document.removeEventListener('click', closeOnOutside); }
+      });
+    }, 0);
+  }
+
+  function renderProfFields(mount) {
+    currentAdmin = 'profflds';
+    if (!mount) return;
+    SVC.fields.list().catch(function (e) { console.error('[directory] profile-fields list failed', e); return []; }).then(function (rows) {
+      pfRows = rows.slice().sort(function (a, b) { return fieldOrderOf(a) - fieldOrderOf(b); });
+      lastFieldRows = pfRows;
+      var tabsHtml = ['Fields', 'Sections', 'Preview'].map(function (t) {
+        return '<div class="tb' + (t === pfTab ? ' on' : '') + '" onclick="' + A + 'pfTabClick(\\'' + t + '\\')">' + t + '</div>';
+      }).join('');
+      var help = window.renderHelp ? window.renderHelp('profflds') : '';
+      mount.innerHTML =
+        '<div class="phd"><div class="bc"><a onclick="adminIndex()">Admin</a> › Directory</div>' +
+        '<div class="tt"><h1>Profile Fields</h1><div class="rt">' +
+        '<button class="btn" onclick="' + A + 'pfAdd()">+ Add Field</button>' +
+        '<button class="btn sec" onclick="' + A + 'exportAdmin(\\'profflds\\')">Export</button></div></div>' +
+        '<div class="tabs">' + tabsHtml + '</div></div>' +
+        '<div class="pbody">' +
+        (pfTab === 'Fields' ? '<div class="tbar"><input class="s" id="pf_search" style="flex:0 1 260px" placeholder="Search profile fields" value="' + esc(pfQuery) + '">' +
+          '<div class="chip">Division: All ▾</div><div class="chip">Status: Any ▾</div><div class="sp"></div>' +
+          '<div style="position:relative;display:inline-block"><div class="chip" id="pf_cols_btn" style="cursor:pointer">⚙ Columns</div></div>' +
+          '<div class="chip" id="pf_refresh" style="cursor:pointer">↻ Refresh</div></div>' : '') +
+        '<div id="pf_table">' + pfTableForTab() + '</div>' +
+        '</div>' + help;
+      pfApplyColumnVisibility();
+      var search = document.getElementById('pf_search');
+      if (search) search.oninput = function () { pfQuery = search.value; document.getElementById('pf_table').innerHTML = pfTableForTab(); pfApplyColumnVisibility(); };
+      var refresh = document.getElementById('pf_refresh');
+      if (refresh) refresh.onclick = function () { renderProfFields(mount); };
+      var colsBtn = document.getElementById('pf_cols_btn');
+      if (colsBtn) colsBtn.onclick = function (e) { pfColsPopover(e.target); };
+    });
+  }
+
+  function pfScrim() { var s = document.createElement('div'); s.id = 'scrim'; s.onclick = window.closeDrawer; document.body.appendChild(s); }
+  function pfOpenDrawerHTML(html) { window.closeDrawer(); pfScrim(); var w = document.createElement('div'); w.innerHTML = html; document.body.appendChild(w.firstChild); }
+  function pfConfirmBox(msg, onYes) {
+    pfOpenDrawerHTML('<div id="drw" style="height:auto;top:30%;bottom:auto;border-radius:8px 0 0 8px"><div class="dh"><h2>Please confirm</h2><div class="x" onclick="closeDrawer()">×</div></div>' +
+      '<div class="db"><div style="font-size:13px;color:#33425c;line-height:1.6">' + msg + '</div></div>' +
+      '<div class="df"><button class="btn sec" onclick="closeDrawer()">Cancel</button><button class="btn" id="pf_confirm_yes">Confirm</button></div></div>');
+    document.getElementById('pf_confirm_yes').onclick = function () { window.closeDrawer(); onYes(); };
+  }
+
+  function pfSelectHtml(id, opts, current) {
+    return '<select id="' + id + '">' + opts.map(function (o) {
+      return '<option' + (o === current ? ' selected' : '') + '>' + esc(o) + '</option>';
+    }).join('') + '</select>';
+  }
+
+  function pfOpenDrawer(id) {
+    var rec = id ? pfById(id) : null;
+    var isNew = !rec;
+    rec = rec || { id: '', label: '', type: 'Text', section: 'Contact Information', visibility: 'Everyone', required: false };
+    var sectionKnown = PF_SECTION_OPTS.indexOf(rec.section) > -1;
+    pfOpenDrawerHTML('<div id="drw"><div class="dh"><h2>' + (isNew ? 'Add Field' : 'Edit — ' + esc(rec.label)) + '</h2><div class="x" onclick="closeDrawer()">×</div></div>' +
+      '<div class="db">' +
+      '<div class="sect">Field</div>' +
+      '<div class="fld" id="pf_section_wrap"><label>Section</label>' + pfSelectHtml('pf_section', PF_SECTION_OPTS.concat([PF_NEW_SECTION]), sectionKnown ? rec.section : PF_NEW_SECTION) + '</div>' +
+      '<div class="fld"><label>Label</label><input id="pf_label" value="' + esc(rec.label) + '"></div>' +
+      '<div class="fld"><label>Type</label>' + pfSelectHtml('pf_type', PF_TYPE_OPTS, rec.type || 'Text') + '</div>' +
+      '<div class="fld"><label>Options (one per line)</label><input id="pf_options"></div>' +
+      '<div class="sect">Access</div>' +
+      '<div class="fld"><label>Visible to</label>' + pfSelectHtml('pf_visibility', PF_VISIBILITY_OPTS, rec.visibility || 'Everyone') + '</div>' +
+      '<div class="fld"><label>Editable by</label>' + pfSelectHtml('pf_editable', PF_EDITABLE_OPTS, editableByOf(rec)) + '</div>' +
+      '<div class="tgl"><div class="sw' + (searchableOf(rec) ? ' on' : '') + '" id="pf_searchable" onclick="this.classList.toggle(\\'on\\')"></div>Include in directory search</div>' +
+      '<div class="tgl"><div class="sw' + (rec.required ? ' on' : '') + '" id="pf_required" onclick="this.classList.toggle(\\'on\\')"></div>Required on new user</div>' +
+      (isNew || rec.system ? '' : '<div style="margin-top:10px"><button class="btn gh" id="pf_delete">Delete field</button></div>') +
+      '</div><div class="df"><button class="btn sec" onclick="closeDrawer()">Cancel</button><button class="btn" id="pf_save">Save</button></div></div>');
+
+    // "New section…" swaps the dropdown for a plain text input (same id, so
+    // the save handler below doesn't need to know which one rendered) —
+    // the reference prototype just lists the option with no real behavior
+    // behind it, but a made-up value can't be stored as a real section here.
+    var sectionSelect = document.getElementById('pf_section');
+    function swapToNewSectionInput(prefill) {
+      var wrap = document.getElementById('pf_section_wrap');
+      wrap.innerHTML = '<label>Section</label><input id="pf_section" value="' + esc(prefill || '') + '" placeholder="New section name">';
+    }
+    if (!sectionKnown && rec.section) {
+      swapToNewSectionInput(rec.section);
+    } else if (sectionSelect) {
+      sectionSelect.onchange = function () { if (sectionSelect.value === PF_NEW_SECTION) swapToNewSectionInput(''); };
+    }
+
+    document.getElementById('pf_save').onclick = function () {
+      var label = document.getElementById('pf_label').value.trim();
+      if (!label) { toast('Give the field a label first'); return; }
+      var section = document.getElementById('pf_section').value.trim();
+      if (!section) { toast('Give the section a name first'); return; }
+      var payload = {
+        label: label,
+        type: document.getElementById('pf_type').value,
+        section: section,
+        visibility: document.getElementById('pf_visibility').value,
+        editable_by: document.getElementById('pf_editable').value,
+        searchable: document.getElementById('pf_searchable').classList.contains('on'),
+        required: document.getElementById('pf_required').classList.contains('on')
+      };
+      if (rec.id) {
+        payload.id = rec.id;
+      } else {
+        payload.key = pfSlug(label);
+        payload.field_order = lastFieldRows.length + 1;
+      }
+      window.closeDrawer();
+      SVC.fields.upsert(payload).then(function () {
+        toast((rec.id ? 'Saved ' : 'Created ') + label);
+        renderProfFields(document.getElementById('dxr_admin'));
+      }).catch(function (e) { toast(e.message || 'Could not save.'); });
+    };
+    if (!isNew && !rec.system) {
+      document.getElementById('pf_delete').onclick = function () {
+        pfConfirmBox('Delete field <b>' + esc(rec.label) + '</b>? This cannot be undone.', function () {
+          SVC.fields.remove(rec.id).then(function () {
+            toast('Deleted ' + rec.label);
+            renderProfFields(document.getElementById('dxr_admin'));
+          }).catch(function (e) { toast(e.message || 'Could not delete.'); });
+        });
+      };
+    }
+  }
+
+  window.MCMDirectory.act.pfTabClick = function (t) { pfTab = t; renderProfFields(document.getElementById('dxr_admin')); };
+  window.MCMDirectory.act.pfAdd = function () { pfOpenDrawer(null); };
+  window.MCMDirectory.act.pfEdit = function (id) { pfOpenDrawer(id); };
+  window.MCMDirectory.act.pfClearSearch = function () { pfQuery = ''; renderProfFields(document.getElementById('dxr_admin')); };
+
+  /* ══════════════════════════════════════════════════════════
+     9 · ROUTER INTEGRATION
      ══════════════════════════════════════════════════════════ */
   function mountWorkspace() {
     var cnt = document.getElementById('cnt');
@@ -1426,7 +1792,10 @@ export const DIRECTORY_SCRIPT: string = `
     var _openPage = window.openPage;
     window.openPage = function (id) {
       var r = _openPage.apply(this, arguments);
-      if (ADMIN_META[id]) {
+      if (id === 'profflds') {
+        var pfMount = document.getElementById('dxr_admin');
+        if (pfMount) renderProfFields(pfMount);
+      } else if (ADMIN_META[id]) {
         var mount = document.getElementById('dxr_admin');
         if (mount) renderAdmin(id, mount);
       } else { currentAdmin = null; }

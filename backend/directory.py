@@ -112,9 +112,10 @@ ENTITIES = {
     ),
     'profile-fields': dict(
         table='dir_profile_fields',
-        cols=['label', 'key', 'type', 'section', 'visibility', 'required', 'system'],
+        cols=['label', 'key', 'type', 'section', 'visibility', 'required', 'system',
+              'editable_by', 'searchable', 'field_order'],
         search=['label'],
-        order='label',
+        order='field_order',
         arrays=[],
     ),
     'external-contacts': dict(
