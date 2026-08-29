@@ -1259,14 +1259,8 @@ body[data-mcm-outbound] .ob-kpis{
 }
 body[data-mcm-outbound] .ob-kpi{
   background:#fff;border:1px solid #dde3ec;border-radius:8px;padding:14px 16px;
-  box-shadow:0 1px 3px rgba(20,35,70,.05);position:relative;overflow:hidden;
+  box-shadow:0 1px 3px rgba(20,35,70,.05);
 }
-body[data-mcm-outbound] .ob-kpi::before{
-  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#e4e9f0;
-}
-body[data-mcm-outbound] .ob-kpi.tone-accent::before{background:#FF4F1F}
-body[data-mcm-outbound] .ob-kpi.tone-ok::before{background:#2eab6b}
-body[data-mcm-outbound] .ob-kpi.tone-warn::before{background:#e8a33d}
 body[data-mcm-outbound] .ob-kpi-label{
   display:block;font-size:10.5px;letter-spacing:.9px;text-transform:uppercase;
   color:#93a0b3;font-weight:700;margin-bottom:7px;
